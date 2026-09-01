@@ -1,0 +1,94 @@
+/* ==========================================================================
+   GOVERNMENT PETITION ASSISTANT - DESIGN TOKENS
+   Primary: Deep Government Navy (#0A2540)
+   Accent: Warm Government Orange (#D9531E / #EA580C)
+   ========================================================================== */
+
+:root {
+  /* Navy Brand Tokens */
+  --navy-950: #051321;
+  --navy-900: #0A2540; /* Primary Official Navy */
+  --navy-850: #0E3052;
+  --navy-800: #143D68;
+  --navy-700: #1D5084;
+  --navy-600: #2968A5;
+  --navy-200: #CBE1F7;
+  --navy-100: #E4EFFB;
+  --navy-50: #F1F6FC;
+
+  /* Orange Accent Tokens (Restrained & Purposeful) */
+  --orange-900: #7C2D12;
+  --orange-800: #9A3412;
+  --orange-700: #B4380C;
+  --orange-600: #C2410C;
+  --orange-500: #D9531E; /* Primary Warm Government Orange */
+  --orange-400: #EA580C;
+  --orange-300: #FB923C;
+  --orange-100: #FFEDD5;
+  --orange-50: #FFF7ED;
+
+  /* Surface & Background Colors */
+  --bg-canvas: #F4F6F9;       /* Light neutral canvas */
+  --bg-surface: #FFFFFF;      /* Clean card white */
+  --bg-subtle: #F8FAFD;       /* Secondary card background */
+  --bg-header: #D9531E;       /* Top Navigation Bar - Warm Government Orange */
+  --bg-muted: #ECEFF4;
+
+  /* Text & Content */
+  --text-primary: #0F172A;     /* Dark Charcoal */
+  --text-secondary: #334155;   /* Medium Charcoal */
+  --text-muted: #64748B;       /* Muted Gray */
+  --text-light: #94A3B8;       /* Subtle Hint Gray */
+  --text-white: #FFFFFF;
+  --text-white-muted: #FFEDD5;
+
+  /* Borders & Dividers */
+  --border-subtle: #E2E8F0;
+  --border-medium: #CBD5E1;
+  --border-strong: #94A3B8;
+  --border-navy: #1D5084;
+  --border-orange: #FDBA74;
+
+  /* Extraction Badge Tokens */
+  --badge-extracted-bg: #ECFDF5;
+  --badge-extracted-text: #065F46;
+  --badge-extracted-border: #A7F3D0;
+  --badge-extracted-dot: #059669;
+
+  --badge-suggested-bg: #EFF6FF;
+  --badge-suggested-text: #1E40AF;
+  --badge-suggested-border: #BFDBFE;
+  --badge-suggested-dot: #2563EB;
+
+  --badge-notfound-bg: #F8FAFC;
+  --badge-notfound-text: #64748B;
+  --badge-notfound-border: #E2E8F0;
+  --badge-notfound-dot: #94A3B8;
+
+  /* Shadows (Restrained & Enterprise) */
+  --shadow-xs: 0 1px 2px 0 rgba(10, 37, 64, 0.05);
+  --shadow-sm: 0 1px 3px 0 rgba(10, 37, 64, 0.08), 0 1px 2px -1px rgba(10, 37, 64, 0.06);
+  --shadow-md: 0 4px 6px -1px rgba(10, 37, 64, 0.08), 0 2px 4px -2px rgba(10, 37, 64, 0.04);
+  --shadow-lg: 0 10px 15px -3px rgba(10, 37, 64, 0.1), 0 4px 6px -4px rgba(10, 37, 64, 0.05);
+  --shadow-drawer: -6px 0 24px rgba(10, 37, 64, 0.15);
+
+  /* Typography */
+  --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+
+  /* Radius */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+  --radius-pill: 9999px;
+
+  /* Transitions */
+  --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-normal: 250ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-drawer: 320ms cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* Layout dimensions */
+  --header-height: 58px;
+  --workspace-header-height: 60px;
+}
