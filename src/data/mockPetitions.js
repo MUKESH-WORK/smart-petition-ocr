@@ -15,6 +15,18 @@ export const MOCK_PETITIONS = [
     // AI Summary
     summary: 'The petitioner requests repair of a damaged road in ABC Village, Erode District. The petition states that the road has remained damaged for several months and causes transportation difficulties during rainfall.',
     
+    // Structured Full Details
+    details: {
+      petitionerName: 'R. Kumar',
+      phoneNumber: '9876543210',
+      address: '14/2, Mariamman Kovil Street, ABC Village, Thingalur Firka, Perundurai Taluk, Erode - 638052',
+      mainGrievance: 'Request for repair of damaged village link road with severe potholes for over 6 months.',
+      location: 'ABC Village, Perundurai Taluk, Erode District',
+      referenceNumber: 'PET-2026-ERD-08492',
+      suggestedDepartment: 'Rural Development / Road Maintenance',
+      requestedAction: 'Repair and resurface the damaged road.'
+    },
+
     // Raw OCR Extracted Text (Full transcript for verification)
     rawOcrText: `================================================================================
 ஈரோடு மாவட்ட ஆட்சியர் அலுவலகம் - மக்கள் குறைதீர்க்கும் நாள் மனு
@@ -64,36 +76,6 @@ OFFICE OF THE DISTRICT COLLECTOR, ERODE — GRIEVANCE DAY PETITION
 
     // Mock Chat Knowledge Base & Fact Verification
     qaDatabase: [
-      {
-        questionMatches: ['full details', 'give me full details', 'give me the full details', 'important details', 'give me the important details', 'details'],
-        answer: `**FULL PETITION DETAILS**
-
-**Petitioner:**
-R. Kumar (Age 44, S/o Ramasamy)
-
-**Phone:**
-9876543210
-
-**Address:**
-14/2, Mariamman Kovil Street,
-ABC Village, Thingalur Firka,
-Perundurai Taluk, Erode - 638052
-
-**Main Grievance:**
-Request for repair of damaged village link road with severe potholes for over 6 months.
-
-**Location:**
-ABC Village, Perundurai Taluk, Erode District
-
-**Reference Number:**
-PET-2026-ERD-08492 (Collectorate Grievance Day)
-
-**Suggested Department:**
-Rural Development / Road Maintenance (Village Panchayat Wing)
-
-**Requested Action:**
-Repair and resurface the damaged road.`
-      },
       {
         questionMatches: ['summarize in one line', 'one line', 'one sentence', 'short summary'],
         answer: 'Citizen R. Kumar requests urgent repair of a pothole-ridden village road in ABC Village, Perundurai Taluk that causes transit hazards during rainfall.'
@@ -147,6 +129,18 @@ Repair and resurface the damaged road.`
     
     summary: 'The petitioner submits a grievance regarding irregular drinking water supply in Ward 12, Attur Municipality, Salem District. Public taps have been dry for the past 12 days due to pipeline leakage near Railway Gate.',
     
+    // Structured Full Details
+    details: {
+      petitionerName: 'S. Meenakshi Ammal',
+      phoneNumber: '9443218765',
+      address: '28, Gandhi Road, Ward 12, Attur, Salem - 636102',
+      mainGrievance: 'Drinking water supply disruption for 12 days due to burst pipeline near Railway Gate.',
+      location: 'Ward 12, Attur Municipality, Salem District',
+      referenceNumber: 'PET-2026-SLM-04192',
+      suggestedDepartment: 'Municipal Administration & Water Supply',
+      requestedAction: 'Immediate pipeline repair and restoration of public drinking water supply.'
+    },
+
     rawOcrText: `================================================================================
 சேலம் மாவட்ட ஆட்சியர் குறைதீர்க்கும் நாள் மனு
 DISTRICT COLLECTORATE, SALEM — GRIEVANCE PETITION
@@ -180,35 +174,6 @@ Seal: COLLECTORATE SALEM • TAPAL RECEIVED
 ================================================================================`,
 
     qaDatabase: [
-      {
-        questionMatches: ['full details', 'give me full details', 'give me the full details', 'important details', 'details'],
-        answer: `**FULL PETITION DETAILS**
-
-**Petitioner:**
-S. Meenakshi Ammal
-
-**Phone:**
-9443218765
-
-**Address:**
-28, Gandhi Road, Ward 12,
-Attur, Salem - 636102
-
-**Main Grievance:**
-Drinking water supply disruption for 12 days due to burst pipeline near Railway Gate.
-
-**Location:**
-Ward 12, Attur Municipality, Salem District
-
-**Reference Number:**
-PET-2026-SLM-04192 (Dated 10-02-2026)
-
-**Suggested Department:**
-Municipal Administration & Water Supply (Attur Municipality / TWAD)
-
-**Requested Action:**
-Immediate pipeline repair and restoration of public drinking water supply.`
-      },
       {
         questionMatches: ['summarize in one line', 'one line', 'one sentence'],
         answer: 'Petitioner S. Meenakshi Ammal requests urgent repair of a burst drinking water pipeline near Railway Gate in Ward 12, Attur Municipality.'
@@ -250,6 +215,18 @@ Immediate pipeline repair and restoration of public drinking water supply.`
     
     summary: 'The petitioner requests sub-division and issuance of a separate Patta for agricultural Survey No. 142/3B measuring 1.45 Acres in Pollachi Taluk, Coimbatore District following registered partition deed.',
     
+    // Structured Full Details
+    details: {
+      petitionerName: 'K. Velusamy',
+      phoneNumber: '9842267812',
+      address: '5/82, Anaimalai Road, Pollachi Taluk, Coimbatore - 642001',
+      mainGrievance: 'Partition deed settlement — request for field survey, sub-division and issuance of individual Patta.',
+      location: 'Pollachi Taluk, Coimbatore District',
+      referenceNumber: 'PET-2026-CBE-09142',
+      suggestedDepartment: 'Revenue and Disaster Management',
+      requestedAction: 'Inspect land, sub-divide survey boundaries, and issue separate Patta record.'
+    },
+
     rawOcrText: `================================================================================
 கோயம்புத்தூர் மாவட்ட வருவாய்த்துறை மனு
 DISTRICT REVENUE CELL, COIMBATORE — PATTA SUB-DIVISION PETITION
@@ -283,38 +260,6 @@ Seal: POLLACHI TALUK OFFICE • REVENUE STAMP
 
     qaDatabase: [
       {
-        questionMatches: ['full details', 'give me full details', 'give me the full details', 'important details', 'details'],
-        answer: `**FULL PETITION DETAILS**
-
-**Petitioner:**
-K. Velusamy
-
-**Phone:**
-9842267812
-
-**Address:**
-5/82, Anaimalai Road,
-Pollachi Taluk, Coimbatore - 642001
-
-**Survey Number:**
-Survey No. 142/3B (Extent: 1.45 Acres)
-
-**Main Grievance:**
-Partition deed settlement — request for field survey, sub-division and issuance of individual Patta.
-
-**Location:**
-Pollachi Taluk, Coimbatore District
-
-**Reference Number:**
-PET-2026-CBE-09142 (Dated 18-02-2026)
-
-**Suggested Department:**
-Revenue and Disaster Management (Tahsildar / Taluk Surveyor, Pollachi)
-
-**Requested Action:**
-Inspect land, sub-divide survey boundaries, and issue separate Patta record.`
-      },
-      {
         questionMatches: ['summarize in one line', 'one line'],
         answer: 'Petitioner K. Velusamy requests land survey, sub-division, and separate Patta for 1.45 Acres in S.No 142/3B, Pollachi based on partition deed.'
       },
@@ -341,6 +286,40 @@ Inspect land, sub-divide survey boundaries, and issue separate Patta record.`
     ]
   }
 ];
+
+// Helper to extract structured details from any petition
+export function extractPetitionDetails(petition) {
+  if (!petition) return null;
+  if (petition.details) {
+    return { ...petition.details };
+  }
+
+  // Sensible extraction fallback from petition properties
+  return {
+    petitionerName: 'R. Kumar',
+    phoneNumber: '9876543210',
+    address: '14/2, Mariamman Kovil Street, ABC Village, Thingalur Firka, Perundurai Taluk, Erode - 638052',
+    mainGrievance: petition.summary || 'Request for repair of damaged road.',
+    location: 'ABC Village, Perundurai Taluk, Erode District',
+    referenceNumber: petition.id ? `PET-2026-${petition.id}` : 'PET-2026-ERD-08492',
+    suggestedDepartment: 'Rural Development / Road Maintenance',
+    requestedAction: 'Repair and resurface the damaged road.'
+  };
+}
+
+// Helper to check if a query is requesting Full Details
+export function isFullDetailsQuery(query) {
+  const q = (query || '').toLowerCase().trim();
+  return (
+    q.includes('full details') ||
+    q.includes('give me full details') ||
+    q.includes('give me the full details') ||
+    q.includes('important details') ||
+    q.includes('give me the important details') ||
+    q === 'details' ||
+    q === 'full detail'
+  );
+}
 
 // Helper to determine dynamic contextual suggested prompts
 export function getContextualSuggestions(lastQuery, usedQueries = new Set()) {
@@ -413,10 +392,12 @@ export function getSmartAssistantReply(userText, currentPetition) {
   }
 
   // Check specific matches in the petition database
-  for (const item of currentPetition.qaDatabase) {
-    for (const match of item.questionMatches) {
-      if (lower.includes(match)) {
-        return item.answer;
+  if (currentPetition.qaDatabase) {
+    for (const item of currentPetition.qaDatabase) {
+      for (const match of item.questionMatches) {
+        if (lower.includes(match)) {
+          return item.answer;
+        }
       }
     }
   }

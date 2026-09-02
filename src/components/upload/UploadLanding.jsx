@@ -45,6 +45,7 @@ export default function UploadLanding({ onSelectPetition }) {
       confidenceScore: 96,
       status: 'Analysis Complete',
       summary: 'The petitioner requests repair of a damaged road in ABC Village, Erode District. The petition states that the road has remained damaged for several months and causes transportation difficulties during rainfall.',
+      details: MOCK_PETITIONS[0].details,
       rawOcrText: MOCK_PETITIONS[0].rawOcrText,
       qaDatabase: MOCK_PETITIONS[0].qaDatabase
     };

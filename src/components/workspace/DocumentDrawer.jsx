@@ -2,10 +2,6 @@ import React, { useState } from 'react';
 import { 
   ChevronLeft, 
   ChevronRight, 
-  ZoomIn, 
-  ZoomOut, 
-  X, 
-  FileText, 
   CheckCircle, 
   Image as ImageIcon 
 } from 'lucide-react';
@@ -17,27 +13,10 @@ export default function DocumentDrawer({
   petition 
 }) {
   const [currentPage, setCurrentPage] = useState(1);
-  const [zoomLevel, setZoomLevel] = useState(100);
 
   const totalPages = petition?.totalPages || 1;
-  const fileName = petition?.fileName || 'No document selected';
+  const fileName = petition?.fileName || 'Document';
   const hasPreview = Boolean(petition?.previewUrl);
-
-  const handleZoomIn = () => {
-    setZoomLevel((prev) => Math.min(prev + 15, 200));
-  };
-
-  const handleZoomOut = () => {
-    setZoomLevel((prev) => Math.max(prev - 15, 50));
-  };
-
-  const handleFitPage = () => {
-    setZoomLevel(85);
-  };
-
-  const handleResetZoom = () => {
-    setZoomLevel(100);
-  };
 
   const handlePrevPage = () => {
     setCurrentPage((prev) => Math.max(prev - 1, 1));
@@ -55,109 +34,32 @@ export default function DocumentDrawer({
       {isOpen && (
         <div className="right-panel-inner">
           
-          {/* 1. DOCUMENT TOOLBAR — Fixed stationary inside right panel */}
-          <div className="drawer-header">
-            <div className="drawer-title-group" title={fileName}>
-              <FileText size={16} className="drawer-title-icon" />
-              <div className="drawer-title-text">
-                <h3 className="drawer-heading">Original Scanned Petition</h3>
-                <span className="drawer-file-sub font-mono">{fileName}</span>
-              </div>
-            </div>
-
-            {/* Toolbar Controls */}
-            <div className="drawer-toolbar">
-              
-              {/* Page Switcher */}
-              {totalPages > 1 ? (
-                <div className="page-nav-controls">
-                  <button
-                    type="button"
-                    className="toolbar-btn"
-                    onClick={handlePrevPage}
-                    disabled={currentPage <= 1}
-                    title="Previous page"
-                    aria-label="Previous page"
-                  >
-                    <ChevronLeft size={14} />
-                  </button>
-                  <span className="page-indicator font-mono">
-                    {currentPage}/{totalPages}
-                  </span>
-                  <button
-                    type="button"
-                    className="toolbar-btn"
-                    onClick={handleNextPage}
-                    disabled={currentPage >= totalPages}
-                    title="Next page"
-                    aria-label="Next page"
-                  >
-                    <ChevronRight size={14} />
-                  </button>
-                </div>
-              ) : (
-                <div className="page-nav-controls">
-                  <span className="page-indicator font-mono">
-                    Page 1/1
-                  </span>
-                </div>
-              )}
-
-              <div className="toolbar-separator"></div>
-
-              {/* Zoom Controls */}
-              <div className="zoom-controls">
-                <button
-                  type="button"
-                  className="toolbar-btn"
-                  onClick={handleZoomOut}
-                  disabled={zoomLevel <= 50}
-                  title="Zoom out"
-                  aria-label="Zoom out"
-                >
-                  <ZoomOut size={14} />
-                </button>
-                <span 
-                  className="zoom-indicator font-mono"
-                  onClick={handleResetZoom}
-                  title="Click to reset to 100%"
-                  style={{ cursor: 'pointer' }}
-                >
-                  {zoomLevel}%
-                </span>
-                <button
-                  type="button"
-                  className="toolbar-btn"
-                  onClick={handleZoomIn}
-                  disabled={zoomLevel >= 200}
-                  title="Zoom in"
-                  aria-label="Zoom in"
-                >
-                  <ZoomIn size={14} />
-                </button>
-                <button
-                  type="button"
-                  className="toolbar-btn fit-btn"
-                  onClick={handleFitPage}
-                  title="Fit whole page in viewer"
-                >
-                  Fit
-                </button>
-              </div>
-
-              <div className="toolbar-separator"></div>
-
-              {/* Close Button */}
+          {/* 1. DOCUMENT TOOLBAR — Centered Page Navigation Controls Only */}
+          <div className="drawer-header drawer-header-centered">
+            <div className="page-nav-controls page-nav-centered">
               <button
                 type="button"
-                className="drawer-close-btn"
-                onClick={onClose}
-                title="Collapse original petition preview"
-                aria-label="Collapse panel"
+                className="toolbar-btn"
+                onClick={handlePrevPage}
+                disabled={currentPage <= 1}
+                title="Previous page"
+                aria-label="Previous page"
               >
-                <X size={16} />
+                <ChevronLeft size={16} />
               </button>
-
+              <span className="page-indicator font-mono">
+                {currentPage}/{totalPages}
+              </span>
+              <button
+                type="button"
+                className="toolbar-btn"
+                onClick={handleNextPage}
+                disabled={currentPage >= totalPages}
+                title="Next page"
+                aria-label="Next page"
+              >
+                <ChevronRight size={16} />
+              </button>
             </div>
           </div>
 
@@ -170,20 +72,12 @@ export default function DocumentDrawer({
                     src={petition.previewUrl}
                     title={fileName}
                     className="real-uploaded-document-pdf"
-                    style={{ 
-                      transform: `scale(${zoomLevel / 100})`, 
-                      transformOrigin: 'top center'
-                    }}
                   />
                 ) : (
                   <img
                     src={petition.previewUrl}
                     alt={fileName}
                     className="real-uploaded-document-image"
-                    style={{ 
-                      transform: `scale(${zoomLevel / 100})`, 
-                      transformOrigin: 'top center'
-                    }}
                   />
                 )
               ) : (

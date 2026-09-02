@@ -11,6 +11,7 @@
 html, body {
   height: 100%;
   width: 100%;
+  font-size: 16px;
   font-family: var(--font-sans);
   background-color: var(--bg-canvas);
   color: var(--text-primary);
@@ -51,6 +52,7 @@ button:focus-visible {
 
 input, textarea, select {
   font-family: inherit;
+  font-size: var(--font-size-body);
   color: inherit;
 }
 

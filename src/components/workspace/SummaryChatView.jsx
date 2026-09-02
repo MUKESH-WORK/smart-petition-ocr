@@ -7,10 +7,16 @@ import {
   RotateCcw
 } from 'lucide-react';
 import CopyButton from '../common/CopyButton';
-import { getSmartAssistantReply, getContextualSuggestions } from '../../data/mockPetitions';
+import FullDetailsFormResponse from './FullDetailsFormResponse';
+import { 
+  getSmartAssistantReply, 
+  getContextualSuggestions,
+  extractPetitionDetails,
+  isFullDetailsQuery
+} from '../../data/mockPetitions';
 import './Workspace.css';
 
-export default function SummaryChatView({ petition }) {
+export default function SummaryChatView({ petition, onLogUserMessage }) {
   const [conversation, setConversation] = useState([]);
   const [inputValue, setInputValue] = useState('');
   const [isTyping, setIsTyping] = useState(false);
@@ -21,7 +27,7 @@ export default function SummaryChatView({ petition }) {
   const conversationScrollRef = useRef(null);
   const textareaRef = useRef(null);
 
-  // Auto-scroll ONLY when new messages arrive (does not force-scroll on initial load)
+  // Auto-scroll ONLY when new messages arrive
   useEffect(() => {
     if (conversationScrollRef.current && (conversation.length > 0 || isTyping)) {
       conversationScrollRef.current.scrollTo({
@@ -53,6 +59,11 @@ export default function SummaryChatView({ petition }) {
     // Record this query as used to avoid repeating chips
     setUsedPrompts((prev) => new Set([...prev, query.toLowerCase().trim()]));
 
+    // Log ONLY user message to Audit Trail
+    if (onLogUserMessage) {
+      onLogUserMessage(query, petition);
+    }
+
     const userMessage = {
       id: `msg-user-${Date.now()}`,
       sender: 'officer',
@@ -68,16 +79,31 @@ export default function SummaryChatView({ petition }) {
       textareaRef.current.style.height = 'auto';
     }
 
+    const isFullDetails = isFullDetailsQuery(query);
+
     // Fast simulated AI document understanding response
     setTimeout(() => {
-      const replyText = getSmartAssistantReply(query, petition);
-      const assistantMessage = {
-        id: `msg-ai-${Date.now()}`,
-        sender: 'assistant',
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        text: replyText
-      };
-      setConversation((prev) => [...prev, assistantMessage]);
+      if (isFullDetails) {
+        const details = extractPetitionDetails(petition);
+        const assistantMessage = {
+          id: `msg-ai-${Date.now()}`,
+          sender: 'assistant',
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          isFullDetails: true,
+          details: details
+        };
+        setConversation((prev) => [...prev, assistantMessage]);
+      } else {
+        const replyText = getSmartAssistantReply(query, petition);
+        const assistantMessage = {
+          id: `msg-ai-${Date.now()}`,
+          sender: 'assistant',
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          isFullDetails: false,
+          text: replyText
+        };
+        setConversation((prev) => [...prev, assistantMessage]);
+      }
       setIsTyping(false);
     }, 380);
   };
@@ -104,6 +130,7 @@ export default function SummaryChatView({ petition }) {
 
   // Helper to render bold text and clean linebreaks
   const renderMessageContent = (text) => {
+    if (!text) return null;
     const lines = text.split('\n');
     return lines.map((line, lineIdx) => {
       const parts = line.split(/(\*\*.*?\*\*)/g);
@@ -128,7 +155,7 @@ export default function SummaryChatView({ petition }) {
   return (
     <div className="workspace-ai-panel-inner">
       
-      {/* SCROLLABLE CONVERSATION AREA (Contains Summary as First Message + All Chat Messages) */}
+      {/* SCROLLABLE CONVERSATION AREA */}
       <div className="conversation-messages-scroll-area" ref={conversationScrollRef}>
         <div className="conversation-stream">
           
@@ -176,16 +203,22 @@ export default function SummaryChatView({ petition }) {
                     <span className="meta-time">{msg.timestamp}</span>
                   </div>
 
-                  <div className={`message-bubble ${isOfficer ? 'bubble-officer' : 'bubble-ai'}`}>
-                    <div className="bubble-text">
-                      {renderMessageContent(msg.text)}
+                  {msg.isFullDetails ? (
+                    <div className="message-bubble bubble-ai full-details-bubble">
+                      <FullDetailsFormResponse initialDetails={msg.details} />
                     </div>
-                    {!isOfficer && (
-                      <div className="bubble-footer-actions">
-                        <CopyButton textToCopy={msg.text} label="Copy Answer" className="compact-copy-btn" />
+                  ) : (
+                    <div className={`message-bubble ${isOfficer ? 'bubble-officer' : 'bubble-ai'}`}>
+                      <div className="bubble-text">
+                        {renderMessageContent(msg.text)}
                       </div>
-                    )}
-                  </div>
+                      {!isOfficer && (
+                        <div className="bubble-footer-actions">
+                          <CopyButton textToCopy={msg.text} label="Copy Answer" className="compact-copy-btn" />
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
             );
@@ -207,7 +240,7 @@ export default function SummaryChatView({ petition }) {
         </div>
       </div>
 
-      {/* 3. BOTTOM SECTION: Stationary Nexus-UI Style Prompt Input & Contextual Chips */}
+      {/* 3. BOTTOM SECTION: Prompt Input & Contextual Chips */}
       <div className="workspace-bottom-composer-dock">
         
         {/* Dynamic Contextual Prompt Chips */}
