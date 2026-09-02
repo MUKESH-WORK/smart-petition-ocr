@@ -7,7 +7,7 @@ export const MOCK_PETITIONS = [
     fileSize: '1.8 MB',
     fileType: 'PDF Document (Scanned)',
     uploadedAt: 'Today at 10:14 AM',
-    totalPages: 2,
+    totalPages: 1,
     language: 'Tamil',
     confidenceScore: 96,
     status: 'Analysis Complete',
@@ -72,12 +72,6 @@ OFFICE OF THE DISTRICT COLLECTOR, ERODE — GRIEVANCE DAY PETITION
 இணைப்புகள் (Enclosures):
   1. பழுதடைந்த சாலையின் புகைப்படங்கள் (2 நகல்கள்)
   2. ஆதார் அடையாள அட்டை நகல்
-
-================================================================================
-அலுவலக குறிப்பு / OFFICIAL ENDORSEMENT (Page 2):
-  Forwarded to Block Development Officer (BDO - Village Panchayats), Perundurai 
-  for field inspection and necessary action within 15 days.
-  - Special Deputy Collector (Grievance), Erode Collectorate.
 ================================================================================`,
 
     // Mock Chat Knowledge Base & Fact Verification
