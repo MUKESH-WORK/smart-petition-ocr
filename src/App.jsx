@@ -21,7 +21,7 @@ export default function App() {
   // Current active petition (Single source of truth for uploaded document)
   const [activePetition, setActivePetition] = useState(null);
 
-  // Session audit records list (Maintains real processed documents in current session)
+  // Session audit records list (Maintains real activity records in current session)
   const [auditRecords, setAuditRecords] = useState([]);
   
   // Document Drawer state (Right panel open/collapsed in workspace)
@@ -59,16 +59,23 @@ export default function App() {
     setViewState('workspace');
     setIsDrawerOpen(false);
 
-    // Add to session audit logs if not already recorded
-    if (activePetition) {
-      setAuditRecords((prev) => {
-        const exists = prev.some((item) => item.id === activePetition.id);
-        if (exists) return prev;
-        return [activePetition, ...prev];
-      });
-    }
-
     showToast(`Analysis complete for ${activePetition?.fileName || 'Petition'}`);
+  };
+
+  // Log user-submitted prompts in GDP Assistant to Audit Trail
+  const handleLogUserMessage = (promptText, petition) => {
+    if (!promptText) return;
+    const newEntry = {
+      id: `AUD-${Date.now()}`,
+      timestamp: new Date().toISOString(),
+      category: 'GDP Assistant',
+      categoryLabel: 'GDP Assistant',
+      officer: 'USER',
+      source_id: petition?.id || petition?.fileName || 'SESSION-001',
+      details: promptText,
+      rawPetition: petition
+    };
+    setAuditRecords((prev) => [newEntry, ...prev]);
   };
 
   // Reset to Upload Landing (cleans up memory)
@@ -84,11 +91,13 @@ export default function App() {
 
   // Selecting an audit record from the Audit Logs page
   const handleSelectAuditRecord = (record) => {
-    setActivePetition(record);
-    setActiveModule('gdp');
-    setViewState('workspace');
-    setIsDrawerOpen(false);
-    showToast(`Loaded petition #${record.id}`);
+    if (record) {
+      setActivePetition(record);
+      setActiveModule('gdp');
+      setViewState('workspace');
+      setIsDrawerOpen(false);
+      showToast(`Loaded petition #${record.id}`);
+    }
   };
 
   return (
@@ -148,6 +157,7 @@ export default function App() {
                     <section className="left-ai-panel" aria-label="AI Document Assistant">
                       <SummaryChatView
                         petition={activePetition}
+                        onLogUserMessage={handleLogUserMessage}
                       />
                     </section>
 
