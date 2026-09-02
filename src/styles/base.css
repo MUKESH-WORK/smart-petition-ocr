@@ -54,10 +54,10 @@ input, textarea, select {
   color: inherit;
 }
 
-input:focus-visible, textarea:focus-visible, select:focus-visible {
+input:focus-visible, select:focus-visible {
   outline: none;
-  border-color: var(--navy-700) !important;
-  box-shadow: 0 0 0 2px var(--navy-100) !important;
+  border-color: var(--navy-700);
+  box-shadow: 0 0 0 2px var(--navy-100);
 }
 
 /* Isolated Scrollbar styling */

@@ -12,8 +12,7 @@ import {
   ChevronDown, 
   ChevronUp, 
   Copy, 
-  Check, 
-  Sparkles
+  Check
 } from 'lucide-react';
 import CopyButton from '../common/CopyButton';
 import { getSmartAssistantReply, getContextualSuggestions } from '../../data/mockPetitions';
@@ -344,7 +343,6 @@ export default function SummaryChatView({ petition }) {
                 disabled={isTyping}
                 title="Request full structured petition details"
               >
-                <Sparkles size={13} className="sparkle-icon" />
                 <span>Full Details</span>
               </button>
             ) : (

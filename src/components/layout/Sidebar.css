@@ -1,0 +1,161 @@
+/* ==========================================================================
+   DEEP NAVY LEFT SIDEBAR STYLES (UNIFIED GRID & ALIGNMENT)
+   ========================================================================== */
+
+.app-sidebar {
+  background-color: var(--navy-900);
+  border-right: 1px solid #143D68;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  max-height: 100%;
+  min-height: 0;
+  flex-shrink: 0;
+  transition: width 200ms cubic-bezier(0.4, 0, 0.2, 1);
+  user-select: none;
+  z-index: 40;
+  overflow: hidden;
+  box-sizing: border-box;
+  padding: 14px 10px 14px 10px;
+}
+
+.app-sidebar.sidebar-expanded {
+  width: 210px;
+}
+
+.app-sidebar.sidebar-collapsed {
+  width: 60px;
+  padding: 14px 6px 14px 6px;
+}
+
+/* 1. Top Section */
+.sidebar-top-section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+/* 2. Flexible Middle Spacer */
+.sidebar-spacer {
+  flex: 1;
+  min-height: 20px;
+}
+
+/* 3. Bottom Section (Anchored to base) */
+.sidebar-bottom-section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex-shrink: 0;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* Shared Navigation List */
+.sidebar-nav-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+}
+
+/* Unified Navigation Item Grid — EXACT SAME across top and bottom */
+.sidebar-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  color: #CBD5E1;
+  background: transparent;
+  width: 100%;
+  text-align: left;
+  border: 1px solid transparent;
+  transition: all var(--transition-fast);
+  cursor: pointer;
+  position: relative;
+  box-sizing: border-box;
+}
+
+.sidebar-nav-item:hover {
+  background-color: rgba(255, 255, 255, 0.08);
+  color: #FFFFFF;
+}
+
+.sidebar-nav-item.active {
+  background-color: rgba(255, 255, 255, 0.12);
+  color: #FFFFFF;
+  border-left: 3px solid var(--orange-500);
+  border-radius: 2px var(--radius-md) var(--radius-md) 2px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
+}
+
+.sidebar-item-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: #94A3B8;
+  width: 20px;
+  height: 20px;
+  transition: color var(--transition-fast);
+}
+
+.sidebar-nav-item:hover .sidebar-item-icon,
+.sidebar-nav-item.active .sidebar-item-icon {
+  color: var(--orange-400);
+}
+
+.sidebar-item-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+
+.sidebar-item-label {
+  font-size: 0.84rem;
+  font-weight: 600;
+  white-space: nowrap;
+  line-height: 1.2;
+}
+
+.sidebar-item-sub {
+  font-size: 0.65rem;
+  color: #94A3B8;
+  white-space: nowrap;
+  margin-top: 2px;
+}
+
+.active-dot-indicator {
+  margin-left: auto;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: var(--orange-500);
+  box-shadow: 0 0 0 2px rgba(217, 83, 30, 0.3);
+  flex-shrink: 0;
+}
+
+.sidebar-nav-item.collapse-item {
+  color: #94A3B8;
+  margin-top: 2px;
+}
+
+.sidebar-nav-item.collapse-item:hover {
+  color: #FFFFFF;
+  background-color: rgba(255, 255, 255, 0.06);
+}
+
+/* Collapsed Mode */
+.sidebar-collapsed .sidebar-nav-item {
+  justify-content: center;
+  padding: 10px 0;
+  gap: 0;
+}
+
+.sidebar-collapsed .sidebar-item-icon {
+  width: 20px;
+  height: 20px;
+}

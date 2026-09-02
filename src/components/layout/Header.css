@@ -12,26 +12,41 @@
   position: relative;
   z-index: 50;
   user-select: none;
+  flex-shrink: 0;
 }
 
 .header-left {
   display: flex;
   align-items: center;
-  gap: 20px;
+  gap: 14px;
 }
 
+/* Circular Official Emblem Logo (No square container) */
 .govt-emblem-badge {
-  width: 36px;
-  height: 36px;
+  width: 44px;
+  height: 44px;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  background: transparent;
+  border-radius: 50%;
+  border: none;
+  box-shadow: none;
+  padding: 0;
+  transition: transform var(--transition-fast);
 }
 
-.emblem-svg {
+.govt-emblem-badge:hover {
+  transform: scale(1.06);
+}
+
+.govt-emblem-img {
   width: 100%;
   height: 100%;
+  object-fit: contain;
+  border-radius: 50%;
+  display: block;
   filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.2));
 }
 
@@ -48,7 +63,7 @@
 }
 
 .brand-title {
-  font-size: 1.05rem;
+  font-size: 1.08rem;
   font-weight: 700;
   letter-spacing: -0.02em;
   color: #FFFFFF;
@@ -70,64 +85,57 @@
   font-size: 0.72rem;
   color: #FFEDD5;
   font-weight: 500;
-  opacity: 0.9;
+  opacity: 0.92;
 }
 
-/* Header Navigation Links */
-.header-nav {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  margin-left: 12px;
-  padding-left: 16px;
-  border-left: 1px solid rgba(255, 255, 255, 0.25);
-}
-
-.nav-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  border-radius: var(--radius-md);
-  color: #FFFFFF;
-  font-size: 0.82rem;
-  font-weight: 600;
-  background: transparent;
-  transition: all var(--transition-fast);
-}
-
-.nav-link:hover {
-  background-color: rgba(255, 255, 255, 0.15);
-  color: #FFFFFF;
-}
-
-.nav-link.active {
-  background-color: rgba(255, 255, 255, 0.22);
-  color: #FFFFFF;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-}
-
-.nav-counter {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 4px;
-  background-color: rgba(255, 255, 255, 0.25);
-  border-radius: var(--radius-pill);
-  font-size: 0.7rem;
-  font-weight: 700;
-  color: #FFFFFF;
-}
-
-/* Header Right */
+/* Header Right Area */
 .header-right {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 14px;
 }
 
+/* Compact Language Toggle (English | தமிழ்) */
+.header-lang-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(255, 255, 255, 0.16);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: var(--radius-pill);
+  padding: 2px 6px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.lang-option-btn {
+  background: transparent;
+  border: none;
+  color: #FFEDD5;
+  font-size: 0.74rem;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.lang-option-btn:hover {
+  color: #FFFFFF;
+}
+
+.lang-option-btn.active {
+  background: #FFFFFF;
+  color: #C2410C;
+  font-weight: 700;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+}
+
+.lang-sep {
+  color: rgba(255, 255, 255, 0.35);
+  font-size: 0.72rem;
+}
+
+/* Officer Profile Badge */
 .officer-profile-card {
   display: flex;
   align-items: center;
@@ -171,22 +179,15 @@
 
 .header-divider {
   width: 1px;
-  height: 24px;
+  height: 22px;
   background-color: rgba(255, 255, 255, 0.25);
 }
 
-.header-icon-btn {
-  width: 32px;
-  height: 32px;
-  border-radius: var(--radius-md);
-  color: #FFFFFF;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all var(--transition-fast);
-}
-
-.header-icon-btn:hover {
-  background-color: rgba(255, 255, 255, 0.2);
-  color: #FFFFFF;
+@media (max-width: 640px) {
+  .brand-subtitle {
+    display: none;
+  }
+  .officer-info {
+    display: none;
+  }
 }

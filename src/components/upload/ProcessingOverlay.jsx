@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { FileText, CheckCircle2, Loader2, Circle, Sparkles } from 'lucide-react';
+import { FileText, CheckCircle2, Loader2, Circle, ShieldCheck } from 'lucide-react';
 import './Upload.css';
 
 const PROCESSING_STEPS = [
@@ -8,7 +8,7 @@ const PROCESSING_STEPS = [
   { id: 3, label: 'Detecting language', detail: 'Tamil (94%) & English bilingual recognized' },
   { id: 4, label: 'Extracting text', detail: 'Optical character recognition complete' },
   { id: 5, label: 'Generating petition summary', detail: 'Synthesizing core grievance and background' },
-  { id: 6, label: 'Extracting required fields', detail: 'Mapping petitioner, location & department data' }
+  { id: 6, label: 'Ready for understanding', detail: 'Summary & conversation stream prepared' }
 ];
 
 export default function ProcessingOverlay({ petition, onComplete }) {
@@ -108,7 +108,7 @@ export default function ProcessingOverlay({ petition, onComplete }) {
         </div>
 
         <div className="processing-footer-info">
-          <Sparkles size={13} className="sparkle-icon" />
+          <ShieldCheck size={14} className="note-icon" />
           <span>Processing Tamil Nadu administrative petition format</span>
         </div>
 

@@ -22,8 +22,8 @@ export default function HistoryModal({
               <History size={18} />
             </div>
             <div>
-              <h3 className="modal-title">Petition History</h3>
-              <p className="modal-subtitle">Recent documents processed in this session</p>
+              <h3 className="modal-title">Audit Logs</h3>
+              <p className="modal-subtitle">Recent documents and processing history in this session</p>
             </div>
           </div>
 

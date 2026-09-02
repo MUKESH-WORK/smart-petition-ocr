@@ -1,29 +1,37 @@
 import React, { useState } from 'react';
 import Header from './components/layout/Header';
-import HistoryModal from './components/layout/HistoryModal';
-import SettingsModal from './components/layout/SettingsModal';
+import Sidebar from './components/layout/Sidebar';
 import UploadLanding from './components/upload/UploadLanding';
 import ProcessingOverlay from './components/upload/ProcessingOverlay';
 import WorkspaceHeader from './components/workspace/WorkspaceHeader';
 import SummaryChatView from './components/workspace/SummaryChatView';
 import DocumentDrawer from './components/workspace/DocumentDrawer';
-import { MOCK_PETITIONS } from './data/mockPetitions';
+import AuditLogsView from './components/audit/AuditLogsView';
+import SettingsView from './components/settings/SettingsView';
 import { ChevronRight, ChevronLeft } from 'lucide-react';
 import './styles/index.css';
 
 export default function App() {
-  // Navigation / View state: 'landing' | 'processing' | 'workspace'
+  // Navigation Modules: 'gdp' | 'audit' | 'settings'
+  const [activeModule, setActiveModule] = useState('gdp');
+
+  // GDP Assistant internal view state: 'landing' | 'processing' | 'workspace'
   const [viewState, setViewState] = useState('landing');
   
-  // Current active petition
-  const [activePetition, setActivePetition] = useState(MOCK_PETITIONS[0]);
+  // Current active petition (Single source of truth for uploaded document)
+  const [activePetition, setActivePetition] = useState(null);
+
+  // Session audit records list (Maintains real processed documents in current session)
+  const [auditRecords, setAuditRecords] = useState([]);
   
-  // Document Drawer state (Stationary left panel open/collapsed)
+  // Document Drawer state (Stationary left panel open/collapsed in workspace)
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   
-  // Modals state
-  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  // Sidebar collapsed state
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  
+  // Language state: 'en' | 'ta'
+  const [currentLanguage, setCurrentLanguage] = useState('en');
 
   // Toast notifications state
   const [toasts, setToasts] = useState([]);
@@ -38,7 +46,11 @@ export default function App() {
 
   // Upload / Petition Selection handler
   const handleSelectPetition = (petition) => {
+    if (activePetition?.previewUrl && activePetition.previewUrl !== petition.previewUrl) {
+      URL.revokeObjectURL(activePetition.previewUrl);
+    }
     setActivePetition(petition);
+    setActiveModule('gdp');
     setViewState('processing');
   };
 
@@ -46,114 +58,154 @@ export default function App() {
   const handleProcessingComplete = () => {
     setViewState('workspace');
     setIsDrawerOpen(false);
-    showToast(`Analysis complete for ${activePetition.fileName}`);
+
+    // Add to session audit logs if not already recorded
+    if (activePetition) {
+      setAuditRecords((prev) => {
+        const exists = prev.some((item) => item.id === activePetition.id);
+        if (exists) return prev;
+        return [activePetition, ...prev];
+      });
+    }
+
+    showToast(`Analysis complete for ${activePetition?.fileName || 'Petition'}`);
   };
 
-  // Reset to Upload Landing
+  // Reset to Upload Landing (cleans up memory)
   const handleNewPetition = () => {
+    if (activePetition?.previewUrl) {
+      URL.revokeObjectURL(activePetition.previewUrl);
+    }
+    setActivePetition(null);
+    setActiveModule('gdp');
     setViewState('landing');
     setIsDrawerOpen(false);
+  };
+
+  // Selecting an audit record from the Audit Logs page
+  const handleSelectAuditRecord = (record) => {
+    setActivePetition(record);
+    setActiveModule('gdp');
+    setViewState('workspace');
+    setIsDrawerOpen(false);
+    showToast(`Loaded petition #${record.id}`);
   };
 
   return (
     <div className="app-container">
       
-      {/* Slim Top Navigation Header (Stationary, Fixed Height) */}
+      {/* 1. Slim Top Navigation Header (Stationary, Fixed Height) */}
       <Header
-        activeView={viewState}
-        onNewPetition={handleNewPetition}
-        onOpenHistory={() => setIsHistoryOpen(true)}
-        onOpenSettings={() => setIsSettingsOpen(true)}
-        historyCount={MOCK_PETITIONS.length}
+        onLogoClick={handleNewPetition}
+        currentLanguage={currentLanguage}
+        onLanguageChange={setCurrentLanguage}
       />
 
-      {/* Main App Body (Stationary 100vh Shell) */}
-      <main className="main-content">
+      {/* 2. Application Body Container (Left Sidebar + Main Content Area) */}
+      <div className="app-body-container">
         
-        {/* View 1: Landing / Upload Screen */}
-        {viewState === 'landing' && (
-          <UploadLanding onSelectPetition={handleSelectPetition} />
-        )}
+        {/* Left Administrative Sidebar */}
+        <Sidebar
+          activeModule={activeModule}
+          onSelectModule={(mod) => setActiveModule(mod)}
+          isCollapsed={isSidebarCollapsed}
+          onToggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+        />
 
-        {/* View 2: Simulated Multi-Step OCR Processing */}
-        {viewState === 'processing' && (
-          <ProcessingOverlay
-            petition={activePetition}
-            onComplete={handleProcessingComplete}
-          />
-        )}
+        {/* Main Application Content Area */}
+        <main className="main-content">
+          
+          {/* VIEW A: GDP ASSISTANT MODULE */}
+          {activeModule === 'gdp' && (
+            <>
+              {/* GDP View 1: Landing / Upload Screen */}
+              {viewState === 'landing' && (
+                <UploadLanding onSelectPetition={handleSelectPetition} />
+              )}
 
-        {/* View 3: Two-Panel Petition Workspace (Fixed Desktop Layout) */}
-        {viewState === 'workspace' && (
-          <div className="workspace-layout">
-            
-            {/* Workspace Bar with ID, File, Status, and New Petition (Stationary) */}
-            <WorkspaceHeader
-              petition={activePetition}
-              onNewPetition={handleNewPetition}
-            />
-
-            {/* True Two-Panel Body Split (Remaining Viewport Height, No Body Scroll) */}
-            <div className="workspace-body-split">
-              
-              {/* 1. Left Original Petition Panel (Stationary) */}
-              <DocumentDrawer
-                isOpen={isDrawerOpen}
-                onClose={() => setIsDrawerOpen(false)}
-                petition={activePetition}
-              />
-
-              {/* 2. Vertically-Centered Toggle Handle (Fixed at Panel Edge) */}
-              <button
-                type="button"
-                className={`panel-toggle-handle ${isDrawerOpen ? 'handle-panel-open' : 'handle-panel-collapsed'}`}
-                onClick={() => setIsDrawerOpen(!isDrawerOpen)}
-                title={isDrawerOpen ? "Collapse Original Petition" : "Open Original Petition"}
-                aria-label={isDrawerOpen ? "Collapse Original Petition" : "Open Original Petition"}
-              >
-                {isDrawerOpen ? (
-                  <ChevronLeft size={15} className="handle-chevron" />
-                ) : (
-                  <ChevronRight size={15} className="handle-chevron" />
-                )}
-                <span className="panel-toggle-handle-text">
-                  {isDrawerOpen ? 'Close' : 'Original Petition'}
-                </span>
-              </button>
-
-              {/* 3. Right AI Workspace Panel (Summary Stationary + Chat Isolated Scroll + Input Stationary) */}
-              <section className="right-ai-panel" aria-label="AI Document Assistant">
-                <SummaryChatView
+              {/* GDP View 2: Multi-Step Document Processing */}
+              {viewState === 'processing' && activePetition && (
+                <ProcessingOverlay
                   petition={activePetition}
+                  onComplete={handleProcessingComplete}
                 />
-              </section>
+              )}
 
-            </div>
+              {/* GDP View 3: Two-Panel Petition Workspace (Fixed Desktop Layout) */}
+              {viewState === 'workspace' && activePetition && (
+                <div className="workspace-layout">
+                  
+                  {/* Workspace Bar with ID, File, Status, and New Petition (Stationary) */}
+                  <WorkspaceHeader
+                    petition={activePetition}
+                    onNewPetition={handleNewPetition}
+                  />
 
-          </div>
-        )}
+                  {/* True Two-Panel Body Split (Remaining Viewport Height, No Body Scroll) */}
+                  <div className="workspace-body-split">
+                    
+                    {/* Left Original Petition Panel (Stationary) */}
+                    <DocumentDrawer
+                      isOpen={isDrawerOpen}
+                      onClose={() => setIsDrawerOpen(false)}
+                      petition={activePetition}
+                    />
 
-      </main>
+                    {/* Vertically-Centered Toggle Handle (Fixed at Panel Edge) */}
+                    <button
+                      type="button"
+                      className={`panel-toggle-handle ${isDrawerOpen ? 'handle-panel-open' : 'handle-panel-collapsed'}`}
+                      onClick={() => setIsDrawerOpen(!isDrawerOpen)}
+                      title={isDrawerOpen ? "Collapse Original Petition" : "Open Original Petition"}
+                      aria-label={isDrawerOpen ? "Collapse Original Petition" : "Open Original Petition"}
+                    >
+                      {isDrawerOpen ? (
+                        <ChevronLeft size={15} className="handle-chevron" />
+                      ) : (
+                        <ChevronRight size={15} className="handle-chevron" />
+                      )}
+                      <span className="panel-toggle-handle-text">
+                        {isDrawerOpen ? 'Close' : 'Original Petition'}
+                      </span>
+                    </button>
 
-      {/* Petition History Modal */}
-      <HistoryModal
-        isOpen={isHistoryOpen}
-        onClose={() => setIsHistoryOpen(false)}
-        currentPetitionId={activePetition?.id}
-        onSelectPetition={(pet) => {
-          setActivePetition(pet);
-          setViewState('workspace');
-          setIsDrawerOpen(false);
-          showToast(`Switched to petition #${pet.id}`);
-        }}
-      />
+                    {/* Right AI Workspace Panel (Summary & Chat in Scrollable Area + Stationary Input) */}
+                    <section className="right-ai-panel" aria-label="AI Document Assistant">
+                      <SummaryChatView
+                        petition={activePetition}
+                      />
+                    </section>
 
-      {/* Settings Modal */}
-      <SettingsModal
-        isOpen={isSettingsOpen}
-        onClose={() => setIsSettingsOpen(false)}
-        onNotify={showToast}
-      />
+                  </div>
+
+                </div>
+              )}
+            </>
+          )}
+
+          {/* VIEW B: FULL-PAGE AUDIT LOGS MODULE */}
+          {activeModule === 'audit' && (
+            <AuditLogsView
+              auditRecords={auditRecords}
+              currentPetitionId={activePetition?.id}
+              onSelectPetition={handleSelectAuditRecord}
+              onNavigateToGDP={() => {
+                setActiveModule('gdp');
+                if (!activePetition) setViewState('landing');
+              }}
+            />
+          )}
+
+          {/* VIEW C: FULL-PAGE SETTINGS MODULE */}
+          {activeModule === 'settings' && (
+            <SettingsView
+              onNotify={showToast}
+            />
+          )}
+
+        </main>
+
+      </div>
 
       {/* Toast Notification Stream */}
       <div className="toast-container" aria-live="polite">
