@@ -15,16 +15,59 @@ export const MOCK_PETITIONS = [
     // AI Summary
     summary: 'The petitioner requests repair of a damaged road in ABC Village, Erode District. The petition states that the road has remained damaged for several months and causes transportation difficulties during rainfall.',
     
-    // Structured Full Details
-    details: {
+    // Comprehensive Tamil Nadu Grievance Portal Field Mapping
+    portalDetails: {
+      // 1. Petitioner Information
       petitionerName: 'R. Kumar',
+      email: 'Not found',
       phoneNumber: '9876543210',
+      isOwnNumber: 'Yes',
+      alternatePhone: 'Not found',
       address: '14/2, Mariamman Kovil Street, ABC Village, Thingalur Firka, Perundurai Taluk, Erode - 638052',
-      mainGrievance: 'Request for repair of damaged village link road with severe potholes for over 6 months.',
-      location: 'ABC Village, Perundurai Taluk, Erode District',
+      gender: 'Male',
+      differentlyAbled: 'No',
+      petitionerCategory: 'Citizen / General Public',
+
+      // 2. Grievance Details
+      description: 'Request for repair and resurfacing of damaged village link road on Mariamman Kovil Street with severe potholes causing transportation difficulties and safety hazards during rainfall.',
+      grievanceSource: 'Collectorate Grievance Day Petition',
       referenceNumber: 'PET-2026-ERD-08492',
-      suggestedDepartment: 'Rural Development / Road Maintenance',
-      requestedAction: 'Repair and resurface the damaged road.'
+      governmentDepartment: 'Rural Development and Panchayat Raj',
+      localBodyType: 'Village Panchayat',
+      grievanceType: 'Road Maintenance & Infrastructure',
+      grievanceSubType: 'Village Tar Road Repair / Pothole Clearance',
+      district: 'Erode (ERD)',
+      subDepartment: 'Village Panchayat Road Wing',
+      ward: 'Not found',
+      municipalityWard: 'Not found',
+      block: 'Perundurai',
+      taluk: 'Perundurai',
+      revenueDivision: 'Erode',
+      firka: 'Thingalur',
+      streetName: 'Mariamman Kovil Street',
+      doorNumber: '14/2',
+      responsibleOfficer: 'Block Development Officer (BDO - Village Panchayats), Perundurai',
+      fisheriesRegion: 'Not found',
+      fisheriesDivision: 'Not found',
+      reasonForRedirection: 'Forwarded to Block Development Officer, Perundurai for field inspection and necessary action within 15 days.',
+
+      // 3. Communication Address
+      communicationAddressSame: 'Yes (Same as Petitioner Address)',
+      communicationAddress: '14/2, Mariamman Kovil Street, ABC Village, Thingalur Firka, Perundurai Taluk, Erode - 638052',
+
+      // 4. Grievance Status
+      dueDate: '03-03-2026 (15 Days from Receipt)',
+      status: 'Open',
+      sourceCode: 'GDP - Grievance Day Petition',
+      grievanceId: 'TN/RDPR/ERD/P/GDP/16FEB26/08492',
+      priority: 'Medium / High Civic Priority',
+      callDisposition: 'Not found',
+      isWhatsappAppeal: 'No',
+      isWhatsappTracking: 'No',
+      isWhatsappReceipt: 'No',
+
+      // 5. Ex-Army Petition Details
+      relationshipWithExServicemen: 'Not found'
     },
 
     // Raw OCR Extracted Text (Full transcript for verification)
@@ -129,16 +172,53 @@ OFFICE OF THE DISTRICT COLLECTOR, ERODE — GRIEVANCE DAY PETITION
     
     summary: 'The petitioner submits a grievance regarding irregular drinking water supply in Ward 12, Attur Municipality, Salem District. Public taps have been dry for the past 12 days due to pipeline leakage near Railway Gate.',
     
-    // Structured Full Details
-    details: {
+    portalDetails: {
       petitionerName: 'S. Meenakshi Ammal',
+      email: 'Not found',
       phoneNumber: '9443218765',
+      isOwnNumber: 'Yes',
+      alternatePhone: 'Not found',
       address: '28, Gandhi Road, Ward 12, Attur, Salem - 636102',
-      mainGrievance: 'Drinking water supply disruption for 12 days due to burst pipeline near Railway Gate.',
-      location: 'Ward 12, Attur Municipality, Salem District',
+      gender: 'Female',
+      differentlyAbled: 'No',
+      petitionerCategory: 'Citizen / General Public',
+
+      description: 'Drinking water supply disruption for 12 days in Ward 12 due to burst main pipeline near Railway Gate.',
+      grievanceSource: 'Collectorate Grievance Day Petition',
       referenceNumber: 'PET-2026-SLM-04192',
-      suggestedDepartment: 'Municipal Administration & Water Supply',
-      requestedAction: 'Immediate pipeline repair and restoration of public drinking water supply.'
+      governmentDepartment: 'Municipal Administration and Water Supply',
+      localBodyType: 'Municipality',
+      grievanceType: 'Drinking Water Supply',
+      grievanceSubType: 'Pipeline Leakage & Dry Taps',
+      district: 'Salem (SLM)',
+      subDepartment: 'Attur Municipality Water Supply Wing / TWAD',
+      ward: 'Ward 12',
+      municipalityWard: 'Ward 12',
+      block: 'Attur',
+      taluk: 'Attur',
+      revenueDivision: 'Attur',
+      firka: 'Attur',
+      streetName: 'Gandhi Road',
+      doorNumber: '28',
+      responsibleOfficer: 'Municipal Commissioner / Assistant Engineer (Water Supply), Attur',
+      fisheriesRegion: 'Not found',
+      fisheriesDivision: 'Not found',
+      reasonForRedirection: 'Not found',
+
+      communicationAddressSame: 'Yes (Same as Petitioner Address)',
+      communicationAddress: '28, Gandhi Road, Ward 12, Attur, Salem - 636102',
+
+      dueDate: '25-02-2026 (15 Days from Receipt)',
+      status: 'Open',
+      sourceCode: 'GDP - Grievance Day Petition',
+      grievanceId: 'TN/MAWS/SLM/P/GDP/10FEB26/04192',
+      priority: 'High (Essential Drinking Water)',
+      callDisposition: 'Not found',
+      isWhatsappAppeal: 'No',
+      isWhatsappTracking: 'No',
+      isWhatsappReceipt: 'No',
+
+      relationshipWithExServicemen: 'Not found'
     },
 
     rawOcrText: `================================================================================
@@ -215,16 +295,53 @@ Seal: COLLECTORATE SALEM • TAPAL RECEIVED
     
     summary: 'The petitioner requests sub-division and issuance of a separate Patta for agricultural Survey No. 142/3B measuring 1.45 Acres in Pollachi Taluk, Coimbatore District following registered partition deed.',
     
-    // Structured Full Details
-    details: {
+    portalDetails: {
       petitionerName: 'K. Velusamy',
+      email: 'Not found',
       phoneNumber: '9842267812',
+      isOwnNumber: 'Yes',
+      alternatePhone: 'Not found',
       address: '5/82, Anaimalai Road, Pollachi Taluk, Coimbatore - 642001',
-      mainGrievance: 'Partition deed settlement — request for field survey, sub-division and issuance of individual Patta.',
-      location: 'Pollachi Taluk, Coimbatore District',
+      gender: 'Male',
+      differentlyAbled: 'No',
+      petitionerCategory: 'Citizen / Land Owner',
+
+      description: 'Request for field inspection, sub-division of ancestral agricultural land in Survey No. 142/3B (1.45 Acres), and issuance of separate Patta under registered partition deed.',
+      grievanceSource: 'Taluk Office Grievance Petition',
       referenceNumber: 'PET-2026-CBE-09142',
-      suggestedDepartment: 'Revenue and Disaster Management',
-      requestedAction: 'Inspect land, sub-divide survey boundaries, and issue separate Patta record.'
+      governmentDepartment: 'Revenue and Disaster Management',
+      localBodyType: 'Taluk / Revenue Village',
+      grievanceType: 'Land Administration & Survey',
+      grievanceSubType: 'Patta Sub-Division / Transfer',
+      district: 'Coimbatore (CBE)',
+      subDepartment: 'Taluk Surveyor / Revenue Administration',
+      ward: 'Not found',
+      municipalityWard: 'Not found',
+      block: 'Pollachi',
+      taluk: 'Pollachi',
+      revenueDivision: 'Pollachi',
+      firka: 'Pollachi',
+      streetName: 'Anaimalai Road',
+      doorNumber: '5/82',
+      responsibleOfficer: 'The Tahsildar / Taluk Surveyor, Pollachi',
+      fisheriesRegion: 'Not found',
+      fisheriesDivision: 'Not found',
+      reasonForRedirection: 'Not found',
+
+      communicationAddressSame: 'Yes (Same as Petitioner Address)',
+      communicationAddress: '5/82, Anaimalai Road, Pollachi Taluk, Coimbatore - 642001',
+
+      dueDate: '05-03-2026 (15 Days from Receipt)',
+      status: 'Open',
+      sourceCode: 'TRP - Taluk Revenue Petition',
+      grievanceId: 'TN/REV/CBE/P/GDP/18FEB26/09142',
+      priority: 'Medium',
+      callDisposition: 'Not found',
+      isWhatsappAppeal: 'No',
+      isWhatsappTracking: 'No',
+      isWhatsappReceipt: 'No',
+
+      relationshipWithExServicemen: 'Not found'
     },
 
     rawOcrText: `================================================================================
@@ -287,23 +404,61 @@ Seal: POLLACHI TALUK OFFICE • REVENUE STAMP
   }
 ];
 
-// Helper to extract structured details from any petition
+// Helper to extract structured portal details from any petition with exact field schema
 export function extractPetitionDetails(petition) {
   if (!petition) return null;
-  if (petition.details) {
-    return { ...petition.details };
+  if (petition.portalDetails) {
+    return { ...petition.portalDetails };
   }
 
-  // Sensible extraction fallback from petition properties
+  // Fallback if portalDetails is not directly set
   return {
-    petitionerName: 'R. Kumar',
-    phoneNumber: '9876543210',
-    address: '14/2, Mariamman Kovil Street, ABC Village, Thingalur Firka, Perundurai Taluk, Erode - 638052',
-    mainGrievance: petition.summary || 'Request for repair of damaged road.',
-    location: 'ABC Village, Perundurai Taluk, Erode District',
-    referenceNumber: petition.id ? `PET-2026-${petition.id}` : 'PET-2026-ERD-08492',
-    suggestedDepartment: 'Rural Development / Road Maintenance',
-    requestedAction: 'Repair and resurface the damaged road.'
+    petitionerName: petition.details?.petitionerName || 'R. Kumar',
+    email: 'Not found',
+    phoneNumber: petition.details?.phoneNumber || '9876543210',
+    isOwnNumber: 'Yes',
+    alternatePhone: 'Not found',
+    address: petition.details?.address || '14/2, Mariamman Kovil Street, ABC Village, Thingalur Firka, Perundurai Taluk, Erode - 638052',
+    gender: 'Male',
+    differentlyAbled: 'No',
+    petitionerCategory: 'Citizen / General Public',
+
+    description: petition.details?.mainGrievance || petition.summary || 'Request for repair of damaged village road.',
+    grievanceSource: 'Collectorate Grievance Day Petition',
+    referenceNumber: petition.details?.referenceNumber || (petition.id ? `PET-2026-${petition.id}` : 'PET-2026-ERD-08492'),
+    governmentDepartment: petition.details?.suggestedDepartment || 'Rural Development and Panchayat Raj',
+    localBodyType: 'Village Panchayat',
+    grievanceType: 'Road Maintenance & Infrastructure',
+    grievanceSubType: 'Village Tar Road Repair / Pothole Clearance',
+    district: 'Erode (ERD)',
+    subDepartment: 'Village Panchayat Road Wing',
+    ward: 'Not found',
+    municipalityWard: 'Not found',
+    block: 'Perundurai',
+    taluk: 'Perundurai',
+    revenueDivision: 'Erode',
+    firka: 'Thingalur',
+    streetName: 'Mariamman Kovil Street',
+    doorNumber: '14/2',
+    responsibleOfficer: 'Block Development Officer (BDO - Village Panchayats), Perundurai',
+    fisheriesRegion: 'Not found',
+    fisheriesDivision: 'Not found',
+    reasonForRedirection: 'Forwarded to Block Development Officer, Perundurai for field inspection and necessary action within 15 days.',
+
+    communicationAddressSame: 'Yes (Same as Petitioner Address)',
+    communicationAddress: petition.details?.address || '14/2, Mariamman Kovil Street, ABC Village, Thingalur Firka, Perundurai Taluk, Erode - 638052',
+
+    dueDate: '03-03-2026 (15 Days from Receipt)',
+    status: 'Open',
+    sourceCode: 'GDP - Grievance Day Petition',
+    grievanceId: petition.id ? `TN/RDPR/ERD/P/GDP/16FEB26/${petition.id}` : 'TN/RDPR/ERD/P/GDP/16FEB26/08492',
+    priority: 'Medium / High Civic Priority',
+    callDisposition: 'Not found',
+    isWhatsappAppeal: 'No',
+    isWhatsappTracking: 'No',
+    isWhatsappReceipt: 'No',
+
+    relationshipWithExServicemen: 'Not found'
   };
 }
 

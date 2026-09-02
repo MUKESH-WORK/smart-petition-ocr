@@ -2,33 +2,48 @@ import React, { useState } from 'react';
 import { Copy, Check } from 'lucide-react';
 import './Workspace.css';
 
-function FieldCopyButton({ value }) {
+function FieldCopyButton({ value, disabled }) {
   const [copied, setCopied] = useState(false);
 
   const handleCopy = (e) => {
     e.stopPropagation();
-    if (!value) return;
+    if (disabled || !value || value === 'Not found') return;
     navigator.clipboard.writeText(value);
     setCopied(true);
     setTimeout(() => setCopied(false), 1800);
   };
+
+  if (disabled || !value || value === 'Not found') {
+    return (
+      <button
+        type="button"
+        className="field-inline-copy-btn disabled-copy-btn"
+        disabled
+        title="Field is not found"
+        aria-label="Field is not found"
+      >
+        <Copy size={11} />
+        <span>Copy</span>
+      </button>
+    );
+  }
 
   return (
     <button
       type="button"
       className={`field-inline-copy-btn ${copied ? 'copied' : ''}`}
       onClick={handleCopy}
-      title="Copy field value"
-      aria-label="Copy field value"
+      title={`Copy ${value}`}
+      aria-label={`Copy value`}
     >
       {copied ? (
         <>
-          <Check size={12} className="copy-icon-check" />
+          <Check size={11} className="copy-icon-check" />
           <span>Copied</span>
         </>
       ) : (
         <>
-          <Copy size={12} />
+          <Copy size={11} />
           <span>Copy</span>
         </>
       )}
@@ -36,97 +51,169 @@ function FieldCopyButton({ value }) {
   );
 }
 
-export default function FullDetailsFormResponse({ initialDetails }) {
-  const data = {
-    petitionerName: initialDetails?.petitionerName || 'R. Kumar',
-    phoneNumber: initialDetails?.phoneNumber || '9876543210',
-    address: initialDetails?.address || '14/2, Mariamman Kovil Street, ABC Village, Thingalur Firka, Perundurai Taluk, Erode - 638052',
-    mainGrievance: initialDetails?.mainGrievance || 'Request for repair of damaged village link road with severe potholes for over 6 months.',
-    location: initialDetails?.location || 'ABC Village, Perundurai Taluk, Erode District',
-    referenceNumber: initialDetails?.referenceNumber || 'PET-2026-ERD-08492',
-    suggestedDepartment: initialDetails?.suggestedDepartment || 'Rural Development / Road Maintenance',
-    requestedAction: initialDetails?.requestedAction || 'Repair and resurface the damaged road.'
-  };
+function FieldDisplayBox({ label, value, isFullWidth = false, isMultiline = false }) {
+  const isNotFound = !value || value.toString().toLowerCase() === 'not found';
+  const displayValue = value || 'Not found';
 
   return (
-    <div className="full-details-form-container">
+    <div className={`form-item-wrapper ${isFullWidth ? 'col-full' : 'col-half'}`}>
+      <label className="form-item-label">{label}</label>
+      <div className={`info-display-box ${isMultiline ? 'multiline-box' : ''} ${isNotFound ? 'box-not-found' : ''}`}>
+        <span className={`info-display-text ${isNotFound ? 'text-not-found' : ''}`}>
+          {displayValue}
+        </span>
+        <FieldCopyButton value={displayValue} disabled={isNotFound} />
+      </div>
+    </div>
+  );
+}
+
+export default function FullDetailsFormResponse({ initialDetails }) {
+  const data = initialDetails || {};
+
+  return (
+    <div className="full-details-form-container" role="region" aria-label="Full Petition Details">
+      
+      {/* Response Main Title */}
       <div className="full-details-header-row">
         <h4 className="full-details-main-heading">FULL PETITION DETAILS</h4>
       </div>
 
-      <div className="full-details-form-grid">
-        
-        {/* Row 1: Petitioner Name (Col 1) & Phone Number (Col 2) */}
-        <div className="form-item-wrapper col-half">
-          <label className="form-item-label">Petitioner Name</label>
-          <div className="info-display-box">
-            <span className="info-display-text">{data.petitionerName}</span>
-            <FieldCopyButton value={data.petitionerName} />
-          </div>
+      {/* =========================================================================
+          1. PETITIONER INFORMATION
+          ========================================================================= */}
+      <div className="portal-sub-section">
+        <div className="portal-sub-section-header">
+          <span className="portal-section-badge">1</span>
+          <h5 className="portal-section-title">PETITIONER INFORMATION</h5>
         </div>
 
-        <div className="form-item-wrapper col-half">
-          <label className="form-item-label">Phone Number</label>
-          <div className="info-display-box">
-            <span className="info-display-text">{data.phoneNumber}</span>
-            <FieldCopyButton value={data.phoneNumber} />
-          </div>
-        </div>
+        <div className="full-details-form-grid">
+          <FieldDisplayBox label="Petitioner Name" value={data.petitionerName} />
+          <FieldDisplayBox label="Email" value={data.email} />
+          
+          <FieldDisplayBox label="Phone Number" value={data.phoneNumber} />
+          <FieldDisplayBox label="Is this your own number" value={data.isOwnNumber} />
+          
+          <FieldDisplayBox label="Alternate Phone Number" value={data.alternatePhone} />
+          <FieldDisplayBox label="Gender" value={data.gender} />
 
-        {/* Row 2: Address (Full Width) */}
-        <div className="form-item-wrapper col-full">
-          <label className="form-item-label">Address</label>
-          <div className="info-display-box multiline-box">
-            <span className="info-display-text">{data.address}</span>
-            <FieldCopyButton value={data.address} />
-          </div>
-        </div>
+          <FieldDisplayBox label="Address" value={data.address} isFullWidth isMultiline />
 
-        {/* Row 3: Main Grievance (Full Width) */}
-        <div className="form-item-wrapper col-full">
-          <label className="form-item-label">Main Grievance</label>
-          <div className="info-display-box multiline-box">
-            <span className="info-display-text">{data.mainGrievance}</span>
-            <FieldCopyButton value={data.mainGrievance} />
-          </div>
+          <FieldDisplayBox label="Differently Abled Person" value={data.differentlyAbled} />
+          <FieldDisplayBox label="Petitioner Category" value={data.petitionerCategory} />
         </div>
-
-        {/* Row 4: Location (Col 1) & Reference Number (Col 2) */}
-        <div className="form-item-wrapper col-half">
-          <label className="form-item-label">Location</label>
-          <div className="info-display-box">
-            <span className="info-display-text">{data.location}</span>
-            <FieldCopyButton value={data.location} />
-          </div>
-        </div>
-
-        <div className="form-item-wrapper col-half">
-          <label className="form-item-label">Reference Number</label>
-          <div className="info-display-box">
-            <span className="info-display-text">{data.referenceNumber}</span>
-            <FieldCopyButton value={data.referenceNumber} />
-          </div>
-        </div>
-
-        {/* Row 5: Suggested Department (Full Width) */}
-        <div className="form-item-wrapper col-full">
-          <label className="form-item-label">Suggested Department</label>
-          <div className="info-display-box">
-            <span className="info-display-text">{data.suggestedDepartment}</span>
-            <FieldCopyButton value={data.suggestedDepartment} />
-          </div>
-        </div>
-
-        {/* Row 6: Requested Action (Full Width) */}
-        <div className="form-item-wrapper col-full">
-          <label className="form-item-label">Requested Action</label>
-          <div className="info-display-box multiline-box">
-            <span className="info-display-text">{data.requestedAction}</span>
-            <FieldCopyButton value={data.requestedAction} />
-          </div>
-        </div>
-
       </div>
+
+      {/* =========================================================================
+          2. GRIEVANCE DETAILS
+          ========================================================================= */}
+      <div className="portal-sub-section">
+        <div className="portal-sub-section-header">
+          <span className="portal-section-badge">2</span>
+          <h5 className="portal-section-title">GRIEVANCE DETAILS</h5>
+        </div>
+
+        <div className="full-details-form-grid">
+          <FieldDisplayBox label="Description" value={data.description} isFullWidth isMultiline />
+          
+          <FieldDisplayBox label="Grievance Source" value={data.grievanceSource} />
+          <FieldDisplayBox label="Reference Number" value={data.referenceNumber} />
+
+          <FieldDisplayBox label="Government Department" value={data.governmentDepartment} />
+          <FieldDisplayBox label="Local Body Type" value={data.localBodyType} />
+
+          <FieldDisplayBox label="Grievance Type" value={data.grievanceType} />
+          <FieldDisplayBox label="Grievance Sub Type" value={data.grievanceSubType} />
+
+          <FieldDisplayBox label="District" value={data.district} />
+          <FieldDisplayBox label="Sub Department" value={data.subDepartment} />
+
+          <FieldDisplayBox label="Ward" value={data.ward} />
+          <FieldDisplayBox label="Municipality Ward" value={data.municipalityWard} />
+
+          <FieldDisplayBox label="Block" value={data.block} />
+          <FieldDisplayBox label="Taluk" value={data.taluk} />
+
+          <FieldDisplayBox label="Revenue Division" value={data.revenueDivision} />
+          <FieldDisplayBox label="Firka" value={data.firka} />
+
+          <FieldDisplayBox label="Street Name" value={data.streetName} />
+          <FieldDisplayBox label="Door Number" value={data.doorNumber} />
+
+          <FieldDisplayBox label="Responsible Officer" value={data.responsibleOfficer} isFullWidth />
+
+          <FieldDisplayBox label="Fisheries Region" value={data.fisheriesRegion} />
+          <FieldDisplayBox label="Fisheries Division" value={data.fisheriesDivision} />
+
+          <FieldDisplayBox label="Reason for Redirection" value={data.reasonForRedirection} isFullWidth isMultiline />
+        </div>
+      </div>
+
+      {/* =========================================================================
+          3. COMMUNICATION ADDRESS
+          ========================================================================= */}
+      <div className="portal-sub-section">
+        <div className="portal-sub-section-header">
+          <span className="portal-section-badge">3</span>
+          <h5 className="portal-section-title">COMMUNICATION ADDRESS</h5>
+        </div>
+
+        <div className="full-details-form-grid">
+          <FieldDisplayBox 
+            label="Communication Address Same as Petitioner Address" 
+            value={data.communicationAddressSame} 
+            isFullWidth
+          />
+          <FieldDisplayBox 
+            label="Communication Address" 
+            value={data.communicationAddress} 
+            isFullWidth 
+            isMultiline
+          />
+        </div>
+      </div>
+
+      {/* =========================================================================
+          4. GRIEVANCE STATUS
+          ========================================================================= */}
+      <div className="portal-sub-section">
+        <div className="portal-sub-section-header">
+          <span className="portal-section-badge">4</span>
+          <h5 className="portal-section-title">GRIEVANCE STATUS</h5>
+        </div>
+
+        <div className="full-details-form-grid">
+          <FieldDisplayBox label="Due Date" value={data.dueDate} />
+          <FieldDisplayBox label="Status" value={data.status} />
+
+          <FieldDisplayBox label="Source Code" value={data.sourceCode} />
+          <FieldDisplayBox label="Grievance ID" value={data.grievanceId} />
+
+          <FieldDisplayBox label="Priority" value={data.priority} />
+          <FieldDisplayBox label="Call Disposition" value={data.callDisposition} />
+
+          <FieldDisplayBox label="Is WhatsApp Appeal" value={data.isWhatsappAppeal} />
+          <FieldDisplayBox label="Is WhatsApp Tracking" value={data.isWhatsappTracking} />
+
+          <FieldDisplayBox label="Is WhatsApp Receipt" value={data.isWhatsappReceipt} />
+        </div>
+      </div>
+
+      {/* =========================================================================
+          5. EX-ARMY PETITION DETAILS
+          ========================================================================= */}
+      <div className="portal-sub-section">
+        <div className="portal-sub-section-header">
+          <span className="portal-section-badge">5</span>
+          <h5 className="portal-section-title">EX-ARMY PETITION DETAILS</h5>
+        </div>
+
+        <div className="full-details-form-grid">
+          <FieldDisplayBox label="Relationship with Ex-Servicemen" value={data.relationshipWithExServicemen} />
+        </div>
+      </div>
+
     </div>
   );
 }

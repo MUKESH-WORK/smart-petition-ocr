@@ -903,16 +903,62 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  border-bottom: 1px solid var(--border-subtle);
+  border-bottom: 1.5px solid var(--navy-800);
   padding-bottom: 6px;
-  margin-bottom: 2px;
+  margin-bottom: 4px;
 }
 
 .full-details-main-heading {
-  font-size: var(--font-size-label, 0.95rem);
+  font-size: var(--font-size-title, 1.05rem);
   font-weight: 800;
   letter-spacing: 0.05em;
   color: var(--navy-900);
+  text-transform: uppercase;
+  margin: 0;
+}
+
+/* Compact Portal Sub Sections */
+.portal-sub-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 6px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.portal-sub-section:first-of-type {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+}
+
+.portal-sub-section-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 2px;
+}
+
+.portal-section-badge {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background-color: var(--navy-900);
+  color: #FFFFFF;
+  font-size: 0.72rem;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.portal-section-title {
+  font-size: 0.88rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: var(--navy-850);
   text-transform: uppercase;
   margin: 0;
 }
@@ -933,7 +979,7 @@
 
 .form-item-wrapper.col-half {
   flex: 1 1 calc(50% - (var(--space-fields, 10px) / 2));
-  min-width: 200px;
+  min-width: 220px;
 }
 
 .form-item-wrapper.col-full {
@@ -969,6 +1015,11 @@
   min-height: 42px;
 }
 
+.info-display-box.box-not-found {
+  background-color: #F8FAFC;
+  border-color: #E2E8F0;
+}
+
 .info-display-text {
   font-size: var(--font-size-body, 1rem);
   color: var(--navy-950);
@@ -977,6 +1028,12 @@
   word-break: break-word;
   white-space: pre-wrap;
   flex: 1;
+}
+
+.info-display-text.text-not-found {
+  color: #94A3B8;
+  font-style: italic;
+  font-weight: 400;
 }
 
 .field-inline-copy-btn {
@@ -998,10 +1055,18 @@
   user-select: none;
 }
 
-.field-inline-copy-btn:hover {
+.field-inline-copy-btn:hover:not(:disabled) {
   background-color: var(--navy-50);
   border-color: var(--navy-700);
   color: var(--navy-900);
+}
+
+.field-inline-copy-btn.disabled-copy-btn {
+  opacity: 0.4;
+  cursor: not-allowed;
+  background-color: #F1F5F9;
+  border-color: #E2E8F0;
+  color: #94A3B8;
 }
 
 .field-inline-copy-btn.copied {
