@@ -16,39 +16,39 @@
   z-index: 40;
   overflow: hidden;
   box-sizing: border-box;
-  padding: 14px 10px 14px 10px;
+  padding: 12px 10px;
 }
 
 .app-sidebar.sidebar-expanded {
-  width: 210px;
+  width: 220px;
 }
 
 .app-sidebar.sidebar-collapsed {
   width: 60px;
-  padding: 14px 6px 14px 6px;
+  padding: 12px 6px;
 }
 
 /* 1. Top Section */
 .sidebar-top-section {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--space-sections);
   flex-shrink: 0;
 }
 
 /* 2. Flexible Middle Spacer */
 .sidebar-spacer {
   flex: 1;
-  min-height: 20px;
+  min-height: 15px;
 }
 
 /* 3. Bottom Section (Anchored to base) */
 .sidebar-bottom-section {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
   flex-shrink: 0;
-  padding-top: 10px;
+  padding-top: var(--space-sections);
   border-top: 1px solid rgba(255, 255, 255, 0.1);
 }
 
@@ -56,7 +56,7 @@
 .sidebar-nav-list {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
   width: 100%;
 }
 
@@ -65,7 +65,7 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 10px 12px;
+  padding: 8px 12px;
   border-radius: var(--radius-md);
   color: #CBD5E1;
   background: transparent;
@@ -115,14 +115,14 @@
 }
 
 .sidebar-item-label {
-  font-size: 0.84rem;
+  font-size: var(--font-size-label);
   font-weight: 600;
   white-space: nowrap;
-  line-height: 1.2;
+  line-height: 1.25;
 }
 
 .sidebar-item-sub {
-  font-size: 0.65rem;
+  font-size: var(--font-size-btn-secondary);
   color: #94A3B8;
   white-space: nowrap;
   margin-top: 2px;
@@ -151,7 +151,7 @@
 /* Collapsed Mode */
 .sidebar-collapsed .sidebar-nav-item {
   justify-content: center;
-  padding: 10px 0;
+  padding: 8px 0;
   gap: 0;
 }
 

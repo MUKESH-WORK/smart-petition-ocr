@@ -7,7 +7,13 @@ import {
   RotateCcw
 } from 'lucide-react';
 import CopyButton from '../common/CopyButton';
-import { getSmartAssistantReply, getContextualSuggestions } from '../../data/mockPetitions';
+import FullDetailsFormResponse from './FullDetailsFormResponse';
+import { 
+  getSmartAssistantReply, 
+  getContextualSuggestions,
+  extractPetitionDetails,
+  isFullDetailsQuery
+} from '../../data/mockPetitions';
 import './Workspace.css';
 
 export default function SummaryChatView({ petition, onLogUserMessage }) {
@@ -73,16 +79,31 @@ export default function SummaryChatView({ petition, onLogUserMessage }) {
       textareaRef.current.style.height = 'auto';
     }
 
+    const isFullDetails = isFullDetailsQuery(query);
+
     // Fast simulated AI document understanding response
     setTimeout(() => {
-      const replyText = getSmartAssistantReply(query, petition);
-      const assistantMessage = {
-        id: `msg-ai-${Date.now()}`,
-        sender: 'assistant',
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        text: replyText
-      };
-      setConversation((prev) => [...prev, assistantMessage]);
+      if (isFullDetails) {
+        const details = extractPetitionDetails(petition);
+        const assistantMessage = {
+          id: `msg-ai-${Date.now()}`,
+          sender: 'assistant',
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          isFullDetails: true,
+          details: details
+        };
+        setConversation((prev) => [...prev, assistantMessage]);
+      } else {
+        const replyText = getSmartAssistantReply(query, petition);
+        const assistantMessage = {
+          id: `msg-ai-${Date.now()}`,
+          sender: 'assistant',
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          isFullDetails: false,
+          text: replyText
+        };
+        setConversation((prev) => [...prev, assistantMessage]);
+      }
       setIsTyping(false);
     }, 380);
   };
@@ -109,6 +130,7 @@ export default function SummaryChatView({ petition, onLogUserMessage }) {
 
   // Helper to render bold text and clean linebreaks
   const renderMessageContent = (text) => {
+    if (!text) return null;
     const lines = text.split('\n');
     return lines.map((line, lineIdx) => {
       const parts = line.split(/(\*\*.*?\*\*)/g);
@@ -181,16 +203,22 @@ export default function SummaryChatView({ petition, onLogUserMessage }) {
                     <span className="meta-time">{msg.timestamp}</span>
                   </div>
 
-                  <div className={`message-bubble ${isOfficer ? 'bubble-officer' : 'bubble-ai'}`}>
-                    <div className="bubble-text">
-                      {renderMessageContent(msg.text)}
+                  {msg.isFullDetails ? (
+                    <div className="message-bubble bubble-ai full-details-bubble">
+                      <FullDetailsFormResponse initialDetails={msg.details} />
                     </div>
-                    {!isOfficer && (
-                      <div className="bubble-footer-actions">
-                        <CopyButton textToCopy={msg.text} label="Copy Answer" className="compact-copy-btn" />
+                  ) : (
+                    <div className={`message-bubble ${isOfficer ? 'bubble-officer' : 'bubble-ai'}`}>
+                      <div className="bubble-text">
+                        {renderMessageContent(msg.text)}
                       </div>
-                    )}
-                  </div>
+                      {!isOfficer && (
+                        <div className="bubble-footer-actions">
+                          <CopyButton textToCopy={msg.text} label="Copy Answer" className="compact-copy-btn" />
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
             );
