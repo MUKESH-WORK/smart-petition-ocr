@@ -16,7 +16,7 @@ import {
 } from '../../data/mockPetitions';
 import './Workspace.css';
 
-export default function SummaryChatView({ petition }) {
+export default function SummaryChatView({ petition, onLogUserMessage }) {
   const [conversation, setConversation] = useState([]);
   const [inputValue, setInputValue] = useState('');
   const [isTyping, setIsTyping] = useState(false);
@@ -27,7 +27,7 @@ export default function SummaryChatView({ petition }) {
   const conversationScrollRef = useRef(null);
   const textareaRef = useRef(null);
 
-  // Auto-scroll ONLY when new messages arrive (does not force-scroll on initial load)
+  // Auto-scroll ONLY when new messages arrive
   useEffect(() => {
     if (conversationScrollRef.current && (conversation.length > 0 || isTyping)) {
       conversationScrollRef.current.scrollTo({
@@ -58,6 +58,11 @@ export default function SummaryChatView({ petition }) {
 
     // Record this query as used to avoid repeating chips
     setUsedPrompts((prev) => new Set([...prev, query.toLowerCase().trim()]));
+
+    // Log ONLY user message to Audit Trail
+    if (onLogUserMessage) {
+      onLogUserMessage(query, petition);
+    }
 
     const userMessage = {
       id: `msg-user-${Date.now()}`,
@@ -150,7 +155,7 @@ export default function SummaryChatView({ petition }) {
   return (
     <div className="workspace-ai-panel-inner">
       
-      {/* SCROLLABLE CONVERSATION AREA (Contains Summary as First Message + All Chat Messages) */}
+      {/* SCROLLABLE CONVERSATION AREA */}
       <div className="conversation-messages-scroll-area" ref={conversationScrollRef}>
         <div className="conversation-stream">
           
@@ -235,7 +240,7 @@ export default function SummaryChatView({ petition }) {
         </div>
       </div>
 
-      {/* 3. BOTTOM SECTION: Stationary Nexus-UI Style Prompt Input & Contextual Chips */}
+      {/* 3. BOTTOM SECTION: Prompt Input & Contextual Chips */}
       <div className="workspace-bottom-composer-dock">
         
         {/* Dynamic Contextual Prompt Chips */}

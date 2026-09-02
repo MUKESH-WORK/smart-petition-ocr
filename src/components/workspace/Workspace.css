@@ -183,6 +183,31 @@
   border-bottom: 1px solid #334155;
 }
 
+.drawer-header-centered {
+  justify-content: center;
+}
+
+.page-nav-centered {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+}
+
+.page-nav-centered .page-indicator {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #F8FAFC;
+  padding: 0 8px;
+  letter-spacing: 0.04em;
+}
+
+.page-nav-centered .toolbar-btn {
+  width: 28px;
+  height: 28px;
+}
+
+
 .drawer-title-group {
   display: flex;
   align-items: center;
