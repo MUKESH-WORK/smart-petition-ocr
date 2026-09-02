@@ -17,10 +17,10 @@
   width: 100%;
   max-width: 1120px;
   margin: 0 auto;
-  padding: 28px 32px;
+  padding: 20px 24px;
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: var(--space-sections);
   box-sizing: border-box;
 }
 
@@ -31,25 +31,25 @@
   justify-content: space-between;
   gap: 16px;
   border-bottom: 1px solid var(--border-subtle);
-  padding-bottom: 16px;
+  padding-bottom: 12px;
 }
 
 .audit-title-group {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--gap-label-input);
 }
 
 .audit-page-title {
-  font-size: 1.5rem;
+  font-size: var(--font-size-title);
   font-weight: 700;
   color: var(--navy-900);
-  letter-spacing: -0.02em;
+  letter-spacing: -0.01em;
   margin: 0;
 }
 
 .audit-page-subtext {
-  font-size: 0.85rem;
+  font-size: var(--font-size-body);
   color: var(--text-muted);
   margin: 0;
 }
@@ -61,12 +61,12 @@
 }
 
 .clear-filters-btn {
-  font-size: 0.76rem;
+  font-size: var(--font-size-btn-secondary);
   font-weight: 600;
   color: var(--navy-700);
   background-color: var(--navy-50);
   border: 1px solid var(--navy-200);
-  padding: 5px 12px;
+  padding: 6px 14px;
   border-radius: var(--radius-md);
   cursor: pointer;
   transition: all var(--transition-fast);
@@ -83,7 +83,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: var(--space-sections);
   flex-wrap: wrap;
 }
 
@@ -97,7 +97,7 @@
   background-color: var(--bg-surface);
   border: 1.5px solid var(--border-medium);
   border-radius: var(--radius-lg);
-  padding: 7px 12px;
+  padding: 6px 12px;
   box-shadow: var(--shadow-xs);
   transition: all var(--transition-fast);
 }
@@ -118,7 +118,7 @@
   outline: none !important;
   box-shadow: none !important;
   background: transparent;
-  font-size: 0.84rem;
+  font-size: var(--font-size-body);
   color: var(--text-primary);
   font-family: inherit;
   padding: 0;
@@ -146,13 +146,13 @@
 .audit-filter-chips {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
 }
 
 .filter-chip-btn {
-  padding: 5px 14px;
+  padding: 6px 14px;
   border-radius: var(--radius-pill);
-  font-size: 0.78rem;
+  font-size: var(--font-size-btn-secondary);
   font-weight: 600;
   color: var(--text-secondary);
   background-color: var(--bg-surface);
@@ -177,11 +177,11 @@
 .audit-records-section {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--space-sections);
 }
 
 .audit-records-count-label {
-  font-size: 0.75rem;
+  font-size: var(--font-size-label);
   font-weight: 700;
   letter-spacing: 0.05em;
   color: var(--text-muted);
@@ -193,11 +193,11 @@
   border: 1px solid var(--border-subtle);
   border-left: 4px solid var(--navy-900);
   border-radius: var(--radius-lg);
-  padding: 16px 20px;
+  padding: var(--card-padding);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: 14px;
   box-shadow: var(--shadow-xs);
   cursor: pointer;
   transition: all var(--transition-fast);
@@ -218,14 +218,14 @@
 .record-main-col {
   display: flex;
   align-items: flex-start;
-  gap: 14px;
+  gap: 12px;
   flex: 1;
   min-width: 0;
 }
 
 .record-doc-icon-box {
-  width: 38px;
-  height: 38px;
+  width: 36px;
+  height: 36px;
   border-radius: var(--radius-md);
   background-color: var(--navy-50);
   border: 1px solid var(--navy-200);
@@ -240,7 +240,7 @@
 .record-text-details {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--gap-label-input);
   flex: 1;
   min-width: 0;
 }
@@ -253,13 +253,13 @@
 }
 
 .record-file-name {
-  font-size: 0.92rem;
+  font-size: var(--font-size-body);
   font-weight: 700;
   color: var(--navy-900);
 }
 
 .record-id-badge {
-  font-size: 0.68rem;
+  font-size: var(--font-size-btn-secondary);
   font-weight: 700;
   background-color: var(--bg-subtle);
   color: var(--text-secondary);
@@ -269,7 +269,7 @@
 }
 
 .record-current-tag {
-  font-size: 0.65rem;
+  font-size: var(--font-size-btn-secondary);
   font-weight: 700;
   text-transform: uppercase;
   background-color: #ECFDF5;
@@ -280,9 +280,9 @@
 }
 
 .record-summary-text {
-  font-size: 0.82rem;
+  font-size: var(--font-size-body);
   color: var(--text-secondary);
-  line-height: 1.4;
+  line-height: 1.45;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
@@ -293,7 +293,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 0.72rem;
+  font-size: var(--font-size-btn-secondary);
   color: var(--text-muted);
   margin-top: 2px;
   flex-wrap: wrap;
@@ -314,7 +314,7 @@
 .record-right-col {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   flex-shrink: 0;
 }
 
@@ -326,7 +326,7 @@
   background-color: #ECFDF5;
   border: 1px solid #A7F3D0;
   border-radius: var(--radius-pill);
-  font-size: 0.72rem;
+  font-size: var(--font-size-btn-secondary);
   font-weight: 600;
   color: #047857;
 }
@@ -346,49 +346,49 @@
   background-color: var(--bg-surface);
   border: 2px dashed var(--border-medium);
   border-radius: var(--radius-xl);
-  padding: 48px 24px;
+  padding: 36px 20px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   text-align: center;
-  gap: 10px;
-  margin-top: 10px;
+  gap: var(--space-sections);
+  margin-top: 6px;
 }
 
 .audit-empty-icon-box {
-  width: 52px;
-  height: 52px;
+  width: 48px;
+  height: 48px;
   border-radius: 50%;
   background-color: var(--navy-50);
   color: var(--navy-700);
   display: flex;
   align-items: center;
   justify-content: center;
-  margin-bottom: 4px;
+  margin-bottom: 2px;
 }
 
 .audit-empty-title {
-  font-size: 1.1rem;
+  font-size: var(--font-size-title);
   font-weight: 700;
   color: var(--navy-900);
   margin: 0;
 }
 
 .audit-empty-subtext {
-  font-size: 0.85rem;
+  font-size: var(--font-size-body);
   color: var(--text-muted);
   max-width: 360px;
   margin: 0;
 }
 
 .audit-go-gdp-btn {
-  margin-top: 10px;
+  margin-top: 6px;
   background-color: var(--navy-900);
   color: #FFFFFF;
-  padding: 8px 20px;
+  padding: 8px 22px;
   border-radius: var(--radius-md);
-  font-size: 0.82rem;
+  font-size: var(--font-size-btn-primary);
   font-weight: 600;
   border: none;
   cursor: pointer;
