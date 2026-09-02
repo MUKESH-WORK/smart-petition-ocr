@@ -4,15 +4,7 @@ import {
   Square,
   Bot, 
   User, 
-  RotateCcw, 
-  CheckCircle2, 
-  Languages, 
-  Layers, 
-  FileCode, 
-  ChevronDown, 
-  ChevronUp, 
-  Copy, 
-  Check
+  RotateCcw
 } from 'lucide-react';
 import CopyButton from '../common/CopyButton';
 import { getSmartAssistantReply, getContextualSuggestions } from '../../data/mockPetitions';
@@ -22,8 +14,6 @@ export default function SummaryChatView({ petition }) {
   const [conversation, setConversation] = useState([]);
   const [inputValue, setInputValue] = useState('');
   const [isTyping, setIsTyping] = useState(false);
-  const [showRawOcr, setShowRawOcr] = useState(false);
-  const [rawOcrCopied, setRawOcrCopied] = useState(false);
   
   // Track prompts that have been clicked/asked in this session
   const [usedPrompts, setUsedPrompts] = useState(new Set());
@@ -112,16 +102,6 @@ export default function SummaryChatView({ petition }) {
     setUsedPrompts(new Set());
   };
 
-  const handleCopyRawOcr = async () => {
-    try {
-      await navigator.clipboard.writeText(petition.rawOcrText);
-      setRawOcrCopied(true);
-      setTimeout(() => setRawOcrCopied(false), 2000);
-    } catch (err) {
-      console.error('Failed to copy raw text:', err);
-    }
-  };
-
   // Helper to render bold text and clean linebreaks
   const renderMessageContent = (text) => {
     const lines = text.split('\n');
@@ -146,120 +126,18 @@ export default function SummaryChatView({ petition }) {
   const isInitialState = conversation.length === 0;
 
   return (
-    <div className="right-ai-panel-inner">
+    <div className="workspace-ai-panel-inner">
       
       {/* SCROLLABLE CONVERSATION AREA (Contains Summary as First Message + All Chat Messages) */}
       <div className="conversation-messages-scroll-area" ref={conversationScrollRef}>
         <div className="conversation-stream">
           
-          {/* 1. FIRST AI MESSAGE: Automatic Summary & Analysis Card */}
+          {/* 1. FIRST AI MESSAGE: Clean Simple Summary Card */}
           <div className="conversation-summary-message">
             <div className="compact-summary-card">
-              
-              <div className="summary-card-header">
-                <div className="summary-header-left">
-                  <div className="summary-ai-badge">
-                    <Bot size={14} />
-                    <span>Petition Assistant</span>
-                  </div>
-                  <span className="summary-tag-status">
-                    <CheckCircle2 size={12} />
-                    <span>Document analysis completed</span>
-                  </span>
-                </div>
-
-                {/* Collapsible Raw OCR Toggle Button */}
-                <button 
-                  type="button" 
-                  className={`raw-ocr-toggle-btn ${showRawOcr ? 'active' : ''}`}
-                  onClick={() => setShowRawOcr(!showRawOcr)}
-                  title="View or hide full OCR-extracted raw text"
-                >
-                  <FileCode size={13} />
-                  <span>{showRawOcr ? 'Hide Raw OCR Text' : 'View Extracted Text'}</span>
-                  {showRawOcr ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
-                </button>
-              </div>
-
-              <div className="summary-card-content">
-                <div className="summary-title-label">SUMMARY</div>
-                <p className="summary-main-text">{petition.summary}</p>
-              </div>
-
-              {/* Compact Metadata Strip */}
-              <div className="compact-meta-strip">
-                <div className="meta-strip-item">
-                  <Languages size={13} className="meta-icon" />
-                  <span className="meta-label">Language:</span>
-                  <span className="meta-value">{petition.language}</span>
-                </div>
-                <span className="meta-sep">•</span>
-
-                <div className="meta-strip-item">
-                  <Layers size={13} className="meta-icon" />
-                  <span className="meta-label">Pages:</span>
-                  <span className="meta-value">{petition.totalPages}</span>
-                </div>
-                <span className="meta-sep">•</span>
-
-                <div className="meta-strip-item">
-                  <span className="meta-label">OCR:</span>
-                  <span className="meta-value font-semibold text-green">Complete</span>
-                </div>
-                <span className="meta-sep">•</span>
-
-                <div className="meta-strip-item">
-                  <span className="meta-label">Confidence:</span>
-                  <span className="meta-value font-bold text-navy">{petition.confidenceScore}%</span>
-                </div>
-              </div>
-
+              <div className="summary-title-label">SUMMARY</div>
+              <p className="summary-main-text">{petition.summary}</p>
             </div>
-
-            {/* Collapsible Raw OCR Text Panel */}
-            {showRawOcr && (
-              <div className="raw-ocr-panel">
-                <div className="raw-ocr-panel-header">
-                  <div className="raw-ocr-title-group">
-                    <FileCode size={14} className="raw-ocr-icon" />
-                    <span className="raw-ocr-title">Raw OCR Extracted Text</span>
-                    <span className="raw-ocr-subtitle">(Direct transcript from scanned document)</span>
-                  </div>
-
-                  <div className="raw-ocr-actions">
-                    <button 
-                      type="button" 
-                      className="raw-ocr-copy-btn"
-                      onClick={handleCopyRawOcr}
-                      title="Copy full OCR text"
-                    >
-                      {rawOcrCopied ? (
-                        <>
-                          <Check size={12} className="text-green" />
-                          <span>Copied</span>
-                        </>
-                      ) : (
-                        <>
-                          <Copy size={12} />
-                          <span>Copy Text</span>
-                        </>
-                      )}
-                    </button>
-                    <button 
-                      type="button" 
-                      className="raw-ocr-collapse-btn"
-                      onClick={() => setShowRawOcr(false)}
-                    >
-                      Collapse
-                    </button>
-                  </div>
-                </div>
-
-                <pre className="raw-ocr-text-block">
-                  {petition.rawOcrText}
-                </pre>
-              </div>
-            )}
           </div>
 
           {/* Reset Chat Control when conversation has started */}

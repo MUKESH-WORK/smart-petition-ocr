@@ -1,5 +1,5 @@
 import React from 'react';
-import { FileText, PlusCircle, CheckCircle2 } from 'lucide-react';
+import { FileText, PlusCircle } from 'lucide-react';
 import './Workspace.css';
 
 export default function WorkspaceHeader({
@@ -9,21 +9,11 @@ export default function WorkspaceHeader({
   return (
     <div className="workspace-header-bar">
       
-      {/* Left: Petition Meta Identity */}
+      {/* Left: Document Name Only */}
       <div className="workspace-header-left">
-        <div className="petition-id-chip">
-          <span className="id-label">Petition</span>
-          <span className="id-number font-mono">#{petition.id}</span>
-        </div>
-
-        <div className="petition-file-name" title={petition.fileName}>
-          <FileText size={15} className="file-icon" />
-          <span className="file-name-text">{petition.fileName}</span>
-        </div>
-
-        <div className="petition-status-pill" title="Optical Character Recognition & Document Understanding Completed">
-          <span className="status-dot"></span>
-          <span className="status-text">{petition.status}</span>
+        <div className="petition-file-name" title={petition?.fileName}>
+          <FileText size={16} className="file-icon" />
+          <span className="file-name-text">{petition?.fileName}</span>
         </div>
       </div>
 

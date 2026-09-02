@@ -24,7 +24,7 @@ export default function App() {
   // Session audit records list (Maintains real processed documents in current session)
   const [auditRecords, setAuditRecords] = useState([]);
   
-  // Document Drawer state (Stationary left panel open/collapsed in workspace)
+  // Document Drawer state (Right panel open/collapsed in workspace)
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   
   // Sidebar collapsed state
@@ -131,7 +131,7 @@ export default function App() {
                 />
               )}
 
-              {/* GDP View 3: Two-Panel Petition Workspace (Fixed Desktop Layout) */}
+              {/* GDP View 3: Two-Panel Petition Workspace (Left: Chat+Summary, Right: Document) */}
               {viewState === 'workspace' && activePetition && (
                 <div className="workspace-layout">
                   
@@ -144,14 +144,14 @@ export default function App() {
                   {/* True Two-Panel Body Split (Remaining Viewport Height, No Body Scroll) */}
                   <div className="workspace-body-split">
                     
-                    {/* Left Original Petition Panel (Stationary) */}
-                    <DocumentDrawer
-                      isOpen={isDrawerOpen}
-                      onClose={() => setIsDrawerOpen(false)}
-                      petition={activePetition}
-                    />
+                    {/* 1. Left AI Workspace Panel (Summary & Chat in Scrollable Area + Stationary Input) */}
+                    <section className="left-ai-panel" aria-label="AI Document Assistant">
+                      <SummaryChatView
+                        petition={activePetition}
+                      />
+                    </section>
 
-                    {/* Vertically-Centered Toggle Handle (Fixed at Panel Edge) */}
+                    {/* 2. Vertically-Centered Toggle Handle (Anchored to Right Panel Left Edge) */}
                     <button
                       type="button"
                       className={`panel-toggle-handle ${isDrawerOpen ? 'handle-panel-open' : 'handle-panel-collapsed'}`}
@@ -160,21 +160,21 @@ export default function App() {
                       aria-label={isDrawerOpen ? "Collapse Original Petition" : "Open Original Petition"}
                     >
                       {isDrawerOpen ? (
-                        <ChevronLeft size={15} className="handle-chevron" />
-                      ) : (
                         <ChevronRight size={15} className="handle-chevron" />
+                      ) : (
+                        <ChevronLeft size={15} className="handle-chevron" />
                       )}
                       <span className="panel-toggle-handle-text">
                         {isDrawerOpen ? 'Close' : 'Original Petition'}
                       </span>
                     </button>
 
-                    {/* Right AI Workspace Panel (Summary & Chat in Scrollable Area + Stationary Input) */}
-                    <section className="right-ai-panel" aria-label="AI Document Assistant">
-                      <SummaryChatView
-                        petition={activePetition}
-                      />
-                    </section>
+                    {/* 3. Right Original Petition Panel (Stationary) */}
+                    <DocumentDrawer
+                      isOpen={isDrawerOpen}
+                      onClose={() => setIsDrawerOpen(false)}
+                      petition={activePetition}
+                    />
 
                   </div>
 

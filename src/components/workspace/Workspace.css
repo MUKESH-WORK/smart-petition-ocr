@@ -65,7 +65,7 @@
   font-size: 0.84rem;
   font-weight: 600;
   color: var(--text-primary);
-  max-width: 260px;
+  max-width: 450px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -132,8 +132,9 @@
 }
 
 /* --------------------------------------------------------------------------
-   1. LEFT ORIGINAL PETITION PANEL (STATIONARY, INDEPENDENT SCROLL)
+   1. RIGHT ORIGINAL PETITION PANEL (STATIONARY, INDEPENDENT SCROLL)
    -------------------------------------------------------------------------- */
+.right-document-panel,
 .left-document-panel {
   height: 100%;
   min-height: 0;
@@ -142,21 +143,24 @@
   flex-direction: column;
   overflow: hidden;
   background-color: #1E293B;
-  border-right: 1px solid #334155;
+  border-left: 1px solid #334155;
   position: relative;
   z-index: 30;
   transition: width 220ms ease-out;
 }
 
+.right-document-panel.panel-open,
 .left-document-panel.panel-open {
   width: 460px;
 }
 
+.right-document-panel.panel-collapsed,
 .left-document-panel.panel-collapsed {
   width: 0;
-  border-right: none;
+  border-left: none;
 }
 
+.right-panel-inner,
 .left-panel-inner {
   width: 460px;
   height: 100%;
@@ -166,7 +170,7 @@
   overflow: hidden;
 }
 
-/* Document Toolbar — Fixed stationary at top of left panel */
+/* Document Toolbar — Fixed stationary at top of panel */
 .drawer-header {
   height: 48px;
   background-color: var(--navy-900);
@@ -350,7 +354,7 @@
   color: #94A3B8;
 }
 
-/* Read-Only Footer — Fixed stationary at bottom of left panel */
+/* Read-Only Footer — Fixed stationary at bottom of panel */
 .drawer-bottom-hint {
   height: 32px;
   background-color: var(--navy-900);
@@ -369,7 +373,7 @@
 }
 
 /* --------------------------------------------------------------------------
-   2. VERTICALLY-CENTERED TOGGLE HANDLE (ANCHORED TO PANEL BOUNDARY)
+   2. VERTICALLY-CENTERED TOGGLE HANDLE (ANCHORED TO RIGHT PANEL LEFT EDGE)
    -------------------------------------------------------------------------- */
 .panel-toggle-handle {
   position: absolute;
@@ -379,32 +383,34 @@
   background-color: var(--navy-900);
   color: #FFFFFF;
   border: 1px solid var(--navy-800);
-  border-left: none;
-  border-top-right-radius: var(--radius-lg);
-  border-bottom-right-radius: var(--radius-lg);
+  border-right: none;
+  border-top-left-radius: var(--radius-lg);
+  border-bottom-left-radius: var(--radius-lg);
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
   padding: 14px 7px;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 8px;
   cursor: pointer;
-  box-shadow: 3px 0 12px rgba(10, 37, 64, 0.18);
-  transition: left 220ms ease-out, background-color var(--transition-fast), padding var(--transition-fast);
+  box-shadow: -3px 0 12px rgba(10, 37, 64, 0.18);
+  transition: right 220ms ease-out, background-color var(--transition-fast), padding var(--transition-fast);
   user-select: none;
 }
 
 .panel-toggle-handle:hover {
   background-color: var(--orange-500);
-  padding-right: 9px;
+  padding-left: 9px;
 }
 
 .panel-toggle-handle.handle-panel-open {
-  left: 460px;
+  right: 460px;
   background-color: var(--orange-500);
 }
 
 .panel-toggle-handle.handle-panel-collapsed {
-  left: 0;
+  right: 0;
   background-color: var(--navy-900);
 }
 
@@ -424,8 +430,9 @@
 }
 
 /* --------------------------------------------------------------------------
-   3. RIGHT AI WORKSPACE PANEL (TRUE 3-TIER DESKTOP COMPONENT)
+   3. LEFT AI WORKSPACE PANEL (SUMMARY + CHAT)
    -------------------------------------------------------------------------- */
+.left-ai-panel,
 .right-ai-panel {
   flex: 1;
   min-width: 0;
@@ -438,6 +445,7 @@
   position: relative;
 }
 
+.workspace-ai-panel-inner,
 .right-ai-panel-inner {
   height: 100%;
   width: 100%;
@@ -466,77 +474,20 @@
   box-shadow: var(--shadow-sm);
 }
 
-.summary-card-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 6px;
-}
-
-.summary-header-left {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.summary-ai-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  background-color: var(--navy-900);
-  color: #FFFFFF;
-  padding: 2px 8px;
-  border-radius: var(--radius-sm);
-  font-size: 0.72rem;
-  font-weight: 700;
-}
-
-.summary-tag-status {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 0.72rem;
-  font-weight: 600;
-  color: #047857;
-  background-color: #ECFDF5;
-  padding: 2px 7px;
-  border-radius: var(--radius-sm);
-}
-
-.raw-ocr-toggle-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 0.74rem;
-  font-weight: 600;
-  color: var(--navy-700);
-  background-color: var(--navy-50);
-  border: 1px solid var(--navy-200);
-  padding: 3px 10px;
-  border-radius: var(--radius-md);
-  transition: all var(--transition-fast);
-}
-
-.raw-ocr-toggle-btn:hover,
-.raw-ocr-toggle-btn.active {
-  background-color: var(--navy-900);
-  color: #FFFFFF;
-  border-color: var(--navy-900);
-}
-
 .summary-title-label {
-  font-size: 0.68rem;
+  font-size: 0.72rem;
   font-weight: 800;
   letter-spacing: 0.05em;
   color: var(--navy-900);
-  margin-bottom: 2px;
+  margin-bottom: 6px;
+  text-transform: uppercase;
 }
 
 .summary-main-text {
   font-size: 0.88rem;
   color: var(--text-primary);
-  line-height: 1.45;
-  margin-bottom: 8px;
+  line-height: 1.5;
+  margin: 0;
 }
 
 /* Compact Metadata Strip */
@@ -1051,12 +1002,14 @@
    RESPONSIVENESS
    -------------------------------------------------------------------------- */
 @media (max-width: 1024px) {
+  .right-document-panel.panel-open,
+  .right-panel-inner,
   .left-document-panel.panel-open,
   .left-panel-inner {
     width: 400px;
   }
   .panel-toggle-handle.handle-panel-open {
-    left: 400px;
+    right: 400px;
   }
 }
 
@@ -1071,16 +1024,18 @@
     width: 100%;
     justify-content: space-between;
   }
+  .right-document-panel.panel-open,
+  .right-panel-inner,
   .left-document-panel.panel-open,
   .left-panel-inner {
     width: 100%;
     position: absolute;
     top: 0;
-    left: 0;
+    right: 0;
     bottom: 0;
     z-index: 60;
   }
   .panel-toggle-handle.handle-panel-open {
-    left: calc(100% - 36px);
+    right: calc(100% - 36px);
   }
 }

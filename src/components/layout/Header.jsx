@@ -2,32 +2,32 @@ import React from 'react';
 import { UserCheck } from 'lucide-react';
 import './Header.css';
 
-export default function Header({ 
+export default function Header({
   onLogoClick,
   currentLanguage = 'en',
   onLanguageChange
 }) {
   return (
     <header className="app-header">
-      
+
       {/* Left: Emblem & Administrative Co-Pilot Branding */}
       <div className="header-left">
-        <div 
-          className="govt-emblem-badge" 
+        <div
+          className="govt-emblem-badge"
           title="Government of Tamil Nadu - Grievance Cell"
           onClick={onLogoClick}
           style={{ cursor: 'pointer' }}
         >
-          <img 
-            src="/tn-emblem.png" 
-            alt="Government of Tamil Nadu Official Emblem" 
-            className="govt-emblem-img" 
+          <img
+            src="/tn-emblem.png"
+            alt="Government of Tamil Nadu Official Emblem"
+            className="govt-emblem-img"
           />
         </div>
 
         <div className="brand-title-group" onClick={onLogoClick} role="button" tabIndex={0}>
           <div className="brand-title-row">
-            <h1 className="brand-title">Administrative Co-Pilot</h1>
+            <h1 className="brand-title">AI Administrative Co-Pilot</h1>
           </div>
           <span className="brand-subtitle">Government Grievance Pre-Processing</span>
         </div>
@@ -35,19 +35,19 @@ export default function Header({
 
       {/* Right: Language Switcher & Officer Profile */}
       <div className="header-right">
-        
+
         {/* Language Toggle: EN / தமிழ் */}
         <div className="header-lang-toggle" title="Select Interface Language / மொழி">
-          <button 
-            type="button" 
+          <button
+            type="button"
             className={`lang-option-btn ${currentLanguage === 'en' ? 'active' : ''}`}
             onClick={() => onLanguageChange && onLanguageChange('en')}
           >
             English
           </button>
           <span className="lang-sep">|</span>
-          <button 
-            type="button" 
+          <button
+            type="button"
             className={`lang-option-btn ${currentLanguage === 'ta' ? 'active' : ''}`}
             onClick={() => onLanguageChange && onLanguageChange('ta')}
           >

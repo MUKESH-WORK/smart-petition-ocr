@@ -49,13 +49,13 @@ export default function DocumentDrawer({
 
   return (
     <aside 
-      className={`left-document-panel ${isOpen ? 'panel-open' : 'panel-collapsed'}`}
+      className={`right-document-panel ${isOpen ? 'panel-open' : 'panel-collapsed'}`}
       aria-label="Original Scanned Petition Viewer"
     >
       {isOpen && (
-        <div className="left-panel-inner">
+        <div className="right-panel-inner">
           
-          {/* 1. DOCUMENT TOOLBAR — Fixed stationary inside left panel */}
+          {/* 1. DOCUMENT TOOLBAR — Fixed stationary inside right panel */}
           <div className="drawer-header">
             <div className="drawer-title-group" title={fileName}>
               <FileText size={16} className="drawer-title-icon" />
@@ -188,7 +188,7 @@ export default function DocumentDrawer({
             </div>
           </div>
 
-          {/* 3. READ-ONLY FOOTER — Fixed stationary at bottom of left panel */}
+          {/* 3. READ-ONLY FOOTER — Fixed stationary at bottom of right panel */}
           <div className="drawer-bottom-hint">
             <CheckCircle size={13} className="hint-icon" />
             <span>Scanned document is read-only for officer verification.</span>
