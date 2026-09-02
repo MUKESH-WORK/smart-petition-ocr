@@ -69,31 +69,39 @@ export default function DocumentDrawer({
             <div className="drawer-toolbar">
               
               {/* Page Switcher */}
-              <div className="page-nav-controls">
-                <button
-                  type="button"
-                  className="toolbar-btn"
-                  onClick={handlePrevPage}
-                  disabled={currentPage <= 1}
-                  title="Previous page"
-                  aria-label="Previous page"
-                >
-                  <ChevronLeft size={14} />
-                </button>
-                <span className="page-indicator font-mono">
-                  {currentPage}/{totalPages}
-                </span>
-                <button
-                  type="button"
-                  className="toolbar-btn"
-                  onClick={handleNextPage}
-                  disabled={currentPage >= totalPages}
-                  title="Next page"
-                  aria-label="Next page"
-                >
-                  <ChevronRight size={14} />
-                </button>
-              </div>
+              {totalPages > 1 ? (
+                <div className="page-nav-controls">
+                  <button
+                    type="button"
+                    className="toolbar-btn"
+                    onClick={handlePrevPage}
+                    disabled={currentPage <= 1}
+                    title="Previous page"
+                    aria-label="Previous page"
+                  >
+                    <ChevronLeft size={14} />
+                  </button>
+                  <span className="page-indicator font-mono">
+                    {currentPage}/{totalPages}
+                  </span>
+                  <button
+                    type="button"
+                    className="toolbar-btn"
+                    onClick={handleNextPage}
+                    disabled={currentPage >= totalPages}
+                    title="Next page"
+                    aria-label="Next page"
+                  >
+                    <ChevronRight size={14} />
+                  </button>
+                </div>
+              ) : (
+                <div className="page-nav-controls">
+                  <span className="page-indicator font-mono">
+                    Page 1/1
+                  </span>
+                </div>
+              )}
 
               <div className="toolbar-separator"></div>
 

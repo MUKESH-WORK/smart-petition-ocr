@@ -1,5 +1,5 @@
 /* ==========================================================================
-   LANDING & UPLOAD COMPONENT STYLES (CLEAN & CENTERED QR MODAL)
+   LANDING & UPLOAD COMPONENT STYLES (CLEAN CENTERED OVERLAY)
    ========================================================================== */
 
 .landing-wrapper {
@@ -28,7 +28,7 @@
 
 /* Landing Header */
 .landing-header {
-  margin-bottom: 20px;
+  margin-bottom: 24px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -58,7 +58,7 @@
 }
 
 .landing-title {
-  font-size: 1.55rem;
+  font-size: 1.6rem;
   font-weight: 700;
   color: var(--navy-900);
   letter-spacing: -0.02em;
@@ -66,13 +66,13 @@
 }
 
 .landing-description {
-  font-size: 0.88rem;
+  font-size: 0.9rem;
   color: var(--text-secondary);
-  max-width: 420px;
-  line-height: 1.4;
+  max-width: 440px;
+  line-height: 1.45;
 }
 
-/* Clean Upload Dropzone Card Container (Always stays in place) */
+/* Clean Upload Dropzone Card Container */
 .upload-dropzone {
   width: 100%;
   background: var(--bg-surface);
@@ -92,7 +92,7 @@
   border-color: var(--orange-500);
   background-color: var(--orange-50);
   box-shadow: 0 8px 20px rgba(217, 83, 30, 0.08);
-  transform: translateY(-1px);
+  transform: translateY(-2px);
 }
 
 .dropzone-inner {
@@ -102,8 +102,8 @@
 }
 
 .upload-icon-wrapper {
-  width: 50px;
-  height: 50px;
+  width: 52px;
+  height: 52px;
   border-radius: 50%;
   background-color: var(--navy-50);
   border: 1.5px solid var(--navy-200);
@@ -125,13 +125,13 @@
   font-size: 1.15rem;
   font-weight: 700;
   color: var(--navy-900);
-  margin-bottom: 3px;
+  margin-bottom: 4px;
 }
 
 .upload-subtext {
   font-size: 0.84rem;
   color: var(--text-muted);
-  margin-bottom: 16px;
+  margin-bottom: 18px;
 }
 
 .browse-btn {
@@ -154,7 +154,7 @@
 }
 
 .supported-formats-line {
-  margin-top: 10px;
+  margin-top: 12px;
   font-size: 0.72rem;
   color: var(--text-light);
   font-weight: 600;
@@ -165,8 +165,8 @@
 .upload-or-divider {
   display: flex;
   align-items: center;
-  width: 130px;
-  margin: 14px 0 12px 0;
+  width: 140px;
+  margin: 16px 0 14px 0;
 }
 
 .upload-or-divider::before,
@@ -189,36 +189,44 @@
 .scan-mobile-action-btn {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  padding: 6px 14px;
+  gap: 8px;
+  padding: 7px 16px;
   background: transparent;
   border: 1px solid transparent;
   border-radius: var(--radius-pill);
-  font-size: 0.82rem;
-  font-weight: 600;
-  color: var(--navy-800);
   cursor: pointer;
   transition: all var(--transition-fast);
 }
 
 .scan-phone-icon {
-  color: var(--orange-500);
+  color: #EA580C;
+  flex-shrink: 0;
   transition: transform var(--transition-fast);
 }
 
+.scan-phone-text {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #0066CC;
+  letter-spacing: -0.01em;
+}
+
 .scan-mobile-action-btn:hover {
-  background-color: var(--navy-50);
-  border-color: var(--navy-200);
-  color: var(--orange-600);
+  background-color: rgba(0, 102, 204, 0.06);
+  border-color: rgba(0, 102, 204, 0.15);
   transform: translateY(-1px);
 }
 
+.scan-mobile-action-btn:hover .scan-phone-text {
+  color: #004D99;
+}
+
 .scan-mobile-action-btn:hover .scan-phone-icon {
-  transform: scale(1.1);
+  transform: scale(1.12);
 }
 
 /* ==========================================================================
-   CENTERED QR CODE MODAL POPUP (SOFT BLUR & DIMMED BACKDROP)
+   CENTERED QR CODE MODAL POPUP (ISOLATED OVERLAY FOR CONTENT WINDOW)
    ========================================================================== */
 
 .qr-modal-backdrop {
@@ -251,12 +259,13 @@
   width: 100%;
   background: #FFFFFF;
   border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-xl);
-  box-shadow: 0 20px 45px rgba(10, 37, 64, 0.25), 0 4px 12px rgba(0, 0, 0, 0.08);
+  border-radius: 18px;
+  box-shadow: 0 20px 50px rgba(10, 37, 64, 0.28), 0 4px 14px rgba(0, 0, 0, 0.08);
   overflow: hidden;
   display: flex;
   flex-direction: column;
   animation: qrModalScale 200ms cubic-bezier(0.16, 1, 0.3, 1);
+  margin: auto;
 }
 
 @keyframes qrModalScale {
@@ -270,7 +279,6 @@
   }
 }
 
-/* Modal Header */
 .qr-modal-header {
   display: flex;
   align-items: center;
@@ -287,11 +295,11 @@
 }
 
 .qr-title-icon {
-  color: var(--orange-500);
+  color: #EA580C;
 }
 
 .qr-modal-title {
-  font-size: 1rem;
+  font-size: 0.98rem;
   font-weight: 700;
   color: var(--navy-900);
   margin: 0;
@@ -315,7 +323,6 @@
   background-color: var(--bg-subtle);
 }
 
-/* Modal Body */
 .qr-modal-body {
   padding: 22px 20px 18px 20px;
   display: flex;
@@ -325,36 +332,77 @@
 }
 
 .qr-modal-code-box {
-  width: 172px;
-  height: 172px;
+  width: 168px;
+  height: 168px;
   padding: 6px;
   background: #FFFFFF;
-  border: 1.5px solid var(--border-medium);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-sm);
+  border: 1.5px solid #CBD5E1;
+  border-radius: 14px;
+  box-shadow: 0 4px 12px rgba(10, 37, 64, 0.06);
   display: flex;
   align-items: center;
   justify-content: center;
   margin-bottom: 12px;
-  cursor: pointer;
+  position: relative;
   transition: all var(--transition-fast);
+  box-sizing: border-box;
 }
 
 .qr-modal-code-box:hover {
-  border-color: var(--orange-400);
+  border-color: #EA580C;
   transform: scale(1.02);
+  box-shadow: 0 6px 18px rgba(234, 88, 12, 0.12);
+}
+
+.qr-image-wrapper {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .qr-modal-svg {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.qr-center-badge {
+  position: absolute;
+  width: 26px;
+  height: 26px;
+  background: #FFFFFF;
+  border-radius: 6px;
+  border: 1.5px solid #0A2540;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.qr-inner-badge-dot {
+  width: 10px;
+  height: 10px;
+  background: #EA580C;
+  border-radius: 2px;
+}
+
+.qr-loading-spinner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   width: 100%;
   height: 100%;
 }
 
 .qr-modal-instruction {
   font-size: 0.82rem;
-  color: var(--text-primary);
+  color: var(--navy-900);
   font-weight: 500;
-  margin: 0 0 10px 0;
+  margin: 0 0 8px 0;
   max-width: 250px;
   line-height: 1.35;
 }
@@ -363,12 +411,12 @@
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  font-size: 0.76rem;
-  color: var(--text-muted);
-  background-color: var(--bg-subtle);
+  font-size: 0.74rem;
+  color: #475569;
+  background-color: #F8FAFC;
   padding: 3px 12px;
   border-radius: var(--radius-pill);
-  border: 1px solid var(--border-subtle);
+  border: 1px solid #E2E8F0;
   margin-bottom: 4px;
 }
 
@@ -376,7 +424,7 @@
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background-color: var(--orange-500);
+  background-color: #EA580C;
   box-shadow: 0 0 0 0 rgba(234, 88, 12, 0.7);
   animation: pulseDot 1.5s infinite;
 }
@@ -398,10 +446,9 @@
 
 .qr-modal-expiry-note {
   font-size: 0.7rem;
-  color: var(--text-light);
+  color: var(--text-muted);
 }
 
-/* Expired View inside Modal */
 .qr-modal-expired-view {
   display: flex;
   flex-direction: column;
@@ -411,7 +458,7 @@
 }
 
 .qr-modal-expired-badge {
-  font-size: 0.84rem;
+  font-size: 0.88rem;
   color: #DC2626;
   font-weight: 700;
 }
@@ -444,7 +491,6 @@
   color: var(--orange-600);
 }
 
-/* Success Received View inside Modal */
 .qr-modal-received-view {
   display: flex;
   flex-direction: column;
@@ -467,44 +513,43 @@
 }
 
 .received-title {
-  font-size: 1.15rem;
+  font-size: 1.1rem;
   font-weight: 700;
   color: var(--navy-900);
   margin-bottom: 3px;
 }
 
 .received-subtext {
-  font-size: 0.82rem;
+  font-size: 0.8rem;
   color: var(--text-muted);
-  margin-bottom: 10px;
+  margin-bottom: 8px;
 }
 
 .received-loading-row {
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  font-size: 0.76rem;
+  font-size: 0.74rem;
   background-color: var(--bg-subtle);
   padding: 4px 12px;
   border-radius: var(--radius-pill);
   border: 1px solid var(--border-subtle);
 }
 
-/* Modal Footer */
 .qr-modal-footer {
   padding: 10px 18px;
-  background-color: var(--bg-subtle);
+  background-color: #F8FAFC;
   border-top: 1px solid var(--border-subtle);
   display: flex;
   justify-content: flex-end;
 }
 
 .qr-modal-cancel-btn {
-  padding: 5px 14px;
-  font-size: 0.78rem;
+  padding: 6px 16px;
+  font-size: 0.82rem;
   font-weight: 600;
   background-color: #FFFFFF;
-  border: 1px solid var(--border-medium);
+  border: 1px solid #CBD5E1;
   border-radius: var(--radius-md);
   color: var(--navy-800);
   cursor: pointer;
@@ -512,7 +557,7 @@
 }
 
 .qr-modal-cancel-btn:hover {
-  background-color: var(--bg-subtle);
+  background-color: #F1F5F9;
   border-color: var(--navy-300);
   color: var(--navy-950);
 }

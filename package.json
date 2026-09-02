@@ -5,12 +5,15 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "tunnel": "npx localtunnel --port 5174",
+    "share": "npx @cloudflare/cloudflared tunnel --url http://localhost:5174",
     "build": "vite build",
     "lint": "oxlint",
     "preview": "vite preview"
   },
   "dependencies": {
     "lucide-react": "^1.39.0",
+    "qrcode": "^1.5.4",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
   },

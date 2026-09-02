@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Header from './components/layout/Header';
 import Sidebar from './components/layout/Sidebar';
 import UploadLanding from './components/upload/UploadLanding';
@@ -8,10 +8,46 @@ import SummaryChatView from './components/workspace/SummaryChatView';
 import DocumentDrawer from './components/workspace/DocumentDrawer';
 import AuditLogsView from './components/audit/AuditLogsView';
 import SettingsView from './components/settings/SettingsView';
+import MobileCapturePage from './components/mobile/MobileCapturePage';
 import { ChevronRight, ChevronLeft } from 'lucide-react';
 import './styles/index.css';
 
+function getCaptureSessionFromUrl() {
+  if (typeof window === 'undefined') return null;
+  const path = window.location.pathname;
+  const hash = window.location.hash;
+  const searchParams = new URLSearchParams(window.location.search);
+
+  if (path.startsWith('/capture/')) {
+    return path.replace('/capture/', '').split('/')[0].split('?')[0];
+  }
+  if (hash.startsWith('#/capture/') || hash.startsWith('#capture/')) {
+    return hash.replace(/^#\/?capture\//, '').split('/')[0].split('?')[0];
+  }
+  if (searchParams.get('capture')) {
+    return searchParams.get('capture');
+  }
+  return null;
+}
+
 export default function App() {
+  // Check if current route is dedicated mobile capture page
+  const [mobileSessionId, setMobileSessionId] = useState(() => getCaptureSessionFromUrl());
+
+  // Listen for navigation changes
+  useEffect(() => {
+    const handleUrlChange = () => {
+      setMobileSessionId(getCaptureSessionFromUrl());
+    };
+
+    window.addEventListener('popstate', handleUrlChange);
+    window.addEventListener('hashchange', handleUrlChange);
+    return () => {
+      window.removeEventListener('popstate', handleUrlChange);
+      window.removeEventListener('hashchange', handleUrlChange);
+    };
+  }, []);
+
   // Navigation Modules: 'gdp' | 'audit' | 'settings'
   const [activeModule, setActiveModule] = useState('gdp');
 
@@ -91,6 +127,16 @@ export default function App() {
     showToast(`Loaded petition #${record.id}`);
   };
 
+  // -------------------------------------------------------------
+  // If user is accessing the mobile capture route on phone/browser
+  // -------------------------------------------------------------
+  if (mobileSessionId) {
+    return <MobileCapturePage sessionId={mobileSessionId} />;
+  }
+
+  // -------------------------------------------------------------
+  // Otherwise render Desktop Workstation
+  // -------------------------------------------------------------
   return (
     <div className="app-container">
       
