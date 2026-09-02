@@ -42,14 +42,14 @@
   color: #FFFFFF;
   padding: 3px 10px;
   border-radius: var(--radius-sm);
-  font-size: var(--font-size-label);
+  font-size: var(--font-size-label, 0.95rem);
   font-weight: 600;
 }
 
 .id-label {
   color: #CBE1F7;
   text-transform: uppercase;
-  font-size: var(--font-size-btn-secondary);
+  font-size: var(--font-size-btn-secondary, 0.88rem);
   letter-spacing: 0.04em;
 }
 
@@ -62,7 +62,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: var(--font-size-body);
+  font-size: var(--font-size-body, 1rem);
   font-weight: 600;
   color: var(--text-primary);
   max-width: 480px;
@@ -84,7 +84,7 @@
   background-color: #ECFDF5;
   border: 1px solid #A7F3D0;
   border-radius: var(--radius-pill);
-  font-size: var(--font-size-btn-secondary);
+  font-size: var(--font-size-btn-secondary, 0.88rem);
   font-weight: 600;
   color: #047857;
 }
@@ -105,7 +105,7 @@
   background-color: var(--bg-subtle);
   border: 1px solid var(--border-medium);
   border-radius: var(--radius-md);
-  font-size: var(--font-size-btn-secondary);
+  font-size: var(--font-size-btn-secondary, 0.88rem);
   font-weight: 600;
   color: var(--text-secondary);
   transition: all var(--transition-fast);
@@ -170,7 +170,7 @@
   overflow: hidden;
 }
 
-/* Document Toolbar — Fixed stationary at top of panel */
+/* Document Toolbar — Centered Page Navigation Controls */
 .drawer-header {
   height: 48px;
   background-color: var(--navy-900);
@@ -195,7 +195,7 @@
 }
 
 .page-nav-centered .page-indicator {
-  font-size: 0.82rem;
+  font-size: var(--font-size-label, 0.95rem);
   font-weight: 600;
   color: #F8FAFC;
   padding: 0 8px;
@@ -206,7 +206,6 @@
   width: 28px;
   height: 28px;
 }
-
 
 .drawer-title-group {
   display: flex;
@@ -219,13 +218,13 @@
 }
 
 .drawer-heading {
-  font-size: var(--font-size-label);
+  font-size: var(--font-size-label, 0.95rem);
   font-weight: 700;
   color: #FFFFFF;
 }
 
 .drawer-file-sub {
-  font-size: var(--font-size-btn-secondary);
+  font-size: var(--font-size-btn-secondary, 0.88rem);
   color: #94A3B8;
   display: block;
 }
@@ -252,7 +251,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: var(--font-size-btn-secondary);
+  font-size: var(--font-size-btn-secondary, 0.88rem);
   transition: all var(--transition-fast);
 }
 
@@ -268,13 +267,13 @@
 .fit-btn {
   width: auto;
   padding: 0 8px;
-  font-size: var(--font-size-btn-secondary);
+  font-size: var(--font-size-btn-secondary, 0.88rem);
   font-weight: 700;
 }
 
 .page-indicator,
 .zoom-indicator {
-  font-size: var(--font-size-label);
+  font-size: var(--font-size-label, 0.95rem);
   color: #E2E8F0;
   padding: 0 4px;
   font-weight: 500;
@@ -296,7 +295,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: var(--font-size-btn-secondary);
+  font-size: var(--font-size-btn-secondary, 0.88rem);
   transition: all var(--transition-fast);
 }
 
@@ -305,7 +304,7 @@
   color: #FFFFFF;
 }
 
-/* Document Viewport — Independent Internal Scroll Context */
+/* Document Viewport */
 .drawer-canvas-container {
   flex: 1;
   min-height: 0;
@@ -317,7 +316,6 @@
   background-color: #334155;
 }
 
-/* Real Uploaded Document Image & PDF Preview */
 .document-sheet-wrapper {
   display: flex;
   justify-content: center;
@@ -358,7 +356,7 @@
   text-align: center;
   color: #94A3B8;
   padding: 30px 20px;
-  gap: var(--space-sections);
+  gap: var(--space-sections, 10px);
   border: 2px dashed #475569;
   border-radius: 8px;
   width: 85%;
@@ -370,18 +368,18 @@
 }
 
 .no-doc-title {
-  font-size: var(--font-size-title);
+  font-size: var(--font-size-title, 1.05rem);
   font-weight: 700;
   color: #E2E8F0;
   margin: 0;
 }
 
 .no-doc-sub {
-  font-size: var(--font-size-body);
+  font-size: var(--font-size-body, 1rem);
   color: #94A3B8;
 }
 
-/* Read-Only Footer — Fixed stationary at bottom of panel */
+/* Read-Only Footer */
 .drawer-bottom-hint {
   height: 34px;
   background-color: var(--navy-900);
@@ -390,7 +388,7 @@
   align-items: center;
   justify-content: center;
   gap: 6px;
-  font-size: var(--font-size-btn-secondary);
+  font-size: var(--font-size-btn-secondary, 0.88rem);
   color: #94A3B8;
   flex-shrink: 0;
 }
@@ -400,7 +398,7 @@
 }
 
 /* --------------------------------------------------------------------------
-   2. VERTICALLY-CENTERED TOGGLE HANDLE (ANCHORED TO RIGHT PANEL LEFT EDGE)
+   2. VERTICALLY-CENTERED TOGGLE HANDLE
    -------------------------------------------------------------------------- */
 .panel-toggle-handle {
   position: absolute;
@@ -449,7 +447,7 @@
   writing-mode: vertical-rl;
   text-orientation: mixed;
   transform: rotate(180deg);
-  font-size: var(--font-size-btn-secondary);
+  font-size: var(--font-size-btn-secondary, 0.88rem);
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -483,13 +481,13 @@
   box-sizing: border-box;
 }
 
-/* 1. FIRST MESSAGE: SUMMARY CARD INSIDE SCROLLABLE CONVERSATION */
+/* 1. FIRST MESSAGE: SUMMARY CARD */
 .conversation-summary-message {
   width: 100%;
-  margin-bottom: var(--space-sections);
+  margin-bottom: var(--space-sections, 10px);
   display: flex;
   flex-direction: column;
-  gap: var(--space-sections);
+  gap: var(--space-sections, 10px);
 }
 
 .compact-summary-card {
@@ -497,27 +495,27 @@
   border: 1px solid var(--border-subtle);
   border-left: 4px solid var(--orange-500);
   border-radius: var(--radius-xl);
-  padding: var(--card-padding);
+  padding: var(--card-padding, 12px 16px);
   box-shadow: var(--shadow-sm);
 }
 
 .summary-title-label {
-  font-size: var(--font-size-label);
+  font-size: var(--font-size-label, 0.95rem);
   font-weight: 800;
   letter-spacing: 0.05em;
   color: var(--navy-900);
-  margin-bottom: var(--gap-label-input);
+  margin-bottom: var(--gap-label-input, 4px);
   text-transform: uppercase;
 }
 
 .summary-main-text {
-  font-size: var(--font-size-body);
+  font-size: var(--font-size-body, 1rem);
   color: var(--text-primary);
   line-height: 1.55;
   margin: 0;
 }
 
-/* 2. CHAT MESSAGES — THE ONLY SCROLLABLE AREA IN THE WORKSPACE PANEL */
+/* 2. CHAT MESSAGES */
 .conversation-messages-scroll-area {
   flex: 1;
   min-height: 0;
@@ -526,7 +524,7 @@
   margin: 0 auto;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 14px 20px 8px 20px;
+  padding: 12px 20px 8px 20px;
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
@@ -535,7 +533,7 @@
 .conversation-stream {
   display: flex;
   flex-direction: column;
-  gap: var(--space-sections);
+  gap: var(--space-sections, 10px);
   padding-bottom: 6px;
 }
 
@@ -549,7 +547,7 @@
 }
 
 .conversation-label {
-  font-size: var(--font-size-label);
+  font-size: var(--font-size-label, 0.95rem);
   font-weight: 800;
   color: var(--text-muted);
   letter-spacing: 0.05em;
@@ -560,7 +558,7 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: var(--font-size-btn-secondary);
+  font-size: var(--font-size-btn-secondary, 0.88rem);
   font-weight: 600;
   color: var(--text-muted);
 }
@@ -576,7 +574,7 @@
   justify-content: center;
   text-align: center;
   color: var(--text-muted);
-  font-size: var(--font-size-body);
+  font-size: var(--font-size-body, 1rem);
   padding: 16px;
 }
 
@@ -625,7 +623,7 @@
 .row-content-body {
   display: flex;
   flex-direction: column;
-  gap: var(--gap-label-input);
+  gap: var(--gap-label-input, 4px);
   flex: 1;
 }
 
@@ -640,20 +638,20 @@
 }
 
 .meta-sender {
-  font-size: var(--font-size-label);
+  font-size: var(--font-size-label, 0.95rem);
   font-weight: 700;
   color: var(--navy-900);
 }
 
 .meta-time {
-  font-size: var(--font-size-btn-secondary);
+  font-size: var(--font-size-btn-secondary, 0.88rem);
   color: var(--text-light);
 }
 
 .message-bubble {
-  padding: var(--card-padding);
+  padding: var(--card-padding, 12px 16px);
   border-radius: var(--radius-md);
-  font-size: var(--font-size-body);
+  font-size: var(--font-size-body, 1rem);
   line-height: 1.55;
   box-shadow: var(--shadow-xs);
 }
@@ -681,7 +679,7 @@
 
 .compact-copy-btn {
   padding: 3px 8px !important;
-  font-size: var(--font-size-btn-secondary) !important;
+  font-size: var(--font-size-btn-secondary, 0.88rem) !important;
 }
 
 .typing-indicator-box {
@@ -705,7 +703,7 @@
 .typing-indicator-box .dot:nth-child(2) { animation-delay: 0.2s; }
 .typing-indicator-box .dot:nth-child(3) { animation-delay: 0.4s; }
 
-/* 3. CHAT COMPOSER DOCK (STATIONARY AT BOTTOM) */
+/* 3. CHAT COMPOSER DOCK */
 .workspace-bottom-composer-dock {
   width: 100%;
   max-width: 960px;
@@ -715,14 +713,14 @@
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  gap: var(--space-sections);
+  gap: var(--space-sections, 10px);
 }
 
 /* Contextual Prompts Row */
 .contextual-prompts-row {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-sections);
+  gap: var(--space-sections, 10px);
   align-items: center;
 }
 
@@ -734,7 +732,7 @@
   background-color: var(--navy-50);
   border: 1px solid var(--navy-200);
   border-radius: var(--radius-pill);
-  font-size: var(--font-size-btn-secondary);
+  font-size: var(--font-size-btn-secondary, 0.88rem);
   font-weight: 700;
   color: var(--navy-900);
   cursor: pointer;
@@ -755,7 +753,7 @@
   background-color: var(--navy-50);
   border: 1px solid var(--navy-200);
   border-radius: var(--radius-pill);
-  font-size: var(--font-size-btn-secondary);
+  font-size: var(--font-size-btn-secondary, 0.88rem);
   font-weight: 600;
   color: var(--navy-900);
   cursor: pointer;
@@ -778,7 +776,7 @@
   background-color: var(--bg-surface);
   border: 1.5px solid var(--border-medium);
   border-radius: 16px;
-  padding: var(--card-padding);
+  padding: var(--card-padding, 12px 16px);
   box-shadow: 0 2px 8px rgba(10, 37, 64, 0.05);
   display: flex;
   flex-direction: column;
@@ -799,7 +797,7 @@
   outline: none !important;
   box-shadow: none !important;
   background: transparent !important;
-  font-size: var(--font-size-body);
+  font-size: var(--font-size-body, 1rem);
   line-height: 1.5;
   color: var(--text-primary);
   resize: none;
@@ -884,7 +882,7 @@
    ========================================================================== */
 
 .full-details-bubble {
-  padding: var(--card-padding) !important;
+  padding: var(--card-padding, 12px 16px) !important;
   width: 100%;
   max-width: 100%;
   box-sizing: border-box;
@@ -898,7 +896,7 @@
   width: 100%;
   display: flex;
   flex-direction: column;
-  gap: var(--space-sections);
+  gap: var(--space-sections, 10px);
 }
 
 .full-details-header-row {
@@ -911,7 +909,7 @@
 }
 
 .full-details-main-heading {
-  font-size: var(--font-size-label);
+  font-size: var(--font-size-label, 0.95rem);
   font-weight: 800;
   letter-spacing: 0.05em;
   color: var(--navy-900);
@@ -922,19 +920,19 @@
 .full-details-form-grid {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-fields);
+  gap: var(--space-fields, 10px);
   width: 100%;
 }
 
 .form-item-wrapper {
   display: flex;
   flex-direction: column;
-  gap: var(--gap-label-input);
+  gap: var(--gap-label-input, 4px);
   box-sizing: border-box;
 }
 
 .form-item-wrapper.col-half {
-  flex: 1 1 calc(50% - (var(--space-fields) / 2));
+  flex: 1 1 calc(50% - (var(--space-fields, 10px) / 2));
   min-width: 200px;
 }
 
@@ -944,7 +942,7 @@
 }
 
 .form-item-label {
-  font-size: var(--font-size-label);
+  font-size: var(--font-size-label, 0.95rem);
   font-weight: 700;
   color: var(--navy-900);
   line-height: 1.25;
@@ -972,7 +970,7 @@
 }
 
 .info-display-text {
-  font-size: var(--font-size-body);
+  font-size: var(--font-size-body, 1rem);
   color: var(--navy-950);
   line-height: 1.5;
   font-weight: 500;
@@ -992,7 +990,7 @@
   border: 1px solid var(--border-medium);
   border-radius: var(--radius-sm);
   padding: 3px 8px;
-  font-size: var(--font-size-btn-secondary);
+  font-size: var(--font-size-btn-secondary, 0.88rem);
   font-weight: 600;
   color: var(--text-secondary);
   cursor: pointer;

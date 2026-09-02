@@ -75,6 +75,7 @@ export default function AuditLogsView({
 }) {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState('all');
 
   // Date Filter States
   const [selectedDate, setSelectedDate] = useState('');
@@ -144,8 +145,9 @@ export default function AuditLogsView({
     setSelectedDate('');
   };
 
-  // Reset all active date and search filters
+  // Reset all active date, category, and search filters
   const handleResetFilters = () => {
+    setSelectedCategory('all');
     setSelectedDate('');
     setSelectedYear('');
     setSelectedMonth('');
@@ -154,6 +156,7 @@ export default function AuditLogsView({
   };
 
   const hasActiveFilters =
+    selectedCategory !== 'all' ||
     selectedDate !== '' ||
     selectedYear !== '' ||
     selectedMonth !== '' ||
@@ -171,7 +174,14 @@ export default function AuditLogsView({
   // Derived Filtered Logs
   const filteredLogs = useMemo(() => {
     return realLogs.filter((log) => {
-      // 1. Search Query Filter
+      // 1. Category Filter
+      if (selectedCategory !== 'all') {
+        const catLower = (log.category || '').toLowerCase();
+        const selLower = selectedCategory.toLowerCase();
+        if (!catLower.includes(selLower)) return false;
+      }
+
+      // 2. Search Query Filter
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase().trim();
         const matchesQ =
@@ -183,7 +193,7 @@ export default function AuditLogsView({
         if (!matchesQ) return false;
       }
 
-      // 2. Date Filters
+      // 3. Date Filters
       const dateParts = parseDateParts(log.timestamp);
 
       if (selectedDate) {
@@ -196,7 +206,7 @@ export default function AuditLogsView({
 
       return true;
     });
-  }, [realLogs, searchQuery, selectedDate, selectedYear, selectedMonth, selectedDay]);
+  }, [realLogs, selectedCategory, searchQuery, selectedDate, selectedYear, selectedMonth, selectedDay]);
 
   // Get Badge Icon & Class for Category
   const getCategoryBadgeInfo = (catName) => {
@@ -243,11 +253,11 @@ export default function AuditLogsView({
           </div>
         </div>
 
-        {/* 2. FILTER CARD (Date Controls + Search) */}
+        {/* 2. FILTER CARD (Single Landscape Row Layout) */}
         <div className="audit-filter-card">
+          <div className="audit-filter-controls-row">
 
-          {/* Top Bar: Search Input & Reset Button */}
-          <div className="filter-card-top-row">
+            {/* 1. Search Box */}
             <div className="audit-search-box">
               <Search size={16} className="search-icon" />
               <input
@@ -269,6 +279,74 @@ export default function AuditLogsView({
               )}
             </div>
 
+            {/* 2. Single Category Dropdown (All / GDP Assistant) */}
+            <div className="date-select-wrapper category-select-wrapper">
+              <select
+                className="date-select"
+                value={selectedCategory}
+                onChange={(e) => setSelectedCategory(e.target.value)}
+                title="Filter by Category"
+              >
+                <option value="all">All</option>
+                <option value="GDP Assistant">GDP Assistant</option>
+              </select>
+            </div>
+
+            {/* 3. Native HTML Date Picker */}
+            <div className="date-input-wrapper">
+              <Calendar size={15} className="date-field-icon" />
+              <input
+                type="date"
+                className="date-picker-input"
+                value={selectedDate}
+                onChange={handleFullDateChange}
+                title="Select full date"
+              />
+            </div>
+
+            {/* 4. Year Dropdown */}
+            <div className="date-select-wrapper">
+              <select
+                className="date-select"
+                value={selectedYear}
+                onChange={handleYearChange}
+              >
+                <option value="">All Years</option>
+                {availableYears.map((yr) => (
+                  <option key={yr} value={yr}>{yr}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* 5. Month Dropdown */}
+            <div className="date-select-wrapper">
+              <select
+                className="date-select"
+                value={selectedMonth}
+                onChange={handleMonthChange}
+              >
+                <option value="">All Months</option>
+                {MONTH_OPTIONS.map((m) => (
+                  <option key={m.value} value={m.value}>{m.label}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* 6. Day Dropdown */}
+            <div className="date-select-wrapper">
+              <select
+                className="date-select"
+                value={selectedDay}
+                onChange={handleDayChange}
+              >
+                <option value="">All Days</option>
+                {availableDays.map((d) => (
+                  <option key={d} value={d}>Day {parseInt(d, 10)}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* 7. Reset Filters Button */}
             {hasActiveFilters && (
               <button
                 type="button"
@@ -279,70 +357,8 @@ export default function AuditLogsView({
                 <span>Reset Filters</span>
               </button>
             )}
+
           </div>
-
-          {/* Date Controls Section */}
-          <div className="filter-section-group">
-            <label className="filter-section-label">Date Range & Breakdown</label>
-            <div className="date-controls-grid">
-
-              {/* Native HTML Date Picker */}
-              <div className="date-input-wrapper">
-                <Calendar size={15} className="date-field-icon" />
-                <input
-                  type="date"
-                  className="date-picker-input"
-                  value={selectedDate}
-                  onChange={handleFullDateChange}
-                  title="Select full date"
-                />
-              </div>
-
-              {/* Year Dropdown */}
-              <div className="date-select-wrapper">
-                <select
-                  className="date-select"
-                  value={selectedYear}
-                  onChange={handleYearChange}
-                >
-                  <option value="">All Years</option>
-                  {availableYears.map((yr) => (
-                    <option key={yr} value={yr}>{yr}</option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Month Dropdown */}
-              <div className="date-select-wrapper">
-                <select
-                  className="date-select"
-                  value={selectedMonth}
-                  onChange={handleMonthChange}
-                >
-                  <option value="">All Months</option>
-                  {MONTH_OPTIONS.map((m) => (
-                    <option key={m.value} value={m.value}>{m.label}</option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Day Dropdown */}
-              <div className="date-select-wrapper">
-                <select
-                  className="date-select"
-                  value={selectedDay}
-                  onChange={handleDayChange}
-                >
-                  <option value="">All Days</option>
-                  {availableDays.map((d) => (
-                    <option key={d} value={d}>Day {parseInt(d, 10)}</option>
-                  ))}
-                </select>
-              </div>
-
-            </div>
-          </div>
-
         </div>
 
         {/* 3. ENTRY COUNT & SUMMARY */}
@@ -435,7 +451,7 @@ export default function AuditLogsView({
               <h3 className="audit-empty-title">No Audit Log entries found</h3>
               <p className="audit-empty-subtext">
                 {hasActiveFilters
-                  ? 'No entries match the currently selected date or search filters.'
+                  ? 'No entries match the currently selected category, date, or search filters.'
                   : 'Messages submitted in GDP Assistant will automatically appear here.'}
               </p>
 
