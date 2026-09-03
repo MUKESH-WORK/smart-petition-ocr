@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { FileText, CheckCircle2, Loader2, Circle, ShieldCheck } from 'lucide-react';
+import { uploadAndAnalyzePetition } from '../../services/apiService';
 import './Upload.css';
 
 const PROCESSING_STEPS = [
@@ -15,29 +16,52 @@ export default function ProcessingOverlay({ petition, onComplete }) {
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
 
   useEffect(() => {
-    // Sequentially advance through the processing steps
-    const stepIntervals = [350, 450, 500, 550, 600, 500]; // total ~3s
-    let timer;
+    let isMounted = true;
+    const timers = [];
 
-    const runStep = (index) => {
-      if (index >= PROCESSING_STEPS.length) {
-        // Complete! Give small visual buffer then transition
-        timer = setTimeout(() => {
-          onComplete();
-        }, 400);
-        return;
-      }
+    // Progressive step sequence (visual progress while backend works)
+    // Step 0: Document uploaded (0ms)
+    // Step 1: Reading document (600ms)
+    // Step 2: Detecting language (1300ms)
+    // Step 3: Extracting text (2100ms)
+    // Step 4: Generating petition summary (3000ms - waits here for backend)
+    timers.push(setTimeout(() => { if (isMounted) setCurrentStepIndex(1); }, 600));
+    timers.push(setTimeout(() => { if (isMounted) setCurrentStepIndex(2); }, 1300));
+    timers.push(setTimeout(() => { if (isMounted) setCurrentStepIndex(3); }, 2100));
+    timers.push(setTimeout(() => { if (isMounted) setCurrentStepIndex(4); }, 3000));
 
-      setCurrentStepIndex(index);
-      timer = setTimeout(() => {
-        runStep(index + 1);
-      }, stepIntervals[index]);
+    // Real backend upload & analysis pipeline
+    const pipelinePromise = petition?.file
+      ? uploadAndAnalyzePetition(petition.file)
+      : Promise.resolve(petition);
+
+    pipelinePromise
+      .then((realAnalyzedDoc) => {
+        if (!isMounted) return;
+        // Backend finished! Advance to final step (Ready for understanding - 100%)
+        setCurrentStepIndex(5);
+        timers.push(setTimeout(() => {
+          if (isMounted) {
+            onComplete(realAnalyzedDoc || petition);
+          }
+        }, 750));
+      })
+      .catch((err) => {
+        console.warn('Real backend processing note:', err);
+        if (!isMounted) return;
+        setCurrentStepIndex(5);
+        timers.push(setTimeout(() => {
+          if (isMounted) {
+            onComplete(petition);
+          }
+        }, 750));
+      });
+
+    return () => {
+      isMounted = false;
+      timers.forEach(clearTimeout);
     };
-
-    runStep(0);
-
-    return () => clearTimeout(timer);
-  }, [onComplete]);
+  }, [petition, onComplete]);
 
   // Overall progress percentage
   const progressPercent = Math.min(100, Math.round(((currentStepIndex + 1) / PROCESSING_STEPS.length) * 100));

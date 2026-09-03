@@ -14,6 +14,7 @@ import {
   extractPetitionDetails,
   isFullDetailsQuery
 } from '../../data/mockPetitions';
+import { askDocumentAssistant } from '../../services/apiService';
 import './Workspace.css';
 
 export default function SummaryChatView({ petition, onLogUserMessage }) {
@@ -81,9 +82,8 @@ export default function SummaryChatView({ petition, onLogUserMessage }) {
 
     const isFullDetails = isFullDetailsQuery(query);
 
-    // Fast simulated AI document understanding response
-    setTimeout(() => {
-      if (isFullDetails) {
+    if (isFullDetails) {
+      setTimeout(() => {
         const details = extractPetitionDetails(petition);
         const assistantMessage = {
           id: `msg-ai-${Date.now()}`,
@@ -93,19 +93,35 @@ export default function SummaryChatView({ petition, onLogUserMessage }) {
           details: details
         };
         setConversation((prev) => [...prev, assistantMessage]);
-      } else {
-        const replyText = getSmartAssistantReply(query, petition);
-        const assistantMessage = {
-          id: `msg-ai-${Date.now()}`,
-          sender: 'assistant',
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          isFullDetails: false,
-          text: replyText
-        };
-        setConversation((prev) => [...prev, assistantMessage]);
-      }
-      setIsTyping(false);
-    }, 380);
+        setIsTyping(false);
+      }, 350);
+    } else {
+      askDocumentAssistant(petition?.source_id, query, petition)
+        .then((replyText) => {
+          const assistantMessage = {
+            id: `msg-ai-${Date.now()}`,
+            sender: 'assistant',
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            isFullDetails: false,
+            text: replyText
+          };
+          setConversation((prev) => [...prev, assistantMessage]);
+        })
+        .catch(() => {
+          const fallbackText = getSmartAssistantReply(query, petition);
+          const assistantMessage = {
+            id: `msg-ai-${Date.now()}`,
+            sender: 'assistant',
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            isFullDetails: false,
+            text: fallbackText
+          };
+          setConversation((prev) => [...prev, assistantMessage]);
+        })
+        .finally(() => {
+          setIsTyping(false);
+        });
+    }
   };
 
   const handleKeyDown = (e) => {

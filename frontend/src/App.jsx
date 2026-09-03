@@ -10,6 +10,7 @@ import AuditLogsView from './components/audit/AuditLogsView';
 import SettingsView from './components/settings/SettingsView';
 import MobileCapturePage from './components/mobile/MobileCapturePage';
 import { ChevronRight, ChevronLeft } from 'lucide-react';
+import { fetchAuditHistory, fetchPetitionBySourceId } from './services/apiService';
 import './styles/index.css';
 
 function getCaptureSessionFromUrl() {
@@ -80,6 +81,19 @@ export default function App() {
     }, 3000);
   };
 
+  // Fetch initial audit records from backend on mount
+  useEffect(() => {
+    fetchAuditHistory().then((records) => {
+      if (records && records.length > 0) {
+        setAuditRecords((prev) => {
+          const existingIds = new Set(prev.map((r) => r.id));
+          const newOnes = records.filter((r) => !existingIds.has(r.id));
+          return [...prev, ...newOnes];
+        });
+      }
+    });
+  }, []);
+
   // Upload / Petition Selection handler
   const handleSelectPetition = (petition) => {
     if (activePetition?.previewUrl && activePetition.previewUrl !== petition.previewUrl) {
@@ -91,11 +105,30 @@ export default function App() {
   };
 
   // Processing Completed handler
-  const handleProcessingComplete = () => {
+  const handleProcessingComplete = (analyzedPetition) => {
+    const finalPetition = analyzedPetition || activePetition;
+    if (analyzedPetition) {
+      setActivePetition(analyzedPetition);
+    }
     setViewState('workspace');
     setIsDrawerOpen(false);
 
-    showToast(`Analysis complete for ${activePetition?.fileName || 'Petition'}`);
+    // Record petition processed into audit trail
+    if (finalPetition) {
+      const auditEntry = {
+        id: `AUD-${Date.now()}`,
+        timestamp: new Date().toISOString(),
+        category: 'GDP Assistant',
+        categoryLabel: 'GDP Assistant',
+        officer: 'USER',
+        source_id: finalPetition.source_id || finalPetition.id || 'SESSION-001',
+        details: `Processed: ${finalPetition.fileName} (${finalPetition.portalDetails?.grievanceType || 'Grievance Analysis Complete'})`,
+        rawPetition: finalPetition
+      };
+      setAuditRecords((prev) => [auditEntry, ...prev]);
+    }
+
+    showToast(`Analysis complete for ${finalPetition?.fileName || 'Petition'}`);
   };
 
   // Log user-submitted prompts in GDP Assistant to Audit Trail
@@ -126,9 +159,21 @@ export default function App() {
   };
 
   // Selecting an audit record from the Audit Logs page
-  const handleSelectAuditRecord = (record) => {
+  const handleSelectAuditRecord = async (record) => {
     if (record) {
-      setActivePetition(record);
+      if (record.source_id && (!record.rawPetition || !record.rawPetition.portalDetails)) {
+        showToast('Loading petition details...');
+        const fullDoc = await fetchPetitionBySourceId(record.source_id);
+        if (fullDoc) {
+          setActivePetition(fullDoc);
+          setActiveModule('gdp');
+          setViewState('workspace');
+          setIsDrawerOpen(false);
+          showToast(`Loaded petition #${fullDoc.id}`);
+          return;
+        }
+      }
+      setActivePetition(record.rawPetition || record);
       setActiveModule('gdp');
       setViewState('workspace');
       setIsDrawerOpen(false);

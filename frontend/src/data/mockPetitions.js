@@ -413,46 +413,46 @@ export function extractPetitionDetails(petition) {
 
   // Fallback if portalDetails is not directly set
   return {
-    petitionerName: petition.details?.petitionerName || 'R. Kumar',
+    petitionerName: petition.details?.petitionerName || 'Not found',
     email: 'Not found',
-    phoneNumber: petition.details?.phoneNumber || '9876543210',
+    phoneNumber: petition.details?.phoneNumber || 'Not found',
     isOwnNumber: 'Yes',
     alternatePhone: 'Not found',
-    address: petition.details?.address || '14/2, Mariamman Kovil Street, ABC Village, Thingalur Firka, Perundurai Taluk, Erode - 638052',
-    gender: 'Male',
+    address: petition.details?.address || 'Not found',
+    gender: 'Not found',
     differentlyAbled: 'No',
     petitionerCategory: 'Citizen / General Public',
 
-    description: petition.details?.mainGrievance || petition.summary || 'Request for repair of damaged village road.',
+    description: petition.details?.mainGrievance || petition.summary || 'Administrative Grievance Petition',
     grievanceSource: 'Collectorate Grievance Day Petition',
-    referenceNumber: petition.details?.referenceNumber || (petition.id ? `PET-2026-${petition.id}` : 'PET-2026-ERD-08492'),
-    governmentDepartment: petition.details?.suggestedDepartment || 'Rural Development and Panchayat Raj',
+    referenceNumber: petition.details?.referenceNumber || (petition.id ? `PET-2026-${petition.id}` : 'Not found'),
+    governmentDepartment: petition.details?.suggestedDepartment || 'Revenue Department',
     localBodyType: 'Village Panchayat',
-    grievanceType: 'Road Maintenance & Infrastructure',
-    grievanceSubType: 'Village Tar Road Repair / Pothole Clearance',
+    grievanceType: 'General Public Grievance',
+    grievanceSubType: 'Administrative Action',
     district: 'Erode (ERD)',
-    subDepartment: 'Village Panchayat Road Wing',
+    subDepartment: 'Not found',
     ward: 'Not found',
     municipalityWard: 'Not found',
-    block: 'Perundurai',
-    taluk: 'Perundurai',
-    revenueDivision: 'Erode',
-    firka: 'Thingalur',
-    streetName: 'Mariamman Kovil Street',
-    doorNumber: '14/2',
-    responsibleOfficer: 'Block Development Officer (BDO - Village Panchayats), Perundurai',
+    block: 'Not found',
+    taluk: 'Not found',
+    revenueDivision: 'Not found',
+    firka: 'Not found',
+    streetName: 'Not found',
+    doorNumber: 'Not found',
+    responsibleOfficer: 'Concerned Department Officer',
     fisheriesRegion: 'Not found',
     fisheriesDivision: 'Not found',
-    reasonForRedirection: 'Forwarded to Block Development Officer, Perundurai for field inspection and necessary action within 15 days.',
+    reasonForRedirection: 'Forwarded for administrative review and appropriate action within 15 days.',
 
     communicationAddressSame: 'Yes (Same as Petitioner Address)',
-    communicationAddress: petition.details?.address || '14/2, Mariamman Kovil Street, ABC Village, Thingalur Firka, Perundurai Taluk, Erode - 638052',
+    communicationAddress: petition.details?.address || 'Not found',
 
-    dueDate: '03-03-2026 (15 Days from Receipt)',
+    dueDate: '15 Days from Receipt',
     status: 'Open',
     sourceCode: 'GDP - Grievance Day Petition',
-    grievanceId: petition.id ? `TN/RDPR/ERD/P/GDP/16FEB26/${petition.id}` : 'TN/RDPR/ERD/P/GDP/16FEB26/08492',
-    priority: 'Medium / High Civic Priority',
+    grievanceId: petition.id ? `TN/ERD/GDP/${petition.id}` : 'Not found',
+    priority: 'Medium',
     callDisposition: 'Not found',
     isWhatsappAppeal: 'No',
     isWhatsappTracking: 'No',
@@ -546,8 +546,59 @@ export function getSmartAssistantReply(userText, currentPetition) {
     return "Please upload a petition document first.";
   }
 
-  // Check specific matches in the petition database
-  if (currentPetition.qaDatabase) {
+  const details = currentPetition.portalDetails || {};
+
+  // Check petitioner name
+  if (lower.includes('petitioner') || lower.includes('applicant') || lower.includes('who is') || lower.includes('name') || lower.includes('பெயர்') || lower.includes('மனுதாரர்')) {
+    if (details.petitionerName && details.petitionerName !== 'Not found') {
+      return `The petitioner is **${details.petitionerName}**, residing at ${details.address || 'the address specified in the document'}.`;
+    }
+  }
+
+  // Check phone / mobile
+  if (lower.includes('phone') || lower.includes('mobile') || lower.includes('contact') || lower.includes('number') || lower.includes('தொலைபேசி') || lower.includes('கைபேசி')) {
+    if (details.phoneNumber && details.phoneNumber !== 'Not found') {
+      return `The contact phone number mentioned in the petition is **${details.phoneNumber}**.`;
+    }
+  }
+
+  // Check department / routing
+  if (lower.includes('department') || lower.includes('routing') || lower.includes('handle') || lower.includes('துறை')) {
+    if (details.governmentDepartment && details.governmentDepartment !== 'Not found') {
+      return `Based on the petition, this appears related to **${details.governmentDepartment}** (${details.responsibleOfficer || 'Concerned Officer'}). Please verify before entering into the official grievance portal.`;
+    }
+  }
+
+  // Check address / location
+  if (lower.includes('address') || lower.includes('location') || lower.includes('village') || lower.includes('taluk') || lower.includes('முகவரி') || lower.includes('கிராமம்')) {
+    if (details.address && details.address !== 'Not found') {
+      return `The location address is **${details.address}** (${details.taluk || 'Taluk'}, ${details.district || 'District'}).`;
+    }
+  }
+
+  // Check grievance / issue / complaint
+  if (lower.includes('explain the grievance') || lower.includes('grievance') || lower.includes('complaint') || lower.includes('issue') || lower.includes('problem') || lower.includes('கோரிக்கை') || lower.includes('விவரம்')) {
+    if (details.description && details.description !== 'Not found') {
+      return `**Grievance Details:** ${details.description}`;
+    }
+  }
+
+  // Check one line summary
+  if (lower.includes('summarize') || lower.includes('one line') || lower.includes('one sentence') || lower.includes('short summary') || lower.includes('சுருக்கம்')) {
+    if (currentPetition.summary) {
+      return currentPetition.summary;
+    }
+  }
+
+  // Check action requested
+  if (lower.includes('action') || lower.includes('requested') || lower.includes('நடவடிக்கை')) {
+    if (details.description && details.description !== 'Not found') {
+      return `The petitioner requests: ${details.description}`;
+    }
+  }
+
+  // Check specific matches in the petition database if any
+  if (currentPetition.qaDatabase && currentPetition.qaDatabase.length > 0) {
     for (const item of currentPetition.qaDatabase) {
       for (const match of item.questionMatches) {
         if (lower.includes(match)) {
@@ -559,19 +610,14 @@ export function getSmartAssistantReply(userText, currentPetition) {
 
   // Common queries: Date / Time
   if (lower.includes('date') || lower.includes('when') || lower.includes('submitted')) {
-    return `The petition has a receipt stamp date of **16-02-2026** at the District Collectorate Grievance Day Cell.`;
+    return `The petition date mentioned in the document is **${details.dueDate || 'Recent'}**.`;
   }
 
   // Common queries: Urgency / Priority
   if (lower.includes('urgent') || lower.includes('priority')) {
-    return `Based on the grievance (road blockage and rainfall transit hazard), this issue carries **Medium / High Civic Priority**. Please verify urgency guidelines before filing in the official portal.`;
-  }
-
-  // Common queries: Enclosures / Attachments
-  if (lower.includes('attachment') || lower.includes('enclosure') || lower.includes('documents attached')) {
-    return `The document mentions the following enclosures: **1. Photographs of damaged road (2 copies)**, **2. Copy of Aadhaar Card**.`;
+    return `Based on the grievance classification, this issue carries **${details.priority || 'Medium'}** priority.`;
   }
 
   // Fallback factual response
-  return `Based on the uploaded petition (${currentPetition.fileName}), the summary is: "${currentPetition.summary}". You can ask specific questions about the petitioner, location, department, or requested action.`;
+  return `Based on the uploaded petition (${currentPetition.fileName}), the summary is: "${currentPetition.summary || details.description}". You can ask specific questions about the petitioner, location, department, or requested action.`;
 }

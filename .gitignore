@@ -1,29 +1,117 @@
-# Logs
-logs
-*.log
+# ==============================================================================
+# CONFIDENTIAL & SENSITIVE CITIZEN TEST DATA (STRICT PROTECTION)
+# ==============================================================================
+# All confidential grievance scans, user petitions, and personal documents
+*.pdf
+*.png
+*.jpg
+*.jpeg
+*.tiff
+*.bmp
+*.webp
+*.docx
+*.doc
+*.csv
+*.xlsx
+*.parquet
+
+# Whitelist ONLY public project assets & frontend logos (Emblem, Icons, Banner)
+!assets/
+!assets/**
+!frontend/public/favicon.svg
+!frontend/public/icons.svg
+!frontend/public/tn-emblem.png
+!frontend/src/assets/
+!frontend/src/assets/**
+!frontend/src/data/
+!frontend/src/data/**
+
+# User and Temporary test scans (STRICTLY BLOCKED)
+*petition*
+*Petition*
+*DocScanner*
+*docscanner*
+temp_*
+backend/temp_*
+backend/user_petition_*
+backend/test_text.*
+
+# Upload directories and raw data stores
+uploads/
+**/uploads/
+backend/uploads/
+temp_cache/
+**/temp_cache/
+backend/temp_cache/
+/data/
+backend/data/
+
+# Environment files & Secrets
+.env
+*.env
+backend/.env
+*.local
+*.secret
+*.pem
+*.key
+
+# ==============================================================================
+# Python & Backend Artifacts
+# ==============================================================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+ENV/
+env/
+backend/.venv/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+.pytest_cache/
+.tox/
+.nox/
+.coverage
+.coverage.*
+htmlcov/
+*.sqlite3
+
+# ==============================================================================
+# Frontend & Node Artifacts
+# ==============================================================================
+node_modules/
+frontend/node_modules/
+frontend/dist/
+.npm
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
-lerna-debug.log*
 
-node_modules
-dist
-dist-ssr
-*.local
-
-# Editor directories and files
-.vscode/*
-!.vscode/extensions.json
-.idea
+# ==============================================================================
+# System & IDE Artifacts
+# ==============================================================================
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
 .DS_Store
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
-
-# Temporary root images
-/*.jpeg
-/*.jpg
-/*.png
+Thumbs.db
+*.log

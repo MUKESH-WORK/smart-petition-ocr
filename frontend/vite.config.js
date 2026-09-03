@@ -233,6 +233,12 @@ export default defineConfig({
   plugins: [react(), qrUploadApiPlugin()],
   server: {
     host: true, // Listen on all network interfaces for mobile phone access on Wi-Fi
-    port: 5174
+    port: 5174,
+    proxy: {
+      '/api/v1': {
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true
+      }
+    }
   }
 })

@@ -25,14 +25,27 @@ export default function MobileQrModal({ isOpen, onClose, onDocumentUploaded }) {
   const unsubscribeRef = useRef(null);
   const sessionIdRef = useRef('');
 
-  const handleUploadSuccess = useCallback((uploadedData) => {
+  const handleUploadSuccess = useCallback(async (uploadedData) => {
     setIsReceived(true);
     setReceivedFileMeta(uploadedData);
 
     const previewUrl = uploadedData.dataUrl || (uploadedData.file ? URL.createObjectURL(uploadedData.file) : null);
     
+    let fileObj = uploadedData.file || null;
+    if (!fileObj && uploadedData.dataUrl) {
+      try {
+        const res = await fetch(uploadedData.dataUrl);
+        const blob = await res.blob();
+        fileObj = new File([blob], uploadedData.fileName || `mobile_petition_${Date.now()}.jpg`, {
+          type: blob.type || uploadedData.fileType || 'image/jpeg'
+        });
+      } catch (err) {
+        console.warn('Could not convert dataUrl to File:', err);
+      }
+    }
+
     const uploadedDoc = {
-      file: uploadedData.file || null,
+      file: fileObj,
       id: `PET-${uploadedData.sessionId ? uploadedData.sessionId.substring(0, 6).toUpperCase() : Math.floor(100 + Math.random() * 900)}`,
       fileName: uploadedData.fileName || 'mobile_petition.jpg',
       fileSize: uploadedData.fileSize || '1.8 MB',
@@ -43,10 +56,11 @@ export default function MobileQrModal({ isOpen, onClose, onDocumentUploaded }) {
       totalPages: 1,
       language: 'Tamil',
       confidenceScore: 95,
-      status: 'Analysis Complete',
-      summary: 'The petitioner requests repair of a damaged road in ABC Village, Erode District. The petition states that the road has remained damaged for several months and causes transportation difficulties during rainfall.',
-      rawOcrText: MOCK_PETITIONS[0].rawOcrText,
-      qaDatabase: MOCK_PETITIONS[0].qaDatabase
+      status: 'Processing',
+      summary: '',
+      portalDetails: null,
+      rawOcrText: '',
+      qaDatabase: []
     };
 
     setTimeout(() => {

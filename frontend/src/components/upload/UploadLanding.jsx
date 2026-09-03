@@ -33,7 +33,7 @@ export default function UploadLanding({ onSelectPetition }) {
 
     const uploadedDoc = {
       file: file,
-      id: `TEMP-${Math.floor(100 + Math.random() * 900)}`,
+      id: `PET-${Date.now().toString().slice(-6)}`,
       fileName: file.name,
       fileSize: sizeFormatted,
       fileType: file.type || (isPdf ? 'PDF Document' : 'Scanned Image'),
@@ -42,12 +42,12 @@ export default function UploadLanding({ onSelectPetition }) {
       uploadedAt: `Today at ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
       totalPages: 1,
       language: 'Tamil',
-      confidenceScore: 96,
-      status: 'Analysis Complete',
-      summary: 'The petitioner requests repair of a damaged road in ABC Village, Erode District. The petition states that the road has remained damaged for several months and causes transportation difficulties during rainfall.',
-      portalDetails: MOCK_PETITIONS[0].portalDetails,
-      rawOcrText: MOCK_PETITIONS[0].rawOcrText,
-      qaDatabase: MOCK_PETITIONS[0].qaDatabase
+      confidenceScore: 95,
+      status: 'Processing',
+      summary: '',
+      portalDetails: null,
+      rawOcrText: '',
+      qaDatabase: []
     };
 
     onSelectPetition(uploadedDoc);

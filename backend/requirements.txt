@@ -1,0 +1,24 @@
+fastapi>=0.111.0
+uvicorn[standard]>=0.30.0
+pydantic>=2.7.0
+pydantic-settings>=2.2.0
+python-multipart>=0.0.9
+asyncpg>=0.29.0
+SQLAlchemy>=2.0.30
+alembic>=1.13.1
+pgvector>=0.2.5
+numpy>=1.26.0
+sentence-transformers>=2.7.0
+torch>=2.2.0
+Pillow>=10.3.0
+pdf2image>=1.17.0
+opencv-python-headless>=4.9.0.80
+paddlepaddle>=2.6.0; sys_platform != "darwin"
+paddleocr>=2.7.3
+surya-ocr>=0.4.14
+httpx>=0.27.0
+PyJWT>=2.8.0
+python-dotenv>=1.0.1
+streamlit>=1.42.0,<1.43.0
+pytest>=8.2.0
+pytest-asyncio>=0.23.7
