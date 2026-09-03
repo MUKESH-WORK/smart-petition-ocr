@@ -28,6 +28,7 @@
 - [Deep Dive: Processing Pipeline](#-deep-dive-processing-pipeline)
 - [Tech Stack](#%EF%B8%8F-tech-stack)
 - [Project Structure](#-project-structure)
+- [Prerequisites & Models Setup](#-prerequisites--models-setup)
 - [Getting Started](#-getting-started)
   - [System Requirements](#system-requirements)
   - [One-Click Startup](#one-click-startup-windows)
@@ -255,14 +256,72 @@ GDP_Assistant/
 
 ---
 
+## 📦 Prerequisites & Models Setup
+
+Before launching GDP Assistant, ensure your environment meets the system dependencies and has the required local models installed.
+
+### 1. System Dependencies
+
+| Dependency | Required Version | Verification Command | Purpose |
+| :--- | :--- | :--- | :--- |
+| **Python** | `3.11.x` – `3.12.x` | `python --version` | Backend API, OCR & ML Pipeline |
+| **Node.js** | `18.x` or `20.x` LTS | `node -v` | Frontend Dev Server & Build Tool |
+| **npm** | `9.x` or `10.x` | `npm -v` | Package Manager |
+| **Docker** | `24.x+` & Compose v2 | `docker compose version` | Containerized PostgreSQL 16 + pgvector |
+| **Poppler** | Latest | `pdftoppm -v` | High-fidelity PDF-to-image rasterization |
+| **Ollama** | Latest | `ollama --version` | Local Quantized LLM Inference Server |
+
+> [!TIP]
+> **Installing Poppler Safely:**
+> * **Windows**: Run in PowerShell: `winget install -e --id OSGeo.Poppler` or `choco install poppler`. Ensure the `bin/` directory is added to your System `PATH`.
+> * **Ubuntu / Debian**: `sudo apt-get update && sudo apt-get install -y poppler-utils`
+> * **macOS**: `brew install poppler`
+
+---
+
+### 2. Required AI / ML Models
+
+GDP Assistant operates with zero reliance on external paid APIs. All models run locally on consumer CPU hardware.
+
+#### A. Large Language Model (Ollama)
+The platform uses **Qwen 2.5** for bilingual Tamil/English summarization, entity extraction, and RAG document QA.
+
+1. Install [Ollama](https://ollama.ai) for your operating system.
+2. Pull the recommended model (requires ~2.2 GB disk space):
+   ```bash
+   # Recommended default (Optimal balance of speed & Tamil syntactic accuracy)
+   ollama pull qwen2.5:3b
+
+   # Alternative for ultra-lightweight systems (< 8 GB RAM):
+   ollama pull qwen2.5:1.5b
+   ```
+3. Test that Ollama is responding locally:
+   ```bash
+   curl http://localhost:11434/api/tags
+   ```
+
+#### B. Multilingual Semantic Embedding Model
+* **Model**: `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` (384-dimensional vectors).
+* **Download**: Automatically fetched from Hugging Face on the first run and cached locally in `~/.cache/huggingface/hub/`.
+* **Offline Pre-Cache Script** *(Optional, for air-gapped environments)*:
+  ```bash
+  python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2')"
+  ```
+
+#### C. Optical Character Recognition (OCR) Weights
+* **Engine**: PaddlePaddle PP-OCRv5 (Text Detection & Tamil Recognition).
+* **Weights**: `PP-OCRv5_server_det` + `ta_PP-OCRv5_mobile_rec` + `en_PP-OCRv5_mobile_rec`.
+* **Download**: Downloaded automatically by the OCR router on initial petition upload and cached in `~/.paddlex/official_models/`.
+
+---
+
 ## 🚀 Getting Started
 
 ### System Requirements
 
 * **Operating System**: Windows 10/11, Ubuntu 22.04+, or macOS
-* **RAM**: 8 GB minimum (16 GB recommended)
-* **CPU**: 4 cores minimum (runs purely on CPU without requiring GPU)
-* **Dependencies**: Python 3.11+, Node.js 18+, Docker (for PostgreSQL)
+* **RAM**: 8 GB minimum (16 GB recommended for concurrent OCR + LLM inference)
+* **CPU**: 4 cores minimum (runs purely on CPU without requiring an expensive GPU)
 
 ---
 
@@ -282,69 +341,108 @@ run_all.bat
 
 ### Manual Step-by-Step Setup
 
-#### 1. Start PostgreSQL with pgvector
+#### Step 1: Start PostgreSQL 16 + pgvector
 
-Ensure Docker is running, then start the container:
+Start the isolated database container:
 
 ```bash
 cd backend
 docker compose up -d
 ```
 
-#### 2. Configure Backend Environment
+Verify that the database is healthy:
+```bash
+docker compose ps
+```
 
-Copy `.env.example` to `.env`:
+#### Step 2: Configure Environment Variables
+
+Create your local `.env` file from the provided template:
 
 ```bash
 cp .env.example .env
 ```
 
-Review the default connection parameters:
+Default configuration in `.env`:
 ```ini
+# PostgreSQL 16 connection URL
 DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/gdp_db
+
+# Local Ollama LLM endpoint
 OLLAMA_BASE_URL=http://localhost:11434
 LLM_MODEL=qwen2.5:3b
+
+# Multilingual Sentence Transformer
 EMBEDDING_MODEL=paraphrase-multilingual-MiniLM-L12-v2
+
+# Security & Session
+SECRET_KEY=your-secure-secret-key-min-32-chars
+ACCESS_TOKEN_EXPIRE_MINUTES=480
 ```
 
-#### 3. Install Python Dependencies & Run Migrations
+#### Step 3: Install Backend Packages in a Safe Virtual Environment
+
+Always use an isolated virtual environment to prevent package version conflicts with system Python:
 
 ```bash
 cd backend
+
+# Create isolated virtual environment
 python -m venv .venv
-# On Windows:
-.venv\Scripts\activate
-# On Linux/macOS:
+
+# Activate the virtual environment:
+# On Windows (PowerShell):
+.venv\Scripts\Activate.ps1
+# On Windows (Command Prompt):
+.venv\Scripts\activate.bat
+# On Linux / macOS:
 source .venv/bin/activate
 
+# Upgrade pip to latest version
+python -m pip install --upgrade pip
+
+# Install pinned dependencies
 pip install -r requirements.txt
+```
+
+> [!NOTE]
+> **CPU vs GPU PyTorch**: `requirements.txt` installs standard PyTorch. For strictly CPU-only production environments to save disk space, install PyTorch with:
+> ```bash
+> pip install torch --index-url https://download.pytorch.org/whl/cpu
+> ```
+
+#### Step 4: Run Database Migrations & Seed Revenue Master Data
+
+```bash
+# Apply Alembic schema migrations (DDL, pgvector extension, HNSW indexes)
 alembic upgrade head
+
+# Seed master revenue locations (Erode district taluks, firkas, villages)
 python init_db.py
 ```
 
-#### 4. Launch Local Ollama LLM
-
-In a separate terminal, ensure Ollama is serving the model:
-
-```bash
-ollama run qwen2.5:3b
-```
-
-#### 5. Start FastAPI Backend
+#### Step 5: Start the FastAPI Backend Server
 
 ```bash
 uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
+API Documentation will be live at `http://127.0.0.1:8000/api/v1/docs`.
 
-#### 6. Install & Start Frontend
+#### Step 6: Install & Start Frontend
+
+In a separate terminal:
 
 ```bash
 cd frontend
+
+# Install clean Node dependencies
 npm install
+
+# Start Vite development server
 npm run dev
 ```
 
-The application will be live at `http://localhost:5174`.
+Open **`http://localhost:5174/`** to access the GDP Assistant dashboard.
 
 ---
 
