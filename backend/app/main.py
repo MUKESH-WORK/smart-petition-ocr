@@ -60,17 +60,20 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Could not auto-seed master locations: {e}")
 
-    # Warm up background services
+    # Warm up background services asynchronously so server binds instantly (<1s)
     from services.vector_store import vector_store
     from services.ocr_router import ocr_router
     from core.llm_client import llm_client
 
-    try:
-        vector_store.warmup()
-        await llm_client._verify_or_discover_model()
-        logger.info("AI models and embedder initialized and ready.")
-    except Exception as e:
-        logger.warning(f"Non-blocking model warmup notice: {e}")
+    async def _async_warmup():
+        try:
+            await asyncio.to_thread(vector_store.warmup)
+            await llm_client._verify_or_discover_model()
+            logger.info("AI models and embedder initialized and ready.")
+        except Exception as e:
+            logger.warning(f"Non-blocking model warmup notice: {e}")
+
+    asyncio.create_task(_async_warmup())
 
     # Start background job queue worker
     worker_task = asyncio.create_task(job_queue.run_worker_loop(worker_id="worker-primary-01"))
@@ -111,11 +114,92 @@ app.include_router(search.router, prefix=settings.API_V1_STR)
 app.include_router(admin.router, prefix=settings.API_V1_STR)
 
 
+@app.get("/health")
+@app.get(f"{settings.API_V1_STR}/health")
+async def health_check():
+    """
+    Enterprise health check endpoint (Microsoft/Azure/Google Cloud monitoring pattern).
+    Inspects PostgreSQL, pgvector, Ollama/LLM, disk storage, and queue status.
+    """
+    import shutil
+    from services.ocr_router import ocr_router
+    from core.llm_client import llm_client
+
+    checks = {
+        "status": "healthy",
+        "timestamp": os.getenv("CURRENT_TIME", ""),
+        "components": {}
+    }
+
+    # 1. Check PostgreSQL & pgvector
+    try:
+        async with AsyncSessionLocal() as db:
+            db_res = await db.execute(text("SELECT 1"))
+            db_res.scalar_one()
+
+            # Check queue counts
+            q_res = await db.execute(text("""
+                SELECT 
+                    COUNT(*) FILTER (WHERE status = 'pending') AS pending_count,
+                    COUNT(*) FILTER (WHERE status = 'processing') AS processing_count,
+                    COUNT(*) FILTER (WHERE status = 'failed') AS failed_count
+                FROM job_queue
+            """))
+            q_stats = dict(q_res.mappings().one())
+
+        checks["components"]["database"] = {
+            "status": "up",
+            "type": "PostgreSQL 16 + pgvector",
+            "queue": q_stats
+        }
+    except Exception as e:
+        checks["status"] = "degraded"
+        checks["components"]["database"] = {"status": "down", "error": str(e)}
+
+    # 2. Check LLM Server
+    try:
+        active_model = await llm_client._verify_or_discover_model()
+        checks["components"]["llm"] = {
+            "status": "up",
+            "provider": settings.LLM_PROVIDER,
+            "active_model": active_model,
+            "base_url": settings.LLM_API_BASE_URL
+        }
+    except Exception as e:
+        checks["components"]["llm"] = {
+            "status": "offline_with_heuristic_fallback",
+            "warning": str(e)
+        }
+
+    # 3. Check Storage & Disk
+    try:
+        total, used, free = shutil.disk_usage(settings.UPLOAD_DIR)
+        checks["components"]["storage"] = {
+            "status": "up",
+            "upload_dir": settings.UPLOAD_DIR,
+            "free_gb": round(free / (1024 ** 3), 2),
+            "used_gb": round(used / (1024 ** 3), 2)
+        }
+    except Exception as e:
+        checks["components"]["storage"] = {"status": "error", "error": str(e)}
+
+    # 4. OCR Engine
+    checks["components"]["ocr"] = {
+        "engine": "PaddleOCR PP-OCRv5 (Tamil/English)",
+        "preprocessing": getattr(settings, "OCR_PREPROCESSING_ENABLED", True),
+        "target_dimension": getattr(settings, "OCR_MAX_IMAGE_DIMENSION", 1500),
+        "dpi": getattr(settings, "OCR_DPI", 200)
+    }
+
+    return checks
+
+
 @app.get("/")
 async def root():
     return {
         "module": "DRO Grievance AI Module",
         "state": "Tamil Nadu Revenue Department",
         "database": "PostgreSQL 16 with pgvector, tsvector & JSONB",
+        "health": "/health",
         "docs": "/api/v1/docs"
     }

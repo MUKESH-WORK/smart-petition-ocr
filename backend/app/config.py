@@ -54,6 +54,16 @@ class Settings(BaseSettings):
     UPLOAD_DIR: str = "uploads"
     STATIC_MEDIA_DIR: str = "static/media"
     
+    # Production Performance & Pipeline Tuning
+    OCR_MAX_IMAGE_DIMENSION: int = 1500      # Max long-edge px (up from 1100 for enhanced Tamil separation)
+    OCR_DPI: int = 200                        # PDF render DPI (optimal balance for Tamil OCR)
+    OCR_PREPROCESSING_ENABLED: bool = True     # Adaptive binarization, deskew, denoise
+    LLM_FAST_TIMEOUT: float = 30.0            # Fast timeout with entity-grounded fallback
+    LLM_FULL_TIMEOUT: float = 90.0            # Full timeout for LLM
+    JOB_MAX_RETRIES: int = 3                  # Max job retries on transient failures
+    JOB_STUCK_TIMEOUT_MINUTES: int = 5        # Auto-recover stuck processing jobs
+    WORKER_POLL_INTERVAL: float = 1.5         # Worker polling frequency (seconds)
+    
     if SettingsConfigDict is not None:
         model_config = SettingsConfigDict(
             env_file=".env",

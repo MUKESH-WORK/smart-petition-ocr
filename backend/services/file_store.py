@@ -54,19 +54,21 @@ class FileStore:
         image_paths = []
         file_type = file_type.lower().replace(".", "")
 
+        target_dpi = getattr(settings, "OCR_DPI", 200)
+
         if file_type == "pdf":
             try:
                 import fitz
                 doc = fitz.open(file_path)
                 for idx, page in enumerate(doc, 1):
-                    pix = page.get_pixmap(dpi=150)
+                    pix = page.get_pixmap(dpi=target_dpi)
                     out_path = self.get_page_image_path(source_id, idx)
                     pix.save(out_path)
                     image_paths.append(out_path)
             except Exception as e:
                 try:
                     from pdf2image import convert_from_path
-                    images = convert_from_path(file_path, dpi=150)
+                    images = convert_from_path(file_path, dpi=target_dpi)
                     for idx, img in enumerate(images, 1):
                         out_path = self.get_page_image_path(source_id, idx)
                         img.save(out_path, "PNG")
@@ -74,12 +76,18 @@ class FileStore:
                 except Exception as e2:
                     raise RuntimeError(f"Error converting PDF to images: {e} | {e2}")
         elif file_type in ["png", "jpg", "jpeg", "tiff", "webp"]:
-            img = Image.open(file_path)
-            if img.mode != "RGB":
-                img = img.convert("RGB")
-            out_path = self.get_page_image_path(source_id, 1)
-            img.save(out_path, "PNG")
-            image_paths.append(out_path)
+            try:
+                img = Image.open(file_path)
+                # Validation: check image dimensions
+                if img.width < 50 or img.height < 50:
+                    raise ValueError(f"Image too small ({img.width}x{img.height}) for OCR processing")
+                if img.mode != "RGB":
+                    img = img.convert("RGB")
+                out_path = self.get_page_image_path(source_id, 1)
+                img.save(out_path, "PNG")
+                image_paths.append(out_path)
+            except Exception as e:
+                raise ValueError(f"Invalid or corrupted image file: {e}")
         else:
             raise ValueError(f"Unsupported file type for OCR: {file_type}")
 
