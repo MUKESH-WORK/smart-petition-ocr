@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { FileText, CheckCircle2, Loader2, Circle, ShieldCheck } from 'lucide-react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { FileText, CheckCircle2, Loader2, Circle, ShieldCheck, AlertTriangle, RotateCcw, X } from 'lucide-react';
 import { uploadAndAnalyzePetition } from '../../services/apiService';
 import './Upload.css';
 
@@ -12,27 +12,33 @@ const PROCESSING_STEPS = [
   { id: 6, label: 'Ready for understanding', detail: 'Summary & conversation stream prepared' }
 ];
 
-export default function ProcessingOverlay({ petition, onComplete }) {
+export default function ProcessingOverlay({ petition, onComplete, onCancel }) {
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
+  const [pipelineError, setPipelineError] = useState(null);
+  const [retryNonce, setRetryNonce] = useState(0);
+
+  const handleRetry = useCallback(() => {
+    setPipelineError(null);
+    setCurrentStepIndex(0);
+    setRetryNonce((n) => n + 1);
+  }, []);
 
   useEffect(() => {
     let isMounted = true;
-    const timers = [];
 
-    // Progressive step sequence (visual progress while backend works)
-    // Step 0: Document uploaded (0ms)
-    // Step 1: Reading document (600ms)
-    // Step 2: Detecting language (1300ms)
-    // Step 3: Extracting text (2100ms)
-    // Step 4: Generating petition summary (3000ms - waits here for backend)
-    timers.push(setTimeout(() => { if (isMounted) setCurrentStepIndex(1); }, 600));
-    timers.push(setTimeout(() => { if (isMounted) setCurrentStepIndex(2); }, 1300));
-    timers.push(setTimeout(() => { if (isMounted) setCurrentStepIndex(3); }, 2100));
-    timers.push(setTimeout(() => { if (isMounted) setCurrentStepIndex(4); }, 3000));
+    // Minimum pacing so early steps animate smoothly
+    const earlyTimer1 = setTimeout(() => { if (isMounted) setCurrentStepIndex((p) => Math.max(p, 1)); }, 500);
+    const earlyTimer2 = setTimeout(() => { if (isMounted) setCurrentStepIndex((p) => Math.max(p, 2)); }, 1200);
 
-    // Real backend upload & analysis pipeline
+    const onProgressCallback = (stepIdx) => {
+      if (isMounted) {
+        setCurrentStepIndex((prev) => Math.max(prev, stepIdx));
+      }
+    };
+
+    // Official backend upload & analysis pipeline
     const pipelinePromise = petition?.file
-      ? uploadAndAnalyzePetition(petition.file)
+      ? uploadAndAnalyzePetition(petition.file, onProgressCallback)
       : Promise.resolve(petition);
 
     pipelinePromise
@@ -40,28 +46,24 @@ export default function ProcessingOverlay({ petition, onComplete }) {
         if (!isMounted) return;
         // Backend finished! Advance to final step (Ready for understanding - 100%)
         setCurrentStepIndex(5);
-        timers.push(setTimeout(() => {
+        setTimeout(() => {
           if (isMounted) {
             onComplete(realAnalyzedDoc || petition);
           }
-        }, 750));
+        }, 800);
       })
       .catch((err) => {
-        console.warn('Real backend processing note:', err);
+        console.error('Real official pipeline error:', err);
         if (!isMounted) return;
-        setCurrentStepIndex(5);
-        timers.push(setTimeout(() => {
-          if (isMounted) {
-            onComplete(petition);
-          }
-        }, 750));
+        setPipelineError(err.message || 'An error occurred during official pipeline processing');
       });
 
     return () => {
       isMounted = false;
-      timers.forEach(clearTimeout);
+      clearTimeout(earlyTimer1);
+      clearTimeout(earlyTimer2);
     };
-  }, [petition, onComplete]);
+  }, [petition, onComplete, retryNonce]);
 
   // Overall progress percentage
   const progressPercent = Math.min(100, Math.round(((currentStepIndex + 1) / PROCESSING_STEPS.length) * 100));
@@ -100,7 +102,7 @@ export default function ProcessingOverlay({ petition, onComplete }) {
         <div className="processing-steps-list">
           {PROCESSING_STEPS.map((step, idx) => {
             const isCompleted = idx < currentStepIndex;
-            const isCurrent = idx === currentStepIndex;
+            const isCurrent = idx === currentStepIndex && !pipelineError;
             const isPending = idx > currentStepIndex;
 
             return (
@@ -130,6 +132,70 @@ export default function ProcessingOverlay({ petition, onComplete }) {
             );
           })}
         </div>
+
+        {/* Pipeline Error Recovery UI */}
+        {pipelineError && (
+          <div className="processing-error-banner" style={{
+            margin: '16px 0 8px 0',
+            padding: '14px 16px',
+            borderRadius: '8px',
+            background: 'rgba(239, 68, 68, 0.08)',
+            border: '1px solid rgba(239, 68, 68, 0.25)',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '10px'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#ef4444', fontWeight: 600, fontSize: '14px' }}>
+              <AlertTriangle size={18} />
+              <span>Official Pipeline Notice</span>
+            </div>
+            <p style={{ margin: 0, fontSize: '13px', color: '#64748b', lineHeight: 1.4 }}>
+              {pipelineError}
+            </p>
+            <div style={{ display: 'flex', gap: '8px', marginTop: '4px' }}>
+              <button
+                type="button"
+                onClick={handleRetry}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  padding: '6px 14px',
+                  fontSize: '13px',
+                  fontWeight: 500,
+                  color: '#fff',
+                  background: '#0ea5e9',
+                  border: 'none',
+                  borderRadius: '6px',
+                  cursor: 'pointer'
+                }}
+              >
+                <RotateCcw size={14} /> Retry Official Pipeline
+              </button>
+              {onCancel && (
+                <button
+                  type="button"
+                  onClick={onCancel}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '6px 14px',
+                    fontSize: '13px',
+                    fontWeight: 500,
+                    color: '#64748b',
+                    background: 'transparent',
+                    border: '1px solid #cbd5e1',
+                    borderRadius: '6px',
+                    cursor: 'pointer'
+                  }}
+                >
+                  <X size={14} /> Cancel
+                </button>
+              )}
+            </div>
+          </div>
+        )}
 
         <div className="processing-footer-info">
           <ShieldCheck size={14} className="note-icon" />

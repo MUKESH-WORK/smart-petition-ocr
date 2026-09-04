@@ -228,6 +228,7 @@ export default function App() {
                 <ProcessingOverlay
                   petition={activePetition}
                   onComplete={handleProcessingComplete}
+                  onCancel={() => setViewState('landing')}
                 />
               )}
 

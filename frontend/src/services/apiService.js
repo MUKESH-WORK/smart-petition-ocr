@@ -81,122 +81,149 @@ export function mapDraftToPortalDetails(draft = {}, analysis = {}) {
 }
 
 /**
- * Upload a petition document and run OCR, Vector Indexing, Entity Extraction, and AI Analysis
+ * Upload a petition document and run official OCR, Vector Indexing, Entity Extraction, and AI Analysis
  */
-export async function uploadAndAnalyzePetition(file) {
+export async function uploadAndAnalyzePetition(file, onProgress) {
   if (!file) throw new Error('File is required');
 
   const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
   const previewUrl = URL.createObjectURL(file);
   const sizeFormatted = formatFileSize(file.size);
 
-  try {
-    const formData = new FormData();
-    formData.append('file', file, file.name);
-    formData.append('officer_id', 'DRO_ERODE_01');
-    formData.append('process_now', 'true');
+  const formData = new FormData();
+  formData.append('file', file, file.name);
+  formData.append('officer_id', 'DRO_ERODE_01');
+  formData.append('process_now', 'false'); // Asynchronous queue processing for reliable production pipeline
 
-    // 1. Upload & trigger backend pipeline
-    const uploadRes = await fetch(`${API_BASE}/grievance/upload`, {
-      method: 'POST',
-      body: formData
-    });
+  // 1. Upload & trigger backend pipeline
+  if (onProgress) onProgress(0); // Document uploaded
+  const uploadRes = await fetch(`${API_BASE}/grievance/upload`, {
+    method: 'POST',
+    body: formData
+  });
 
-    if (!uploadRes.ok) {
-      throw new Error(`Upload failed with HTTP ${uploadRes.status}`);
-    }
+  if (!uploadRes.ok) {
+    const errText = await uploadRes.text();
+    throw new Error(`Upload failed with HTTP ${uploadRes.status}: ${errText}`);
+  }
 
-    const uploadData = await uploadRes.json();
-    const sourceId = uploadData.source_id;
+  const uploadData = await uploadRes.json();
+  const sourceId = uploadData.source_id;
 
-    // 2. Poll for draft and AI analysis completion (up to 20 seconds)
-    let draftData = {};
-    let analysisData = {};
-    let fullOcrText = '';
-    let avgConfidence = 96;
+  // 2. Poll for draft and AI analysis completion (up to 120 seconds)
+  let draftData = null;
+  let analysisData = {};
+  let fullOcrText = '';
+  let avgConfidence = 96;
 
-    let attempts = 0;
-    while (attempts < 20) {
-      const [draftRes, analysisRes, ocrRes] = await Promise.allSettled([
-        fetch(`${API_BASE}/grievance/${sourceId}/draft`),
-        fetch(`${API_BASE}/grievance/${sourceId}/analysis`),
-        fetch(`${API_BASE}/grievance/${sourceId}/ocr`)
-      ]);
+  // If already recognized and draft loaded from database
+  if (uploadData.status === 'draft_ready') {
+    if (onProgress) onProgress(4);
+  }
 
-      if (draftRes.status === 'fulfilled' && draftRes.value.ok) {
-        draftData = await draftRes.value.json();
-      }
-      if (analysisRes.status === 'fulfilled' && analysisRes.value.ok) {
-        analysisData = await analysisRes.value.json();
-      }
-      if (ocrRes.status === 'fulfilled' && ocrRes.value.ok) {
-        const ocrData = await ocrRes.value.json();
-        if (ocrData.pages && ocrData.pages.length > 0) {
-          fullOcrText = ocrData.pages.map(p => p.full_text || '').join('\n\n');
-          avgConfidence = Math.round((ocrData.pages[0].avg_confidence || 0.95) * 100);
+  let attempts = 0;
+  const maxAttempts = 90; // ~135 seconds max for heavy OCR + Ollama inference
+  while (attempts < maxAttempts) {
+    attempts++;
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+
+    try {
+      const statusRes = await fetch(`${API_BASE}/grievance/${sourceId}/status`);
+      if (statusRes.ok) {
+        const sData = await statusRes.json();
+        
+        // Progress stage mapping:
+        // sData.draft_ready or sData.ai_analysis_ready => Complete (Step 5)
+        // sData.chunk_count > 0 or sData.entity_count > 0 => Entities & Summary (Step 4)
+        // sData.page_count > 0 or sData.status === 'ocr_complete' => OCR Done (Step 3)
+        // sData.status === 'uploaded' => Reading document (Step 1 or 2)
+        if (sData.draft_ready || sData.ai_analysis_ready) {
+          if (onProgress) onProgress(5);
+          break;
+        } else if (sData.chunk_count > 0 || sData.entity_count > 0) {
+          if (onProgress) onProgress(4);
+        } else if (sData.page_count > 0 || sData.status === 'ocr_complete') {
+          if (onProgress) onProgress(3);
+        } else {
+          if (onProgress) onProgress(Math.min(2, Math.floor(attempts / 2) + 1));
         }
       }
-
-      // If draft or analysis is ready, we can proceed
-      if (draftData && draftData.petitioner_name) {
-        break;
-      }
-      // Wait 1 second between polls
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      attempts++;
+    } catch {
+      // transient network poll glitch, keep trying
     }
 
-    const portalDetails = mapDraftToPortalDetails(draftData, analysisData);
-
-    const summaryTamil = analysisData.description_summary_tamil || '';
-    const summaryEnglish = analysisData.description_summary_english || '';
-    const displaySummary = summaryTamil || summaryEnglish || draftData.description || 'மனு பெறப்பட்டு ஆவணப்படுத்தப்பட்டுள்ளது.';
-
-    const petitionDoc = {
-      file: file,
-      id: draftData.dro_grievance_id || `PET-${sourceId.slice(0, 8).toUpperCase()}`,
-      source_id: sourceId,
-      fileName: file.name,
-      fileSize: sizeFormatted,
-      fileType: file.type || (isPdf ? 'PDF Document (Scanned)' : 'Scanned Image'),
-      isPdf: isPdf,
-      previewUrl: previewUrl,
-      uploadedAt: `Today at ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
-      totalPages: uploadData.page_count || 1,
-      language: 'Tamil',
-      confidenceScore: avgConfidence,
-      status: 'Analysis Complete',
-      summary: displaySummary,
-      summaryTamil: summaryTamil,
-      summaryEnglish: summaryEnglish,
-      portalDetails: portalDetails,
-      rawOcrText: fullOcrText || (draftData.description ? `[OCR EXTRACT]\n${draftData.description}` : ''),
-      qaDatabase: []
-    };
-
-    return petitionDoc;
-  } catch (err) {
-    console.warn('Backend pipeline dynamic fallback:', err);
-    // Return resilient client-side petition object without fake mock data
-    return {
-      file: file,
-      id: `PET-${Date.now().toString().slice(-6)}`,
-      fileName: file.name,
-      fileSize: sizeFormatted,
-      fileType: file.type || (isPdf ? 'PDF Document' : 'Scanned Image'),
-      isPdf: isPdf,
-      previewUrl: previewUrl,
-      uploadedAt: `Today at ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
-      totalPages: 1,
-      language: 'Tamil',
-      confidenceScore: 95,
-      status: 'Analysis Complete',
-      summary: 'மனு பெறப்பட்டு பதிவேற்றம் செய்யப்பட்டுள்ளது.',
-      portalDetails: mapDraftToPortalDetails({}, {}),
-      rawOcrText: '',
-      qaDatabase: []
-    };
+    // Check if draft has been compiled
+    if (attempts > 3 && attempts % 2 === 0) {
+      try {
+        const dRes = await fetch(`${API_BASE}/grievance/${sourceId}/draft`);
+        if (dRes.ok) {
+          const d = await dRes.json();
+          if (d && (d.dro_grievance_id || d.description || d.petitioner_name)) {
+            draftData = d;
+            if (onProgress) onProgress(5);
+            break;
+          }
+        }
+      } catch {
+        // ignore
+      }
+    }
   }
+
+  // 3. Fetch final draft, analysis, and OCR results
+  const [draftRes, analysisRes, ocrRes] = await Promise.allSettled([
+    fetch(`${API_BASE}/grievance/${sourceId}/draft`),
+    fetch(`${API_BASE}/grievance/${sourceId}/analysis`),
+    fetch(`${API_BASE}/grievance/${sourceId}/ocr`)
+  ]);
+
+  if (draftRes.status === 'fulfilled' && draftRes.value.ok) {
+    draftData = await draftRes.value.json();
+  }
+  if (analysisRes.status === 'fulfilled' && analysisRes.value.ok) {
+    analysisData = await analysisRes.value.json();
+  }
+  if (ocrRes.status === 'fulfilled' && ocrRes.value.ok) {
+    const ocrData = await ocrRes.value.json();
+    if (ocrData.pages && ocrData.pages.length > 0) {
+      fullOcrText = ocrData.pages.map(p => p.full_text || '').join('\n\n');
+      avgConfidence = Math.round((ocrData.pages[0].avg_confidence || 0.95) * 100);
+    }
+  }
+
+  if (!draftData || (!draftData.dro_grievance_id && !draftData.description)) {
+    throw new Error('Official pipeline processing timed out. Please verify backend status and try again.');
+  }
+
+  const portalDetails = mapDraftToPortalDetails(draftData, analysisData);
+
+  const summaryTamil = analysisData.description_summary_tamil || '';
+  const summaryEnglish = analysisData.description_summary_english || '';
+  const displaySummary = summaryTamil || summaryEnglish || draftData.description || 'மனு பெறப்பட்டு ஆவணப்படுத்தப்பட்டுள்ளது.';
+
+  const petitionDoc = {
+    file: file,
+    id: draftData.dro_grievance_id || `PET-${sourceId.slice(0, 8).toUpperCase()}`,
+    source_id: sourceId,
+    fileName: file.name,
+    fileSize: sizeFormatted,
+    fileType: file.type || (isPdf ? 'PDF Document (Scanned)' : 'Scanned Image'),
+    isPdf: isPdf,
+    previewUrl: previewUrl,
+    uploadedAt: `Today at ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
+    totalPages: uploadData.page_count || 1,
+    language: 'Tamil',
+    confidenceScore: avgConfidence,
+    status: 'Analysis Complete',
+    summary: displaySummary,
+    summaryTamil: summaryTamil,
+    summaryEnglish: summaryEnglish,
+    portalDetails: portalDetails,
+    rawOcrText: fullOcrText || (draftData.description ? `[OCR EXTRACT]\n${draftData.description}` : ''),
+    qaDatabase: []
+  };
+
+  return petitionDoc;
 }
 
 /**

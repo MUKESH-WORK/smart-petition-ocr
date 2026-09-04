@@ -1,3 +1,4 @@
+import asyncio
 import json
 import uuid
 import re
@@ -131,7 +132,7 @@ JSON வடிவம்:
         try:
             raw_response = await asyncio.wait_for(
                 self.llm.achat(prompt, system_prompt=SYSTEM_PROMPT_TAMIL, temperature=0.1, max_tokens=256),
-                timeout=10.0
+                timeout=60.0
             )
             analysis = extract_json_object(raw_response)
         except Exception as e:
