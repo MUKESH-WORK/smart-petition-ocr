@@ -24,9 +24,29 @@ class DROBridge:
         if not draft:
             raise ValueError(f"Draft with ID {draft_id} not found")
 
+        # 1b. Idempotency Check: Return existing submission if already pushed
+        if draft["dro_status"] == "submitted" and draft.get("dro_grievance_id"):
+            logger.info(f"Idempotent push check: Draft {draft_id} already submitted with ID {draft['dro_grievance_id']}")
+            return {
+                "success": True,
+                "draft_id": draft_id,
+                "dro_grievance_id": draft["dro_grievance_id"],
+                "status": "submitted",
+                "message": "Petition already submitted to official DRO Portal (idempotent response)"
+            }
+
         # 2. Officer approval check
         if not draft["officer_approved"]:
             raise PermissionError("Officer approval is mandatory before pushing to DRO portal (officer_approved is FALSE)")
+
+        # 2b. Hard-block check for legally sensitive fields (§7)
+        for req_f in ["petitioner_name", "phone", "taluk", "department"]:
+            val = draft.get(req_f)
+            if not val or val in ["-", "[தகவல் இல்லை]", "null", "None"]:
+                raise ValueError(
+                    f"Push to DRO blocked: Legally sensitive field '{req_f}' is missing [தகவல் இல்லை]. "
+                    "Officer must supply this field before submission."
+                )
 
         # 3. Hallucination barrier check
         if draft["source_id"]:
@@ -91,6 +111,15 @@ class DROBridge:
             """), {"source_id": str(draft["source_id"])})
 
         await db.commit()
+
+        # Audit Event: DISPATCHED
+        from app.dependencies import log_audit_event
+        await log_audit_event(
+            db,
+            action="DISPATCHED",
+            source_id=str(draft["source_id"]) if draft["source_id"] else None,
+            details={"draft_id": draft_id, "dro_grievance_id": dro_id}
+        )
 
         return {
             "success": True,

@@ -24,6 +24,10 @@ class PGVectorStore:
         self.model_name = model_name
         self._embedder = None
 
+    @property
+    def model(self):
+        return self._get_embedder()
+
     def warmup(self):
         """Warm up embedding model locally so first user query has zero lag."""
         try:
@@ -43,25 +47,16 @@ class PGVectorStore:
                 except Exception:
                     self._embedder = SentenceTransformer(self.model_name)
             except Exception as e:
-                logger.warning(f"SentenceTransformer not loaded directly: {e}. Using deterministic normalized embedding generator.")
-                self._embedder = "mock_embedder"
+                logger.error(f"SentenceTransformer failed to initialize: {e}")
+                raise RuntimeError(f"SentenceTransformer embedding model could not be initialized: {e}")
         return self._embedder
 
     def encode(self, texts: List[str]) -> List[List[float]]:
         embedder = self._get_embedder()
-        if embedder != "mock_embedder" and embedder is not None:
-            embeddings = embedder.encode(texts, normalize_embeddings=True)
-            return embeddings.tolist()
-        
-        # Deterministic 384-dim normalized pseudo-embedding based on hash for zero-failure fallback
-        vectors = []
-        for t in texts:
-            np.random.seed(abs(hash(t)) % (2**32))
-            v = np.random.randn(384).astype(np.float32)
-            norm = np.linalg.norm(v)
-            v = v / norm if norm > 0 else v
-            vectors.append(v.tolist())
-        return vectors
+        if not embedder:
+            raise RuntimeError("Embedder is not initialized")
+        embeddings = embedder.encode(texts, normalize_embeddings=True)
+        return embeddings.tolist()
 
     async def index_document(self, db: AsyncSession, source_id: str, chunks: List[Dict[str, Any]]):
         if not chunks:

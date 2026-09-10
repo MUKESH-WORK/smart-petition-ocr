@@ -78,6 +78,38 @@ class DocumentChunk(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
+class OCRLine(Base):
+    __tablename__ = "ocr_lines"
+
+    line_id = Column(BigInteger, primary_key=True, autoincrement=True)
+    source_id = Column(UUID(as_uuid=True), ForeignKey("sources.source_id", ondelete="CASCADE"), nullable=False)
+    page_number = Column(Integer, nullable=False)
+    line_index = Column(Integer, nullable=False)
+    polygon = Column(JSONB, nullable=False)
+    text = Column(Text, nullable=False)
+    score = Column(Float, nullable=True)
+    script = Column(String(10))
+    style = Column(String(20))
+    struck = Column(Boolean, default=False)
+    region_type = Column(String(20), default="body")
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class StampParse(Base):
+    __tablename__ = "stamp_parse"
+
+    source_id = Column(UUID(as_uuid=True), ForeignKey("sources.source_id", ondelete="CASCADE"), primary_key=True)
+    stamp_found = Column(Boolean, nullable=False)
+    raw_cells = Column(JSONB, nullable=False)
+    date_norm = Column(Text, nullable=True)
+    department = Column(Text, nullable=True)
+    subject = Column(Text, nullable=True)
+    sub_subject = Column(Text, nullable=True)
+    forwarding_officer = Column(Text, nullable=True)
+    validation = Column(JSONB, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 class ExtractedEntity(Base):
     __tablename__ = "extracted_entities"
 
@@ -87,11 +119,23 @@ class ExtractedEntity(Base):
     entity_value = Column(Text, nullable=False)
     confidence = Column(Float)
     validation_status = Column(String(20), default="pending")
+    review_state = Column(String(20), default="pending")
+    officer_note = Column(Text, nullable=True)
     source_page = Column(Integer)
     source_chunk_id = Column(UUID(as_uuid=True), ForeignKey("document_chunks.id"), nullable=True)
     extracted_by = Column(String(20), default="regex")
     officer_corrected = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class BenchmarkRun(Base):
+    __tablename__ = "benchmark_runs"
+
+    run_id = Column(BigInteger, primary_key=True, autoincrement=True)
+    run_type = Column(String(50), nullable=False)
+    config = Column(JSONB, nullable=False)
+    metrics = Column(JSONB, nullable=False)
+    run_at = Column(DateTime, default=datetime.utcnow)
 
 
 class AIAnalysis(Base):

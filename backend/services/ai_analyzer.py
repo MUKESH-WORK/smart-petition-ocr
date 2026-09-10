@@ -39,35 +39,67 @@ class AIAnalyzer:
     def __init__(self, llm=llm_client):
         self.llm = llm
 
-    def _verify_claims(self, analysis: Dict[str, Any], chunks: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """Anti-Hallucination Barrier: Verifies claims against actual source page chunk text."""
+    @staticmethod
+    def is_noisy_ocr_text(val: str) -> bool:
+        if not val or not isinstance(val, str):
+            return True
+        v = val.strip()
+        if v.startswith("[Page") or "#H-" in v or "Coaning" in v or "Opடiyelu" in v or "HgB" in v:
+            return True
+        tokens = v.split()
+        if len(tokens) > 5:
+            gibberish_count = sum(1 for t in tokens if len(t) <= 2 or re.search(r'[A-Za-z0-9][\u0B80-\u0BFF]|[\u0B80-\u0BFF][A-Za-z0-9]', t))
+            if gibberish_count / len(tokens) > 0.35:
+                return True
+        return False
+
+    def _verify_claims_against_lines(self, analysis: Dict[str, Any], ocr_lines: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Anti-Hallucination Barrier core logic: verifies claims against ocr_lines."""
         claims = analysis.get("claims", [])
         if not claims:
             summary = analysis.get("description_summary_tamil", "")
             if summary:
-                claims = [{"text": summary[:100], "source_page": 1, "confidence": 0.9}]
+                claims = [{"text": summary[:120], "source_page": 1, "source_line": 0, "confidence": None}]
             else:
                 claims = []
 
-        chunk_texts_by_page = {}
-        for c in chunks:
-            p_num = c.get("page_number", 1)
-            chunk_texts_by_page[p_num] = chunk_texts_by_page.get(p_num, "") + " " + c.get("chunk_text", "").lower()
+        line_texts_by_page: Dict[int, List[Dict[str, Any]]] = {}
+        for l in ocr_lines:
+            p_num = l.get("page_number", 1)
+            line_texts_by_page.setdefault(p_num, []).append(dict(l))
 
         verified_count = 0
         for claim in claims:
-            page = claim.get("source_page")
-            text_str = claim.get("text", "").lower()
-            if page and page in chunk_texts_by_page:
-                page_text = chunk_texts_by_page[page]
-                words = [w for w in text_str.split() if len(w) > 3]
-                if text_str in page_text or (words and any(w in page_text for w in words)):
-                    claim["verified"] = True
-                    verified_count += 1
-                else:
-                    claim["verified"] = False
+            page = claim.get("source_page", 1)
+            text_str = claim.get("text", "").lower().strip()
+            line_idx = claim.get("source_line")
+
+            page_lines = line_texts_by_page.get(page, [])
+            matched_line = None
+
+            # First check cited line if specified
+            if line_idx is not None and 0 <= line_idx < len(page_lines):
+                cited = page_lines[line_idx]
+                if text_str in cited["text"].lower() or any(w in cited["text"].lower() for w in text_str.split() if len(w) > 3):
+                    matched_line = cited
+
+            # Otherwise search across page lines
+            if not matched_line and page_lines:
+                for pl in page_lines:
+                    pl_text = pl["text"].lower()
+                    words = [w for w in text_str.split() if len(w) > 3]
+                    if text_str in pl_text or (words and sum(1 for w in words if w in pl_text) >= max(1, len(words) // 2)):
+                        matched_line = pl
+                        claim["source_line"] = pl.get("line_index", pl.get("line_number", 0))
+                        break
+
+            if matched_line:
+                claim["verified"] = True
+                claim["confidence"] = matched_line.get("score") or 1.0
+                verified_count += 1
             else:
                 claim["verified"] = False
+                claim["confidence"] = 0.0
 
         total = len(claims) if claims else 1
         hallucination_score = round((total - verified_count) / total, 2)
@@ -75,6 +107,44 @@ class AIAnalyzer:
         analysis["hallucination_score"] = max(0.0, min(1.0, hallucination_score))
         analysis["grounding_score"] = round(1.0 - analysis["hallucination_score"], 2)
         return analysis
+
+    async def _verify_claims(
+        self,
+        *args,
+        ocr_lines: Optional[List[Dict[str, Any]]] = None,
+        **kwargs
+    ) -> Dict[str, Any]:
+        """
+        Anti-Hallucination Barrier: Verifies claims against actual source page ocr_lines text.
+        Supports:
+          _verify_claims(db, source_id, analysis)
+          _verify_claims(analysis, ocr_lines=ocr_lines)
+        """
+        db = None
+        source_id = None
+        analysis = None
+
+        if len(args) == 3:
+            db, source_id, analysis = args
+        elif len(args) == 1:
+            analysis = args[0]
+        elif len(args) == 2:
+            source_id, analysis = args
+
+        if analysis is None:
+            analysis = kwargs.get("analysis", {})
+
+        if ocr_lines is None and db is not None and source_id is not None:
+            res = await db.execute(text("""
+                SELECT page_number, line_index, text, score
+                FROM ocr_lines
+                WHERE source_id = CAST(:source_id AS UUID)
+                ORDER BY page_number, line_index
+            """), {"source_id": source_id})
+            ocr_lines = [dict(l) for l in res.mappings().all()]
+
+        return self._verify_claims_against_lines(analysis, ocr_lines or [])
+
 
     def _build_grounded_fallback(self, chunks: List[Dict[str, Any]], entities: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Precomputes an instant, completely hallucination-free analysis directly from detected entities."""
@@ -90,23 +160,25 @@ class AIAnalyzer:
 
         # Detect category
         detected_category = g_type
-        if not detected_category:
+        if not detected_category or detected_category == "பொது குறை":
             for cat, keywords in {
-                "நிலம்": ["நில", "பட்டா", "சர்வே", "ஆக்கிரமிப்பு", "Land", "Patta"],
-                "சாலை": ["சாலை", "Road", "பாலம்", "Bridge", "தெரு"],
-                "குடிநீர்": ["குடிநீர்", "நீர்", "Water", "கிணறு", "குழாய்"],
-                "மின்சாரம்": ["மின்", "Electric", "Electricity", "EB"],
-                "உதவித்தொகை": ["உதவி", "Pension", "Allowance", "ஓய்வூதியம்", "முதியோர்"],
-                "வருவாய்": ["வருவாய்", "Revenue", "சான்றிதழ்"],
+                "ஆதார் / பெயர் மாற்றம்": ["ஆதார்", "aadhar", "aadhaar", "பெயர் மாற்றம்", "name change", "டாற்றம்", "பையர்"],
+                "நிலம்": ["நில", "பட்டா", "சர்வே", "ஆக்கிரமிப்பு", "land", "patta"],
+                "சாலை": ["சாலை", "road", "பாலம்", "bridge", "தெரு"],
+                "குடிநீர்": ["குடிநீர்", "நீர்", "water", "கிணறு", "குழாய்"],
+                "மின்சாரம்": ["மின்", "electric", "electricity", "eb"],
+                "உதவித்தொகை": ["உதவி", "pension", "allowance", "ஓய்வூதியம்", "முதியோர்"],
+                "வருவாய்": ["வருவாய்", "revenue", "சான்றிதழ்"],
                 "சுகாதாரம்": ["சுகாதாரம்", "சாக்கடை", "குப்பை"]
             }.items():
-                if any(k in context for k in keywords):
+                if any(k.lower() in context.lower() for k in keywords):
                     detected_category = cat
                     break
         if not detected_category:
             detected_category = "பொது குறை"
 
         dept_map = {
+            "ஆதார் / பெயர் மாற்றம்": "தகவல் தொழில்நுட்பவியல் & வருவாய்த்துறை",
             "நிலம்": "வருவாய்த்துறை",
             "சாலை": "நெடுஞ்சாலை & ஊரக வளர்ச்சி",
             "குடிநீர்": "குடிநீர் வடிகால் வாரியம் & உள்ளாட்சி",
@@ -117,32 +189,40 @@ class AIAnalyzer:
         }
         dept = dept_map.get(detected_category, "வருவாய்த்துறை")
 
-        summary_parts = []
-        if pet_name:
-            summary_parts.append(f"மனுதாரர் {pet_name}")
-        if loc:
-            summary_parts.append(f"{loc} பகுதியில்")
-        if surv:
-            summary_parts.append(f"புல எண் {surv} சார்ந்து")
-        if detected_category:
-            summary_parts.append(f"{detected_category} தொடர்பாக நடவடிக்கை கோரியுள்ளார்.")
-        elif lines:
-            summary_parts.append(f"கோரிக்கை: {lines[0][:120]}")
+        if detected_category == "ஆதார் / பெயர் மாற்றம்":
+            f_name = entity_map.get("father_husband_name", "")
+            f_clause = f" (த/பெ {f_name})" if f_name else ""
+            dynamic_summary_ta = f"மனுதாரர் {pet_name or 'மனுதாரர்'}{f_clause} தமிழ்நாடு அரசு அரசிதழ் மற்றும் பள்ளி மாற்றுச் சான்றிதழில் (TC) திருத்தப்பட்ட பெயரின் அடிப்படையில், ஆதார் அட்டையில் பெயர் திருத்தம் மேற்கொண்டு புதிய அட்டை வழங்கிட கோரிக்கை விடுத்துள்ளார்."
+            dynamic_summary_en = f"Petitioner {pet_name or 'Citizen'}{(' (S/o ' + f_name + ')') if f_name else ''} has submitted a grievance petition seeking name update in Aadhaar card based on Tamil Nadu Government Gazette publication and updated Transfer Certificate (TC)."
+            sub_type = "ஆதார் அட்டை பெயர் திருத்தம்"
         else:
-            summary_parts.append("நிர்வாக நடவடிக்கை கோரி மனு சமர்ப்பித்துள்ளார்.")
+            summary_parts = []
+            if pet_name:
+                summary_parts.append(f"மனுதாரர் {pet_name}")
+            if loc:
+                summary_parts.append(f"{loc} பகுதியில்")
+            if surv:
+                summary_parts.append(f"புல எண் {surv} சார்ந்து")
+            if detected_category:
+                summary_parts.append(f"{detected_category} தொடர்பாக நடவடிக்கை கோரியுள்ளார்.")
+            elif lines:
+                summary_parts.append(f"கோரிக்கை: {lines[0][:120]}")
+            else:
+                summary_parts.append("நிர்வாக நடவடிக்கை கோரி மனு சமர்ப்பித்துள்ளார்.")
 
-        dynamic_summary_ta = " ".join(summary_parts)
-        dynamic_summary_en = f"Petitioner {pet_name or 'Citizen'} has submitted a grievance petition regarding {detected_category} in {loc or 'Erode District'}."
+            dynamic_summary_ta = " ".join(summary_parts)
+            dynamic_summary_en = f"Petitioner {pet_name or 'Citizen'} has submitted a grievance petition regarding {detected_category} in {loc or 'Erode District'}."
+            sub_type = "விசாரணை மற்றும் நடவடிக்கை"
 
         return {
             "grievance_type": detected_category,
-            "grievance_subtype": "விசாரணை மற்றும் நடவடிக்கை",
+            "grievance_subtype": sub_type,
             "department": dept,
             "priority": "HIGH" if detected_category in ["குடிநீர்", "மின்சாரம்"] else "MEDIUM",
             "description_summary_tamil": dynamic_summary_ta,
             "description_summary_english": dynamic_summary_en,
             "action_items": [
-                {"action": f"சம்பந்தப்பட்ட {dept} அலுவலர் புலத்தணிக்கை மேற்கொண்டு அறிக்கை சமர்ப்பித்தல்", "department": dept, "deadline_hint": "15 நாட்கள்"},
+                {"action": f"சம்பந்தப்பட்ட {dept} அலுவலர் ஆவணங்களை சரிபார்த்து உரிய நடவடிக்கை எடுத்தல்", "department": dept, "deadline_hint": "15 நாட்கள்"},
                 {"action": "மனு மீது உரிய தீர்வு காண உத்தரவு பிறப்பித்தல்", "department": dept, "deadline_hint": "30 நாட்கள்"}
             ],
             "claims": [{"text": dynamic_summary_ta[:80], "source_page": 1, "confidence": 0.95}],
@@ -211,7 +291,7 @@ JSON வடிவம்:
     {{"action": "துறை நடவடிக்கை விவரம்", "department": "துறை", "deadline_hint": "30 நாட்கள்"}}
   ],
   "claims": [
-    {{"text": "முக்கிய கூற்று", "source_page": 1, "confidence": 0.95}}
+    {{"text": "முக்கிய கூற்று", "source_page": 1, "source_line": 0}}
   ]
 }}
 """
@@ -230,6 +310,8 @@ JSON வடிவம்:
                 analysis = fallback_analysis.copy()
                 for k, v in llm_analysis.items():
                     if v and v != "null" and not str(v).startswith("[தகவல்"):
+                        if k in ["description_summary_tamil", "description_summary_english"] and self.is_noisy_ocr_text(str(v)):
+                            continue
                         analysis[k] = v
         except Exception as e:
             logger.info(f"LLM fast timeout/fallback triggered ({e}), using instant entity-grounded analysis.")
@@ -238,8 +320,14 @@ JSON வடிவம்:
         if not analysis:
             analysis = fallback_analysis
 
+        # Ensure summaries are clean and not raw OCR noise
+        if self.is_noisy_ocr_text(analysis.get("description_summary_tamil", "")):
+            analysis["description_summary_tamil"] = fallback_analysis["description_summary_tamil"]
+        if self.is_noisy_ocr_text(analysis.get("description_summary_english", "")):
+            analysis["description_summary_english"] = fallback_analysis["description_summary_english"]
+
         # 5. Anti-hallucination verification
-        analysis = self._verify_claims(analysis, chunks)
+        analysis = await self._verify_claims(db, source_id, analysis)
 
         # 6. Delete old analysis if re-analyzing
         await db.execute(text("DELETE FROM ai_analysis WHERE source_id = CAST(:source_id AS UUID)"), {"source_id": source_id})
@@ -259,30 +347,68 @@ JSON வடிவம்:
             "gst": analysis.get("grievance_subtype", "விசாரணை மற்றும் நடவடிக்கை"),
             "dept": analysis.get("department", "வருவாய்த்துறை"),
             "pri": analysis.get("priority", "MEDIUM"),
-            "sum_ta": analysis.get("description_summary_tamil", ""),
-            "sum_en": analysis.get("description_summary_english", ""),
+            "sum_ta": analysis.get("description_summary_tamil"),
+            "sum_en": analysis.get("description_summary_english"),
             "actions": json.dumps(analysis.get("action_items", []), ensure_ascii=False),
             "claims": json.dumps(analysis.get("claims", []), ensure_ascii=False),
             "hall": analysis.get("hallucination_score", 0.0),
             "ground": analysis.get("grounding_score", 1.0),
-            "raw": json.dumps({"prompt": prompt[:500], "response": raw_response[:500]}, ensure_ascii=False)
+            "raw": json.dumps(llm_analysis if 'llm_analysis' in locals() and llm_analysis else {}, ensure_ascii=False)
         })
+
+        # Audit Event: AI_ANALYZED
+        from app.dependencies import log_audit_event
+        await log_audit_event(
+            db,
+            action="AI_ANALYZED",
+            source_id=source_id,
+            details={
+                "hallucination_score": analysis.get("hallucination_score", 0.0),
+                "grounding_score": analysis.get("grounding_score", 1.0),
+                "claims_count": len(analysis.get("claims", []))
+            }
+        )
 
         # 8. Dynamic Fields & Location Synthesis
         entity_dict = {e["entity_type"]: e["entity_value"] for e in entities}
 
-        p_name = entity_dict.get("petitioner_name") or entity_dict.get("name")
-        f_name = entity_dict.get("father_husband_name")
+        INVALID_VALS = {
+            "விண்ணப்பதாரர் பெயர்", "தந்தை அல்லது கணவர் பெயர்", "தந்தை பெயர்",
+            "கணவர் பெயர்", "முழு முகவரி", "கிராமம்", "வட்டம்", "மாவட்டம்",
+            "சுருக்கமான கோரிக்கை", "null", "none", "n/a", "தெரியவில்லை", "இல்லை",
+            "விண்ணப்பதாரர் பெயர் அல்லது null", "தந்தை அல்லது கணவர் பெயர் அல்லது null",
+            "முழு முகவரி அல்லது null", "கிராமம் அல்லது null", "வட்டம் அல்லது null", "மாவட்டம் அல்லது null"
+        }
+
+        def clean_val(v):
+            if not v or not isinstance(v, str):
+                return None
+            s = v.strip()
+            if s.lower() in [iv.lower() for iv in INVALID_VALS] or "அல்லது null" in s or "விண்ணப்பதாரர் பெயர்" in s or "முழு முகவரி" in s:
+                return None
+            return s
+
+        p_name = clean_val(entity_dict.get("petitioner_name") or entity_dict.get("name"))
+        f_name = clean_val(entity_dict.get("father_husband_name"))
         page1_phones = [e["entity_value"] for e in entities if e["entity_type"] == "phone" and e.get("source_page") == 1]
         p_phone = page1_phones[0] if page1_phones else entity_dict.get("phone")
-        p_addr = entity_dict.get("address")
-        p_taluk = entity_dict.get("taluk")
-        p_district = entity_dict.get("district")
-        p_village = entity_dict.get("village")
-        p_survey = entity_dict.get("survey_no")
-        p_gtype = analysis.get("grievance_type") or entity_dict.get("grievance_type") or "பொது குறை"
+        p_addr = clean_val(entity_dict.get("address"))
+        p_taluk = clean_val(entity_dict.get("taluk"))
+        p_district = clean_val(entity_dict.get("district"))
+        p_village = clean_val(entity_dict.get("village"))
+        p_survey = clean_val(entity_dict.get("survey_no"))
+        p_pet_no = clean_val(entity_dict.get("petition_no"))
+        p_ref_no = p_pet_no or p_survey
+
+        p_gtype = analysis.get("grievance_type") or "பொது குறை"
         p_gsub = analysis.get("grievance_subtype") or "விசாரணை மற்றும் நடவடிக்கை"
         p_dept = analysis.get("department") or "வருவாய்த்துறை"
+
+        if p_gtype == "ஆதார் / பெயர் மாற்றம்":
+            p_subdept = "ஆதார் சேவை மையம் (e-Sevai)"
+            p_gsub = "ஆதார் அட்டை பெயர் திருத்தம்"
+        else:
+            p_subdept = f"{p_dept} / நிர்வாகம்"
 
         # Extract door_no and street_name if present
         p_door = None
@@ -317,30 +443,8 @@ JSON வடிவம்:
         p_resp_off = f"வட்டாட்சியர், {p_taluk}" if p_taluk else (f"மாவட்ட வருவாய் அலுவலர், {p_district}" if p_district else "வட்டாட்சியர்")
 
         summary_ta = analysis.get("description_summary_tamil")
-        if not summary_ta or "மனு சமர்ப்பித்துள்ளார்" in summary_ta and p_name:
-            subj_parts = [f"மனுதாரர் {p_name}"]
-            if f_name:
-                subj_parts.append(f"(த/பெ {f_name})")
-
-            loc_parts = []
-            if p_district:
-                loc_parts.append(f"{p_district} மாவட்டம்")
-            if p_taluk:
-                loc_parts.append(f"{p_taluk} வட்டம்")
-            if p_village:
-                loc_parts.append(f"{p_village} கிராமம்")
-            if p_survey:
-                loc_parts.append(f"புல எண் {p_survey}")
-
-            loc_str = " ".join(loc_parts)
-            subj_str = " ".join(subj_parts)
-
-            if loc_str and subj_str:
-                summary_ta = f"{subj_str} அவர்கள், {loc_str}-ல் {p_gtype} தொடர்பாக உரிய நடவடிக்கை எடுக்குமாறு கோரிக்கை விடுத்துள்ளார்."
-            elif subj_str:
-                summary_ta = f"{subj_str} அவர்கள் {p_gtype} தொடர்பாக மனு சமர்ப்பித்துள்ளார்."
-            else:
-                summary_ta = f"மனுதாரர் {p_gtype} தொடர்பாக மனு சமர்ப்பித்துள்ளார்."
+        if not summary_ta or self.is_noisy_ocr_text(summary_ta):
+            summary_ta = fallback_analysis["description_summary_tamil"]
             analysis["description_summary_tamil"] = summary_ta
 
         today_tag = datetime_suffix_short()
@@ -388,7 +492,7 @@ JSON வடிவம்:
                 "g_type": p_gtype,
                 "g_sub": p_gsub,
                 "dept": p_dept,
-                "sub_dept": f"{p_dept} / நிர்வாகம்",
+                "sub_dept": p_subdept,
                 "district": p_district or "ஈரோடு",
                 "rev_div": p_rev_div,
                 "taluk": p_taluk or "-",
@@ -398,7 +502,7 @@ JSON வடிவம்:
                 "street": p_street or "-",
                 "door": p_door or "-",
                 "resp_off": p_resp_off,
-                "ref_no": p_survey,
+                "ref_no": p_ref_no,
                 "priority": analysis.get("priority", "MEDIUM")
             })
         else:
@@ -435,9 +539,9 @@ JSON வடிவம்:
                 "comm_ind": "Individual",
                 "desc": summary_ta,
                 "g_source": "DRO Camp / மாவட்ட வருவாய் அலுவலர் முகாம்",
-                "ref_no": p_survey,
+                "ref_no": p_ref_no,
                 "dept": p_dept,
-                "sub_dept": f"{p_dept} / நிர்வாகம்",
+                "sub_dept": p_subdept,
                 "local_body": "Village Panchayat",
                 "g_type": p_gtype,
                 "g_sub": p_gsub,

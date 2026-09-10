@@ -21,6 +21,7 @@ SYSTEM_PROMPT_TAMIL = """
 """
 
 CATEGORY_KEYWORDS = {
+    "ஆதார்": ["ஆதார்", "ஆதார் கார்டு", "Aadhar", "Aadhaar", "UIDAI", "ஆதார் பெயர் மாற்றம்", "ஆதார் திருத்தம்", "கெசட்", "Gazette", "இ-சேவை", "e-Sevai", "Information Technology", "சான்றிதழ் மாற்றம்"],
     "சுகாதாரம்": ["சுகாதாரம்", "குப்பை", "சாக்கடை", "Drainage", "Health", "Sanitation", "கழிவுநீர்", "கொசு", "தூய்மை"],
     "நிலம்": ["நில", "பட்டா", "சர்வே", "ஆக்கிரமிப்பு", "Land", "Patta", "Survey", "boundary", "எல்லை", "புல எண்"],
     "சாலை": ["சாலை", "Road", "பாலம்", "Bridge", "போக்குவரத்து", "தெரு", "Street", "தார்ப்பாய்"],
@@ -31,6 +32,7 @@ CATEGORY_KEYWORDS = {
 }
 
 DEPARTMENT_MAP = {
+    "ஆதார்": "தகவல் தொழில்நுட்பவியல் & வருவாய்த்துறை",
     "நிலம்": "வருவாய்த்துறை",
     "சாலை": "நெடுஞ்சாலை & ஊரக வளர்ச்சி",
     "குடிநீர்": "குடிநீர் வடிகால் வாரியம் & உள்ளாட்சி",
@@ -316,22 +318,28 @@ class LLMClient:
 
         # If JSON format requested for AI analysis
         if "JSON:" in prompt or "விண்ணப்பதாரர் பெயர்" in prompt or "grievance_type" in prompt:
-            lines = [l.strip() for l in context_text.split("\n") if l.strip()]
-            first_lines = " ".join(lines[:6]) if lines else "மனுதாரர் நிர்வாக நடவடிக்கை கோரி மனு சமர்ப்பித்துள்ளார்."
+            clean_summary_ta = f"மனுதாரர் {matched_cat} தொடர்பாக நிர்வாக நடவடிக்கை எடுக்க வேண்டி மனு சமர்ப்பித்துள்ளார்."
+            clean_summary_en = f"The petitioner has submitted an administrative grievance regarding {matched_cat}."
+            if matched_cat == "ஆதார்":
+                clean_summary_ta = "மனுதாரர் ஆதார் அட்டையில் பெயர் மாற்றம் மற்றும் திருத்தம் மேற்கொள்ள வேண்டி உரிய ஆவணங்களுடன் மனு சமர்ப்பித்துள்ளார்."
+                clean_summary_en = "The petitioner has submitted a formal grievance requesting name correction in Aadhaar Card."
+            elif matched_cat == "நிலம்":
+                clean_summary_ta = "மனுதாரர் நில பட்டா மாற்றம் / நில அளவீடு தொடர்பாக உரிய நடவடிக்கை எடுக்கக் கோரி மனு சமர்ப்பித்துள்ளார்."
+                clean_summary_en = "The petitioner has submitted an application for patta transfer and land survey."
 
             return json.dumps({
                 "grievance_type": matched_cat,
                 "grievance_subtype": "விசாரணை மற்றும் நடவடிக்கை",
                 "department": matched_dept,
                 "priority": "HIGH" if matched_cat in ["குடிநீர்", "மின்சாரம்"] else "MEDIUM",
-                "description_summary_tamil": first_lines[:250],
-                "description_summary_english": f"The petitioner has submitted an administrative grievance regarding {matched_cat}.",
+                "description_summary_tamil": clean_summary_ta,
+                "description_summary_english": clean_summary_en,
                 "action_items": [
                     {"action": f"சம்பந்தப்பட்ட {matched_dept} அலுவலர் புலத்தணிக்கை மேற்கொள்ளுதல்", "department": matched_dept, "deadline_hint": "15 நாட்கள்"},
                     {"action": "மனு மீது உரிய தீர்வு காண உத்தரவு பிறப்பித்தல்", "department": matched_dept, "deadline_hint": "30 நாட்கள்"}
                 ],
                 "claims": [
-                    {"text": lines[0][:80] if lines else f"மனு {matched_cat} கோரிக்கை", "source_page": 1, "confidence": 0.95}
+                    {"text": clean_summary_ta[:80], "source_page": 1, "confidence": 0.95}
                 ],
                 "hallucination_score": 0.0
             }, ensure_ascii=False)

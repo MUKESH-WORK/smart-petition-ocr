@@ -67,6 +67,7 @@ __pycache__/
 venv/
 ENV/
 env/
+.venv/
 backend/.venv/
 build/
 develop-eggs/

@@ -1,11 +1,19 @@
 import gc
 import json
 import logging
+import os
+import re
 import time
-from typing import List, Dict, Any, Optional, TYPE_CHECKING
+import unicodedata
+from typing import List, Dict, Any, Optional, Tuple, TYPE_CHECKING
 import cv2
 import numpy as np
 from PIL import Image
+
+try:
+    import torch
+except Exception:
+    pass
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,80 +28,58 @@ else:
 
 from app.config import settings
 from services.file_store import file_store
+from services.image_preprocessor import image_preprocessor
+from services.region_analyzer import region_analyzer
 
 logger = logging.getLogger(__name__)
 
 
-def _preprocess_image(img: np.ndarray) -> np.ndarray:
-    """
-    Google Document AI & Azure AI-inspired preprocessing pipeline for Tamil OCR:
-    1. Grayscale conversion (reduces channel noise & data volume)
-    2. Adaptive Gaussian binarization (handles uneven lighting & scanner shadows)
-    3. Deskew detection & correction (straightens tilted scans)
-    4. Median blur denoising (eliminates salt-and-pepper noise)
-    5. Re-convert to BGR for PaddleOCR inference
-    """
-    if img is None or img.size == 0:
-        return img
+def classify_script(text_str: str) -> str:
+    """Classifies script as 'ta', 'en', or 'mixed' based on Unicode codepoints."""
+    if not text_str:
+        return "ta"
+    tamil_chars = sum(1 for c in text_str if '\u0B80' <= c <= '\u0BFF')
+    latin_chars = sum(1 for c in text_str if c.isascii() and c.isalpha())
+    if tamil_chars > 0 and latin_chars > 0:
+        return "mixed"
+    elif latin_chars > 0 and tamil_chars == 0:
+        return "en"
+    return "ta"
 
+
+def classify_style(crop: np.ndarray) -> str:
+    """Classifies style as 'printed' or 'handwritten' using stroke variance heuristic."""
+    if crop is None or crop.size == 0:
+        return "printed"
     try:
-        # 1. Grayscale
-        if len(img.shape) == 3 and img.shape[2] == 3:
-            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        elif len(img.shape) == 3 and img.shape[2] == 4:
-            gray = cv2.cvtColor(img, cv2.COLOR_BGRA2GRAY)
-        else:
-            gray = img.copy()
-
-        # 2. Adaptive Binarization
-        binary = cv2.adaptiveThreshold(
-            gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-            cv2.THRESH_BINARY, 15, 8
-        )
-
-        # 3. Selective Deskew (only for clear tilt between 1.5° and 45°)
-        coords = np.column_stack(np.where(binary < 128))
-        if len(coords) > 100:
-            angle = cv2.minAreaRect(coords)[-1]
-            if angle < -45:
-                angle = -(90 + angle)
-            elif angle > 45:
-                angle = 90 - angle
-            else:
-                angle = -angle
-
-            if 1.5 < abs(angle) < 45.0:
-                h, w = binary.shape[:2]
-                center = (w // 2, h // 2)
-                m = cv2.getRotationMatrix2D(center, angle, 1.0)
-                binary = cv2.warpAffine(
-                    binary, m, (w, h),
-                    flags=cv2.INTER_LINEAR,
-                    borderMode=cv2.BORDER_REPLICATE
-                )
-
-        # 4. Light Denoise
-        denoised = cv2.medianBlur(binary, 3)
-
-        # 5. Convert back to 3-channel BGR for PaddleOCR
-        return cv2.cvtColor(denoised, cv2.COLOR_GRAY2BGR)
-    except Exception as e:
-        logger.warning(f"Preprocessing fallback triggered due to: {e}")
-        return img
+        gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY) if len(crop.shape) == 3 else crop.copy()
+        _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+        contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        if not contours:
+            return "printed"
+        areas = [cv2.contourArea(c) for c in contours if cv2.contourArea(c) > 5]
+        if len(areas) < 3:
+            return "printed"
+        cv_var = np.std(areas) / (np.mean(areas) + 1e-5)
+        return "handwritten" if cv_var > 0.85 else "printed"
+    except Exception:
+        return "printed"
 
 
 class HybridOCRRouter:
     """
-    High-performance Tamil OCR engine powered by PaddleOCR PP-OCRv5.
-    Features:
-    - Preprocessing pipeline (adaptive binarization, deskew, denoise)
-    - Hardware-aware auto-detection (CUDA GPU with graceful CPU fallback)
-    - Document SHA256 result caching (sub-100ms on repeat documents)
-    - Reading order sorting (top-to-bottom, left-to-right)
+    Production-grade Bilingual Indic OCR Router (PP-OCRv5):
+    - Stage 0 Image Preprocessing (deskew, CLAHE, perspective correction, 300 DPI)
+    - Stage 1 Region Analysis (GDP stamp box extraction, photo/thumbprint rejection, strikethrough detection)
+    - Stage 2 & 3 Line Detection & Recognition (PP-OCRv5 mobile/server det, ta_rec, en_rec)
+    - Per-line persistence to ocr_lines (fixes D1)
+    - Stage 4 Stamp parsing & insertion to stamp_parse (fixes D6)
+    - Real computed page confidence (fixes D3)
     """
 
     def __init__(self):
-        self._paddle = None
+        self._paddle_ta = None
+        self._paddle_en = None
         self._use_gpu = False
 
     def _check_gpu(self) -> bool:
@@ -106,110 +92,133 @@ class HybridOCRRouter:
             pass
         return False
 
-    def _get_paddle(self):
-        if self._paddle is None:
+    def _get_paddle_ta(self):
+        if self._paddle_ta is None:
             try:
-                import os
-                torch_lib = r'E:\test_rat\GDP_Assistant\.venv\Lib\site-packages\torch\lib'
-                if os.path.exists(torch_lib):
-                    try:
-                        os.add_dll_directory(torch_lib)
-                    except Exception:
-                        pass
+                import os, site
+                search_dirs = [
+                    r'e:\test_rat\GDP_Assistant\backend\.venv\Lib\site-packages\torch\lib',
+                    r'E:\test_rat\GDP_Assistant\.venv\Lib\site-packages\torch\lib'
+                ]
+                try:
+                    for s in site.getsitepackages():
+                        search_dirs.append(os.path.join(s, "torch", "lib"))
+                except Exception:
+                    pass
+                for t_dir in search_dirs:
+                    if os.path.exists(t_dir):
+                        try:
+                            os.add_dll_directory(t_dir)
+                        except Exception:
+                            pass
 
                 self._use_gpu = self._check_gpu()
-                logger.info(f"PaddleOCR hardware acceleration: GPU={self._use_gpu}")
+                logger.info(f"Paddle PP-OCRv5 hardware acceleration: GPU={self._use_gpu}")
 
                 from paddleocr import PaddleOCR
-                try:
-                    self._paddle = PaddleOCR(
-                        lang='ta',
-                        use_doc_orientation_classify=True,
-                        use_doc_unwarping=False,
-                        use_textline_orientation=True
-                    )
-                except Exception as ex_orient:
-                    logger.warning(f"Orientation models unavailable, falling back to base mode: {ex_orient}")
-                    self._paddle = PaddleOCR(
-                        lang='ta',
-                        use_doc_orientation_classify=False,
-                        use_doc_unwarping=False,
-                        use_textline_orientation=False
-                    )
-
-                logger.info("Paddle PP-OCRv5 initialized successfully for bilingual Tamil/English!")
+                self._paddle_ta = PaddleOCR(
+                    text_detection_model_name='PP-OCRv5_mobile_det',
+                    text_recognition_model_name='ta_PP-OCRv5_mobile_rec',
+                    use_doc_orientation_classify=False,
+                    use_doc_unwarping=False,
+                    use_textline_orientation=False
+                )
+                logger.info("Paddle PP-OCRv5 Tamil/Bilingual engine initialized successfully.")
             except Exception as e:
-                logger.error(f"Failed to initialize Paddle PP-OCRv5: {e}", exc_info=True)
-                self._paddle = None
-        return self._paddle
+                logger.error(f"Failed to initialize Paddle PP-OCRv5 (Tamil): {e}", exc_info=True)
+                self._paddle_ta = None
+        return self._paddle_ta
 
-    async def _paddle_process(self, image_path: str, page_num: int) -> List[Dict[str, Any]]:
-        paddle_inst = self._get_paddle()
-        blocks = []
-
-        if paddle_inst is not None:
+    def _get_paddle_en(self):
+        if self._paddle_en is None:
             try:
-                import asyncio
-
-                def _run_predict():
-                    img = cv2.imread(image_path)
-                    if img is None:
-                        return []
-
-                    # 1. OpenCV Preprocessing if enabled
-                    if getattr(settings, "OCR_PREPROCESSING_ENABLED", True):
-                        img = _preprocess_image(img)
-
-                    # 2. Rescale long edge to target dimension (default 1500px)
-                    h, w = img.shape[:2]
-                    target_dim = getattr(settings, "OCR_MAX_IMAGE_DIMENSION", 1500)
-                    scale = target_dim / max(h, w)
-                    if scale < 1.0:
-                        img = cv2.resize(img, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA)
-
-                    return list(paddle_inst.predict(img))
-
-                results = await asyncio.to_thread(_run_predict)
-                for res in results:
-                    rec_texts = res.get("rec_texts", [])
-                    rec_scores = res.get("rec_scores", [])
-                    dt_polys = res.get("dt_polys", []) or res.get("rec_polys", [])
-
-                    for i, txt in enumerate(rec_texts):
-                        clean_txt = str(txt).strip()
-                        if not clean_txt:
-                            continue
-                        conf = float(rec_scores[i]) if i < len(rec_scores) else 0.95
-                        poly = (
-                            dt_polys[i].tolist()
-                            if i < len(dt_polys) and hasattr(dt_polys[i], "tolist")
-                            else [[0, 0], [100, 0], [100, 20], [0, 20]]
-                        )
-                        blocks.append({
-                            "text": clean_txt,
-                            "confidence": round(conf, 3),
-                            "bbox": poly,
-                            "page": page_num,
-                            "engine": "paddleocr_v5"
-                        })
-                if blocks:
-                    return blocks
+                from paddleocr import PaddleOCR
+                self._paddle_en = PaddleOCR(
+                    text_detection_model_name='PP-OCRv5_mobile_det',
+                    text_recognition_model_name='en_PP-OCRv5_mobile_rec',
+                    use_doc_orientation_classify=False,
+                    use_doc_unwarping=False,
+                    use_textline_orientation=False
+                )
+                logger.info("Paddle PP-OCR English engine initialized successfully.")
             except Exception as e:
-                logger.error(f"Paddle PP-OCRv5 inference error on {image_path}: {e}", exc_info=True)
+                logger.warning(f"Paddle English engine fallback to Tamil engine: {e}")
+                self._paddle_en = self._get_paddle_ta()
+        return self._paddle_en
 
-        return blocks
+    async def _paddle_predict(self, ocr_inst, img: np.ndarray) -> List[Dict[str, Any]]:
+        if ocr_inst is None or img is None or img.size == 0:
+            return []
+        import asyncio
+
+        def _predict_sync():
+            try:
+                return list(ocr_inst.predict(img))
+            except Exception as e:
+                logger.error(f"Paddle predict exception: {e}")
+                return []
+
+        return await asyncio.to_thread(_predict_sync)
+
+    def parse_stamp_fields(self, stamp_lines: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Parses stamp cells into structured GDP schema."""
+        raw_cells = {}
+        date_norm = None
+        department = None
+        subject = None
+        sub_subject = None
+        forwarding_officer = None
+
+        full_stamp_text = " ".join([l.get("text", "") for l in stamp_lines])
+
+        # 1. Date normalization
+        date_match = re.search(r'\b(\d{1,2})[/\-\.](\d{1,2})[/\-\.](\d{2,4})\b', full_stamp_text)
+        if date_match:
+            d, m, y = date_match.groups()
+            if len(y) == 2:
+                y = f"20{y}"
+            date_norm = f"{y}-{int(m):02d}-{int(d):02d}"
+            raw_cells["date"] = date_match.group(0)
+
+        # 2. Extract specific department & subject lines
+        for l in stamp_lines:
+            t = l.get("text", "").strip()
+            if any(k in t for k in ["Home Prohib", "Home", "Prohib", "Police", "Revenue", "வருவாய்", "காவல்துறை", "வட்டாட்சியர்"]):
+                department = t
+                raw_cells["department"] = t
+            elif any(k in t for k in ["Land Grabbing", "நில ஆக்கிரமிப்பு", "பட்டா", "Patta", "ஆக்கிரமிப்பு", "புகார்"]):
+                subject = t
+                raw_cells["subject"] = t
+            elif any(k in t for k in ["அலுவலர்", "ஆட்சியர்", "வட்டாட்சியர்", "DRO", "Collector", "Tahsildar"]):
+                forwarding_officer = t
+                raw_cells["forwarding_officer"] = t
+
+        validation = {
+            "date_valid": date_norm is not None,
+            "department_valid": department is not None,
+            "subject_valid": subject is not None,
+            "forwarding_officer_valid": forwarding_officer is not None
+        }
+
+        return {
+            "stamp_found": len(stamp_lines) > 0,
+            "raw_cells": raw_cells,
+            "date_norm": date_norm,
+            "department": department or "[தகவல் இல்லை]",
+            "subject": subject or "[தகவல் இல்லை]",
+            "sub_subject": sub_subject or "[தகவல் இல்லை]",
+            "forwarding_officer": forwarding_officer or "[தகவல் இல்லை]",
+            "validation": validation
+        }
 
     async def _check_ocr_cache(self, db: AsyncSession, source_id: str) -> Optional[str]:
-        """
-        Microsoft Azure pattern: Check if an identical document (SHA256 fingerprint)
-        has already been processed. If so, return the cached source_id.
-        """
         try:
             result = await db.execute(text("""
                 SELECT s2.source_id 
                 FROM sources s1
                 JOIN sources s2 ON s1.file_hash = s2.file_hash AND s2.status IN ('ocr_complete', 'draft_ready')
                 WHERE s1.source_id = CAST(:sid AS UUID) AND s2.source_id != CAST(:sid AS UUID)
+                  AND EXISTS (SELECT 1 FROM ocr_lines ol WHERE ol.source_id = s2.source_id)
                 LIMIT 1
             """), {"sid": source_id})
             cached = result.scalar_one_or_none()
@@ -220,19 +229,38 @@ class HybridOCRRouter:
 
     async def process_source(self, db: AsyncSession, source_id: str, file_path: str, file_type: str) -> Dict[str, Any]:
         """
-        Full production pipeline:
-        1. Check SHA256 document cache -> return instantly if match found
-        2. Convert document to 200 DPI normalized images
-        3. Preprocess with OpenCV (deskew, binarize, denoise)
-        4. Paddle PP-OCRv5 inference + reading-order sorting
-        5. Persist page results into ocr_results
+        Executes full hardened OCR pipeline:
+        Stage 0: Image Preprocessing (deskew, perspective correction, CLAHE, 300 DPI)
+        Stage 1: Region Analysis (stamp box detection, masking, non-text rejection)
+        Stage 2 & 3: PP-OCRv5 Line Detection & Recognition (script & style routing, strikethrough detection)
+        Stage 4: Stamp Parsing & persistence into stamp_parse
+        Per-line persistence into ocr_lines (fixes D1)
+        Real confidence scores (fixes D3)
         """
         start_time = time.time()
 
-        # 1. SHA256 Document Fingerprint Cache Hit Check
+        # Check Cache Hit
         cached_source_id = await self._check_ocr_cache(db, source_id)
         if cached_source_id:
             logger.info(f"⚡ Cache HIT for source {source_id}: copying OCR results from {cached_source_id}")
+            # Copy ocr_lines
+            await db.execute(text("""
+                INSERT INTO ocr_lines (source_id, page_number, line_index, polygon, text, score, script, style, struck, region_type)
+                SELECT CAST(:new_id AS UUID), page_number, line_index, polygon, text, score, script, style, struck, region_type
+                FROM ocr_lines
+                WHERE source_id = CAST(:cached_id AS UUID)
+            """), {"new_id": source_id, "cached_id": cached_source_id})
+
+            # Copy stamp_parse
+            await db.execute(text("""
+                INSERT INTO stamp_parse (source_id, stamp_found, raw_cells, date_norm, department, subject, sub_subject, forwarding_officer, validation)
+                SELECT CAST(:new_id AS UUID), stamp_found, raw_cells, date_norm, department, subject, sub_subject, forwarding_officer, validation
+                FROM stamp_parse
+                WHERE source_id = CAST(:cached_id AS UUID)
+                ON CONFLICT (source_id) DO NOTHING
+            """), {"new_id": source_id, "cached_id": cached_source_id})
+
+            # Copy ocr_results
             await db.execute(text("""
                 INSERT INTO ocr_results (source_id, page_number, full_text, blocks, tables, avg_confidence, ocr_engine, processing_time_ms)
                 SELECT CAST(:new_id AS UUID), page_number, full_text, blocks, tables, avg_confidence, ocr_engine, 0
@@ -261,29 +289,155 @@ class HybridOCRRouter:
             return {
                 "source_id": source_id,
                 "pages": page_count,
-                "total_blocks": 0,
                 "cached": True,
                 "total_time_ms": int((time.time() - start_time) * 1000)
             }
 
-        # 2. Document Conversion
-        images = await file_store.convert_document_to_images(source_id, file_path, file_type)
-        all_blocks = []
+        # Convert Document to Images
+        raw_images = await file_store.convert_document_to_images(source_id, file_path, file_type)
+        ta_ocr = self._get_paddle_ta()
+        en_ocr = self._get_paddle_en()
 
-        # 3. Process Each Page
-        for page_num, image_path in enumerate(images, 1):
+        all_page_lines = []
+        stamp_parsed_record = None
+
+        for page_num, image_path in enumerate(raw_images, 1):
             p_start = time.time()
-            paddle_blocks = await self._paddle_process(image_path, page_num)
 
-            # Sort reading order: top-to-bottom, left-to-right
-            paddle_blocks.sort(key=lambda b: (b["bbox"][0][1], b["bbox"][0][0]))
-            all_blocks.extend(paddle_blocks)
+            # Stage 0: Preprocessing (Deskew, CLAHE, 300 DPI)
+            try:
+                processed_image_path = image_preprocessor.process_image(image_path)
+            except Exception as ex_prep:
+                logger.warning(f"Preprocessing fallback on {image_path}: {ex_prep}")
+                processed_image_path = image_path
 
-            page_full_text = "\n".join([b["text"] for b in paddle_blocks])
-            avg_conf = float(np.mean([b["confidence"] for b in paddle_blocks])) if paddle_blocks else 0.0
+            img = cv2.imread(processed_image_path)
+            if img is None:
+                continue
+
+            h, w = img.shape[:2]
+            page_lines = []
+            line_idx = 0
+
+            # Stage 1: Region Analysis & Stamp Detection (Page 1)
+            stamp_box = None
+            if page_num == 1:
+                stamp_box = region_analyzer.detect_stamp_box(img, is_first_page=True)
+                if stamp_box:
+                    sx, sy, sw, sh = stamp_box
+                    stamp_crop = img[sy:sy+sh, sx:sx+sw]
+                    # Run English & Tamil recognition on stamp crop
+                    stamp_results = await self._paddle_predict(en_ocr, stamp_crop)
+                    stamp_page_lines = []
+
+                    for s_res in stamp_results:
+                        rec_texts = s_res.get("rec_texts", [])
+                        rec_scores = s_res.get("rec_scores", [])
+                        dt_polys = s_res.get("dt_polys", []) or s_res.get("rec_polys", [])
+
+                        for i, txt in enumerate(rec_texts):
+                            clean_t = str(txt).strip()
+                            if not clean_t:
+                                continue
+                            sc = float(rec_scores[i]) if i < len(rec_scores) else None
+                            p = dt_polys[i].tolist() if i < len(dt_polys) and hasattr(dt_polys[i], "tolist") else [[0,0],[10,0],[10,10],[0,10]]
+                            # Offset polygon by stamp_box origin
+                            poly_global = [[pt[0] + sx, pt[1] + sy] for pt in p]
+                            line_dict = {
+                                "page_number": page_num,
+                                "line_index": line_idx,
+                                "polygon": poly_global,
+                                "text": clean_t,
+                                "score": round(sc, 3) if sc is not None else None,
+                                "script": classify_script(clean_t),
+                                "style": "printed",
+                                "struck": False,
+                                "region_type": "stamp"
+                            }
+                            stamp_page_lines.append(line_dict)
+                            page_lines.append(line_dict)
+                            line_idx += 1
+
+                    stamp_parsed_record = self.parse_stamp_fields(stamp_page_lines)
+                    # Mask stamp box on body image so body OCR doesn't duplicate stamp text
+                    img = region_analyzer.mask_stamp_region(img, stamp_box)
+
+            # Stage 2 & 3: Body Line Detection + Recognition
+            body_results = await self._paddle_predict(ta_ocr, img)
+            for b_res in body_results:
+                rec_texts = b_res.get("rec_texts", [])
+                rec_scores = b_res.get("rec_scores", [])
+                dt_polys = b_res.get("dt_polys", []) or b_res.get("rec_polys", [])
+
+                for i, txt in enumerate(rec_texts):
+                    clean_t = str(txt).strip()
+                    if not clean_t:
+                        continue
+                    sc = float(rec_scores[i]) if i < len(rec_scores) else None
+                    poly = dt_polys[i].tolist() if i < len(dt_polys) and hasattr(dt_polys[i], "tolist") else [[0,0],[100,0],[100,20],[0,20]]
+
+                    # Crop line image for strikethrough and style classification
+                    try:
+                        xs = [int(p[0]) for p in poly]
+                        ys = [int(p[1]) for p in poly]
+                        lx1, lx2 = max(0, min(xs)), min(w, max(xs))
+                        ly1, ly2 = max(0, min(ys)), min(h, max(ys))
+                        line_crop = img[ly1:ly2, lx1:lx2] if (lx2 > lx1 and ly2 > ly1) else None
+                    except Exception:
+                        line_crop = None
+
+                    # Strikethrough detection (D7)
+                    is_struck = region_analyzer.is_strikethrough(line_crop) if line_crop is not None else False
+                    script = classify_script(clean_t)
+                    style = classify_style(line_crop) if line_crop is not None else "printed"
+
+                    line_dict = {
+                        "page_number": page_num,
+                        "line_index": line_idx,
+                        "polygon": poly,
+                        "text": clean_t,
+                        "score": round(sc, 3) if sc is not None else None,
+                        "script": script,
+                        "style": style,
+                        "struck": is_struck,
+                        "region_type": "body"
+                    }
+                    page_lines.append(line_dict)
+                    line_idx += 1
+
+            # Sort reading order (top-to-bottom, left-to-right)
+            page_lines.sort(key=lambda l: (l["polygon"][0][1], l["polygon"][0][0]))
+            # Re-index lines sequentially
+            for idx, l in enumerate(page_lines):
+                l["line_index"] = idx
+
+            all_page_lines.extend(page_lines)
+
+            # Persist per-line data into ocr_lines (fixes D1)
+            for l in page_lines:
+                await db.execute(text("""
+                    INSERT INTO ocr_lines (source_id, page_number, line_index, polygon, text, score, script, style, struck, region_type)
+                    VALUES (CAST(:source_id AS UUID), :page_number, :line_index, :polygon, :text, :score, :script, :style, :struck, :region_type)
+                """), {
+                    "source_id": source_id,
+                    "page_number": page_num,
+                    "line_index": l["line_index"],
+                    "polygon": json.dumps(l["polygon"]),
+                    "text": l["text"],
+                    "score": l["score"],
+                    "script": l["script"],
+                    "style": l["style"],
+                    "struck": l["struck"],
+                    "region_type": l["region_type"]
+                })
+
+            # Calculate genuine page average confidence (fixes D3)
+            valid_scores = [l["score"] for l in page_lines if l.get("score") is not None]
+            avg_conf = float(np.mean(valid_scores)) if valid_scores else None
+            page_full_text = "\n".join([l["text"] for l in page_lines])
             p_time_ms = int((time.time() - p_start) * 1000)
 
-            # Persist per page in ocr_results
+            # Persist legacy page summary into ocr_results
             await db.execute(text("""
                 INSERT INTO ocr_results (source_id, page_number, full_text, blocks, tables, avg_confidence, ocr_engine, processing_time_ms)
                 VALUES (CAST(:source_id AS UUID), :page_number, :full_text, :blocks, :tables, :avg_confidence, :ocr_engine, :processing_time_ms)
@@ -296,25 +450,79 @@ class HybridOCRRouter:
                 "source_id": source_id,
                 "page_number": page_num,
                 "full_text": page_full_text,
-                "blocks": json.dumps(paddle_blocks, ensure_ascii=False),
+                "blocks": json.dumps(page_lines, ensure_ascii=False),
                 "tables": json.dumps([], ensure_ascii=False),
                 "avg_confidence": avg_conf,
                 "ocr_engine": "paddleocr_v5",
                 "processing_time_ms": p_time_ms
             })
 
-        # 4. Update source record
+        # Persist Stage 4 Stamp Parse if found or write clean default
+        if stamp_parsed_record is None:
+            stamp_parsed_record = {
+                "stamp_found": False,
+                "raw_cells": {},
+                "date_norm": None,
+                "department": "[தகவல் இல்லை]",
+                "subject": "[தகவல் இல்லை]",
+                "sub_subject": "[தகவல் இல்லை]",
+                "forwarding_officer": "[தகவல் இல்லை]",
+                "validation": {"stamp_found": False}
+            }
+
+        await db.execute(text("""
+            INSERT INTO stamp_parse (source_id, stamp_found, raw_cells, date_norm, department, subject, sub_subject, forwarding_officer, validation)
+            VALUES (CAST(:source_id AS UUID), :stamp_found, :raw_cells, :date_norm, :department, :subject, :sub_subject, :forwarding_officer, :validation)
+            ON CONFLICT (source_id) DO UPDATE SET
+                stamp_found = EXCLUDED.stamp_found,
+                raw_cells = EXCLUDED.raw_cells,
+                date_norm = EXCLUDED.date_norm,
+                department = EXCLUDED.department,
+                subject = EXCLUDED.subject,
+                sub_subject = EXCLUDED.sub_subject,
+                forwarding_officer = EXCLUDED.forwarding_officer,
+                validation = EXCLUDED.validation
+        """), {
+            "source_id": source_id,
+            "stamp_found": stamp_parsed_record["stamp_found"],
+            "raw_cells": json.dumps(stamp_parsed_record["raw_cells"], ensure_ascii=False),
+            "date_norm": stamp_parsed_record["date_norm"],
+            "department": stamp_parsed_record["department"],
+            "subject": stamp_parsed_record["subject"],
+            "sub_subject": stamp_parsed_record["sub_subject"],
+            "forwarding_officer": stamp_parsed_record["forwarding_officer"],
+            "validation": json.dumps(stamp_parsed_record["validation"], ensure_ascii=False)
+        })
+
+        # Update source status
         await db.execute(text("""
             UPDATE sources
             SET page_count = :page_count, status = 'ocr_complete', updated_at = NOW()
             WHERE source_id = CAST(:source_id AS UUID)
-        """), {"source_id": source_id, "page_count": len(images)})
+        """), {"source_id": source_id, "page_count": len(raw_images)})
         await db.commit()
+
+        # Audit Event: OCR_COMPLETED
+        from app.dependencies import log_audit_event
+        low_conf_count = sum(1 for l in all_page_lines if l.get("score") is not None and l["score"] < 0.60)
+        overall_avg = float(np.mean([l["score"] for l in all_page_lines if l.get("score") is not None])) if all_page_lines else None
+        await log_audit_event(
+            db,
+            action="OCR_COMPLETED",
+            source_id=source_id,
+            details={
+                "page_count": len(raw_images),
+                "total_lines": len(all_page_lines),
+                "avg_confidence": overall_avg,
+                "low_confidence_count": low_conf_count,
+                "stamp_found": stamp_parsed_record["stamp_found"]
+            }
+        )
 
         return {
             "source_id": source_id,
-            "pages": len(images),
-            "total_blocks": len(all_blocks),
+            "pages": len(raw_images),
+            "total_lines": len(all_page_lines),
             "cached": False,
             "total_time_ms": int((time.time() - start_time) * 1000)
         }

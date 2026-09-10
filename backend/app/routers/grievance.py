@@ -3,7 +3,7 @@ import json
 import uuid
 import logging
 from typing import List, Optional
-from fastapi import APIRouter, Depends, UploadFile, File, Form, Header, HTTPException, Request, BackgroundTasks
+from fastapi import APIRouter, Depends, UploadFile, File, Form, Header, HTTPException, Request, BackgroundTasks, Query, Body
 from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
@@ -11,6 +11,8 @@ from sqlalchemy import text
 from models.database import get_db
 from models.schemas import (
     SourceUploadResponse, SourceStatusResponse, OCRDocumentResponse, OCRPageResult,
+    OCRLineItem, OCRPageLinesResult, OCRDocumentLinesResponse, StampParseResponse,
+    FieldProvenanceItem, FieldsResponse, FieldUpdateRequest,
     EntityExtractionResponse, ExtractedEntityItem, AIAnalysisResponse,
     ChatRequest, GrievanceDraftResponse, DraftUpdate, DraftApproveRequest
 )
@@ -35,7 +37,8 @@ async def upload_petition(
     request: Request,
     file: UploadFile = File(...),
     officer_id: str = Form("DRO_DEFAULT_OFFICER"),
-    process_now: bool = Form(True),
+    process_now: Optional[bool] = Query(None),
+    process_now_form: Optional[bool] = Form(None, alias="process_now"),
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -48,6 +51,12 @@ async def upload_petition(
     7. Log audit event
     """
     try:
+        is_process_now = True
+        if process_now is not None:
+            is_process_now = process_now
+        elif process_now_form is not None:
+            is_process_now = process_now_form
+
         source_id = str(uuid.uuid4())
         content = await file.read()
         ext = os.path.splitext(file.filename)[1].lower().replace(".", "")
@@ -86,10 +95,13 @@ async def upload_petition(
         source_id = str(row["source_id"])
         await db.commit()
 
-        # If draft already exists for this source_id (e.g. re-upload / cached file), return immediately
+        # If draft already exists for this source_id, check if ocr_lines is populated too
         draft_check = await db.execute(text("SELECT id FROM grievance_drafts WHERE source_id = CAST(:source_id AS UUID)"), {"source_id": source_id})
-        if draft_check.mappings().one_or_none():
-            logger.info(f"Existing draft found for source {source_id}, returning immediately.")
+        lines_check = await db.execute(text("SELECT COUNT(*) FROM ocr_lines WHERE source_id = CAST(:source_id AS UUID)"), {"source_id": source_id})
+        has_lines = (lines_check.scalar() or 0) > 0
+
+        if draft_check.mappings().one_or_none() and has_lines and not is_process_now:
+            logger.info(f"Existing draft and ocr_lines found for source {source_id}, returning immediately.")
             return SourceUploadResponse(
                 source_id=row["source_id"],
                 file_name=row["file_name"],
@@ -100,9 +112,9 @@ async def upload_petition(
                 message="Petition recognized and draft loaded from database."
             )
 
-        # Enqueue OCR job to background worker only if not processing immediately
-        if not process_now:
-            await job_queue.enqueue(db, "ocr", source_id, {"file_path": file_path, "file_type": ext})
+        # Enqueue preprocess job to background worker only if not processing immediately
+        if not is_process_now:
+            await job_queue.enqueue(db, "preprocess", source_id, {"file_path": file_path, "file_type": ext})
         else:
             # Synchronous fast-track processing
             try:
@@ -125,10 +137,10 @@ async def upload_petition(
             except Exception as e:
                 logger.error(f"Error during immediate pipeline processing: {e}", exc_info=True)
 
-        # Log audit event
+        # Log audit event: UPLOADED
         await log_audit_event(
             db=db,
-            action="UPLOAD_PETITION",
+            action="UPLOADED",
             source_id=source_id,
             officer_id=officer_id,
             details={"file_name": file.filename, "file_size": file_size, "hash": file_hash},
@@ -192,7 +204,7 @@ async def get_status(source_id: str, db: AsyncSession = Depends(get_db)):
 @router.get("/{source_id}/ocr", response_model=OCRDocumentResponse)
 async def get_ocr_results(source_id: str, db: AsyncSession = Depends(get_db)):
     """
-    Return all OCR pages, text, bounding boxes, tables, and confidence scores
+    Return all OCR pages, text, bounding boxes, lines, and confidence scores
     """
     res = await db.execute(text("""
         SELECT page_number, full_text, avg_confidence, ocr_engine, processing_time_ms, blocks, tables
@@ -204,11 +216,37 @@ async def get_ocr_results(source_id: str, db: AsyncSession = Depends(get_db)):
     if not pages_raw:
         raise HTTPException(status_code=404, detail="No OCR results found for this document")
 
+    # Fetch lines from ocr_lines table
+    lines_res = await db.execute(text("""
+        SELECT line_id, page_number, line_index, polygon, text, score, script, style, struck, region_type
+        FROM ocr_lines
+        WHERE source_id = CAST(:source_id AS UUID)
+        ORDER BY page_number, line_index
+    """), {"source_id": source_id})
+    lines_by_page: Dict[int, List[OCRLineItem]] = {}
+    for l in lines_res.mappings().all():
+        poly = l["polygon"] if isinstance(l["polygon"], list) else json.loads(l["polygon"] or "[]")
+        lines_by_page.setdefault(l["page_number"], []).append(OCRLineItem(
+            line_id=l["line_id"],
+            page_number=l["page_number"],
+            line_index=l["line_index"],
+            polygon=poly,
+            text=l["text"],
+            score=l["score"],
+            script=l["script"] or "ta",
+            style=l["style"] or "printed",
+            struck=bool(l["struck"]),
+            region_type=l["region_type"] or "body"
+        ))
+
     pages = []
+    total_lines = 0
     total_blocks = 0
     for p in pages_raw:
         blocks = p["blocks"] if isinstance(p["blocks"], list) else json.loads(p["blocks"] or "[]")
         tables = p["tables"] if isinstance(p["tables"], list) else json.loads(p["tables"] or "[]")
+        page_lines = lines_by_page.get(p["page_number"], [])
+        total_lines += len(page_lines)
         total_blocks += len(blocks)
         pages.append(OCRPageResult(
             page_number=p["page_number"],
@@ -216,6 +254,7 @@ async def get_ocr_results(source_id: str, db: AsyncSession = Depends(get_db)):
             avg_confidence=p["avg_confidence"],
             ocr_engine=p["ocr_engine"],
             processing_time_ms=p["processing_time_ms"],
+            lines=page_lines,
             blocks=blocks,
             tables=tables
         ))
@@ -223,8 +262,209 @@ async def get_ocr_results(source_id: str, db: AsyncSession = Depends(get_db)):
     return OCRDocumentResponse(
         source_id=uuid.UUID(source_id),
         pages=pages,
+        total_lines=total_lines,
         total_blocks=total_blocks
     )
+
+
+@router.get("/{source_id}/stamp", response_model=StampParseResponse)
+async def get_stamp_results(source_id: str, db: AsyncSession = Depends(get_db)):
+    """
+    Returns GDP intake stamp extraction and validation results
+    """
+    res = await db.execute(text("""
+        SELECT source_id, stamp_found, raw_cells, date_norm, department, subject, sub_subject, forwarding_officer, validation
+        FROM stamp_parse
+        WHERE source_id = CAST(:source_id AS UUID)
+    """), {"source_id": source_id})
+    row = res.mappings().one_or_none()
+    if not row:
+        return StampParseResponse(
+            source_id=uuid.UUID(source_id),
+            stamp_found=False,
+            raw_cells={},
+            date_norm=None,
+            department="[தகவல் இல்லை]",
+            subject="[தகவல் இல்லை]",
+            sub_subject="[தகவல் இல்லை]",
+            forwarding_officer="[தகவல் இல்லை]",
+            validation={"stamp_found": False}
+        )
+
+    raw_cells = row["raw_cells"] if isinstance(row["raw_cells"], dict) else json.loads(row["raw_cells"] or "{}")
+    validation = row["validation"] if isinstance(row["validation"], dict) else json.loads(row["validation"] or "{}")
+    return StampParseResponse(
+        source_id=row["source_id"],
+        stamp_found=row["stamp_found"],
+        raw_cells=raw_cells,
+        date_norm=row["date_norm"],
+        department=row["department"] or "[தகவல் இல்லை]",
+        subject=row["subject"] or "[தகவல் இல்லை]",
+        sub_subject=row["sub_subject"] or "[தகவல் இல்லை]",
+        forwarding_officer=row["forwarding_officer"] or "[தகவல் இல்லை]",
+        validation=validation
+    )
+
+
+@router.get("/{source_id}/fields", response_model=FieldsResponse)
+async def get_fields_provenance(source_id: str, db: AsyncSession = Depends(get_db)):
+    """
+    Returns per-field value, provenance (grounded | inferred | missing), review_state, confidence, and line citations.
+    """
+    d_res = await db.execute(text("SELECT * FROM grievance_drafts WHERE source_id = CAST(:source_id AS UUID)"), {"source_id": source_id})
+    draft = d_res.mappings().one_or_none()
+
+    e_res = await db.execute(text("SELECT * FROM extracted_entities WHERE source_id = CAST(:source_id AS UUID)"), {"source_id": source_id})
+    entities = {e["entity_type"]: dict(e) for e in e_res.mappings().all()}
+
+    s_res = await db.execute(text("SELECT * FROM stamp_parse WHERE source_id = CAST(:source_id AS UUID)"), {"source_id": source_id})
+    stamp = s_res.mappings().one_or_none()
+
+    fields_dict: Dict[str, FieldProvenanceItem] = {}
+    critical_fields = ["petitioner_name", "phone", "taluk", "department"]
+    missing_critical = []
+
+    field_keys = [
+        "petitioner_name", "father_husband_name", "phone", "alternate_phone", "address",
+        "district", "taluk", "block", "firka", "village", "department", "grievance_type", "grievance_subtype",
+        "ref_number", "priority"
+    ]
+
+    for k in field_keys:
+        val = draft[k] if draft and draft.get(k) is not None else None
+        ent = entities.get(k)
+
+        if ent and ent.get("entity_value"):
+            provenance = "grounded" if ent.get("extracted_by") in ["regex", "structural_regex", "stamp_parser"] else "inferred"
+            conf = ent.get("confidence")
+            r_state = ent.get("review_state", "pending")
+            note = ent.get("officer_note")
+            cite = {"page": ent.get("source_page", 1)}
+            val = ent.get("entity_value")
+        elif stamp and stamp.get(k) and stamp.get(k) != "[தகவல் இல்லை]":
+            provenance = "grounded"
+            conf = 0.98
+            r_state = "pending"
+            note = "Sourced from GDP stamp"
+            cite = {"page": 1}
+            val = stamp.get(k)
+        elif val and val not in ["-", "[தகவல் இல்லை]", "-None-", "None"]:
+            provenance = "inferred"
+            conf = 0.80
+            r_state = "pending"
+            note = "Inferred from document synthesis"
+            cite = None
+        else:
+            provenance = "missing"
+            conf = None
+            r_state = "pending"
+            note = "Missing from source document"
+            cite = None
+            val = "[தகவல் இல்லை]"
+
+        if k in critical_fields and (provenance == "missing" or val in ["[தகவல் இல்லை]", "-", ""]):
+            missing_critical.append(k)
+
+        fields_dict[k] = FieldProvenanceItem(
+            field_name=k,
+            value=val,
+            provenance=provenance,
+            confidence=conf,
+            review_state=r_state,
+            officer_note=note,
+            citation=cite
+        )
+
+    return FieldsResponse(
+        source_id=uuid.UUID(source_id),
+        fields=fields_dict,
+        missing_critical_fields=missing_critical,
+        can_approve=len(missing_critical) == 0
+    )
+
+
+@router.put("/{source_id}/fields/{field_name}")
+async def update_single_field(
+    source_id: str,
+    field_name: str,
+    req: Optional[FieldUpdateRequest] = Body(None),
+    value: Optional[str] = Query(None),
+    note: Optional[str] = Query(None),
+    db: AsyncSession = Depends(get_db),
+    officer: dict = Depends(get_current_officer)
+):
+    """
+    Allows officer to review and correct a specific field, storing diff and marking review_state = 'corrected'.
+    Accepts JSON body {"value": "...", "note": "..."}, query params, or form data.
+    """
+    final_val = (req.value if req and req.value is not None else None) or value
+    final_note = (req.note if req and req.note is not None else None) or note
+
+    if not final_val:
+        raise HTTPException(status_code=400, detail="Field value is required")
+
+    d_res = await db.execute(text("SELECT * FROM grievance_drafts WHERE source_id = CAST(:source_id AS UUID)"), {"source_id": source_id})
+    draft = d_res.mappings().one_or_none()
+    old_val = draft.get(field_name) if draft else None
+
+    allowed_cols = [
+        "petitioner_name", "father_husband_name", "phone", "alternate_phone", "address",
+        "district", "taluk", "block", "firka", "village", "department", "grievance_type", "grievance_subtype",
+        "ref_number", "priority"
+    ]
+    if field_name not in allowed_cols:
+        raise HTTPException(status_code=400, detail=f"Invalid field name: {field_name}")
+
+    if draft:
+        await db.execute(text(f"""
+            UPDATE grievance_drafts SET {field_name} = :val, updated_at = NOW()
+            WHERE source_id = CAST(:source_id AS UUID)
+        """), {"val": final_val, "source_id": source_id})
+
+    # Update or insert into extracted_entities
+    await db.execute(text("""
+        INSERT INTO extracted_entities (source_id, entity_type, entity_value, confidence, validation_status, review_state, officer_note, extracted_by, officer_corrected)
+        VALUES (CAST(:source_id AS UUID), :etype, :val, 1.0, 'verified', 'corrected', :note, 'officer_edit', TRUE)
+        ON CONFLICT DO NOTHING
+    """), {"source_id": source_id, "etype": field_name, "val": final_val, "note": final_note or f"Corrected by officer {officer.get('officer_id')}"})
+
+    await db.execute(text("""
+        UPDATE extracted_entities 
+        SET entity_value = :val, review_state = 'corrected', officer_corrected = TRUE, officer_note = :note, validation_status = 'verified', confidence = 1.0
+        WHERE source_id = CAST(:source_id AS UUID) AND entity_type = :etype
+    """), {"val": final_val, "source_id": source_id, "etype": field_name, "note": final_note or f"Corrected by officer {officer.get('officer_id')}"})
+
+    await db.commit()
+
+    await log_audit_event(
+        db,
+        action="OFFICER_REVIEWED",
+        source_id=source_id,
+        officer_id=officer.get("officer_id"),
+        details={"field": field_name, "old_value": old_val, "new_value": final_val, "note": final_note}
+    )
+
+    return {"status": "success", "field": field_name, "value": final_val, "review_state": "corrected"}
+
+
+
+@router.get("/{source_id}/debug-ocr-text")
+async def debug_ocr_text(source_id: str, db: AsyncSession = Depends(get_db)):
+    """
+    Diagnostic endpoint returning raw and repr(ocr_text) to verify Unicode normalization and characters (fixes D2).
+    """
+    res = await db.execute(text("""
+        SELECT page_number, full_text FROM ocr_results WHERE source_id = CAST(:source_id AS UUID) ORDER BY page_number
+    """), {"source_id": source_id})
+    rows = res.mappings().all()
+    full_str = "\n---PAGE BREAK---\n".join([r["full_text"] or "" for r in rows])
+    return {
+        "source_id": source_id,
+        "page_count": len(rows),
+        "raw_text": full_str,
+        "text_repr": repr(full_str),
+        "length": len(full_str)
+    }
 
 
 @router.get("/{source_id}/page/{page_num}/image")
@@ -473,33 +713,61 @@ async def approve_draft(
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Officer explicitly signs and approves the draft
+    Officer explicitly signs and approves the draft with legal barrier enforcement.
     """
+    # 1. Fetch current draft
+    d_check = await db.execute(text("SELECT * FROM grievance_drafts WHERE id = CAST(:draft_id AS UUID)"), {"draft_id": draft_id})
+    draft = d_check.mappings().one_or_none()
+    if not draft:
+        raise HTTPException(status_code=404, detail="Draft not found")
+
+    # 2. Hard-block check on legally sensitive fields (§7)
+    for f in ["petitioner_name", "phone", "taluk", "department"]:
+        val = draft.get(f)
+        if not val or val in ["[தகவல் இல்லை]", "-", "null", "None"]:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Approval blocked: Legally sensitive field '{f}' is missing [தகவல் இல்லை]. Officer must provide a value before approval."
+            )
+
+    # 3. Hallucination barrier check (> 0.20)
+    if draft["source_id"]:
+        ai_res = await db.execute(
+            text("SELECT hallucination_score FROM ai_analysis WHERE source_id = CAST(:source_id AS UUID)"),
+            {"source_id": str(draft["source_id"])}
+        )
+        ai_row = ai_res.mappings().one_or_none()
+        if ai_row and (ai_row["hallucination_score"] or 0) > 0.20 and not getattr(approve_req, "bypass_hallucination_warning", False):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Approval blocked: Hallucination score ({ai_row['hallucination_score']}) exceeds safety threshold 0.20. Section Officer override required."
+            )
+
+    # 4. Approve draft
     res = await db.execute(text("""
         UPDATE grievance_drafts
         SET officer_approved = TRUE, officer_id = :officer_id, officer_notes = :notes, approved_at = NOW(), updated_at = NOW()
         WHERE id = CAST(:draft_id AS UUID)
         RETURNING *
     """), {"draft_id": draft_id, "officer_id": approve_req.officer_id, "notes": approve_req.officer_notes})
-    draft = res.mappings().one_or_none()
-    if not draft:
-        raise HTTPException(status_code=404, detail="Draft not found")
+    updated_draft = res.mappings().one()
 
-    if draft["source_id"]:
-        await db.execute(text("UPDATE sources SET status = 'officer_approved', updated_at = NOW() WHERE source_id = CAST(:source_id AS UUID)"), {"source_id": str(draft["source_id"])})
+    if updated_draft["source_id"]:
+        await db.execute(text("UPDATE sources SET status = 'officer_approved', updated_at = NOW() WHERE source_id = CAST(:source_id AS UUID)"), {"source_id": str(updated_draft["source_id"])})
 
     await db.commit()
 
+    # 5. Audit Event: OFFICER_APPROVED
     await log_audit_event(
         db=db,
-        action="APPROVE_DRAFT",
-        source_id=str(draft["source_id"]) if draft["source_id"] else None,
+        action="OFFICER_APPROVED",
+        source_id=str(updated_draft["source_id"]) if updated_draft["source_id"] else None,
         officer_id=approve_req.officer_id,
         details={"notes": approve_req.officer_notes},
         ip_address="127.0.0.1"
     )
 
-    return {"success": True, "draft_id": draft_id, "officer_approved": True, "approved_at": draft["approved_at"]}
+    return {"success": True, "draft_id": draft_id, "officer_approved": True, "approved_at": updated_draft["approved_at"]}
 
 
 @router.post("/draft/{draft_id}/push-to-dro")
