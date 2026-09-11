@@ -37,7 +37,6 @@ class CMHelplineTaxonomyValidator:
 
         candidates = [
             os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "cm_helpline_taxonomy.json"),
-            r"e:\test_rat\GDP_Assistant\backend\data\cm_helpline_taxonomy.json",
             os.path.join(os.getcwd(), "backend", "data", "cm_helpline_taxonomy.json"),
             os.path.join(os.getcwd(), "data", "cm_helpline_taxonomy.json"),
         ]

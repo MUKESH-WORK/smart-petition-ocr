@@ -1,99 +1,133 @@
 # 🏛️ DRO Grievance AI Module — Production Backend
 
 **District Revenue Officer (DRO) Grievance Digitization & Automation Module**  
-Automates Tamil grievance petition processing on CPU hardware (Windows / Linux / Docker, 8GB RAM) using a **Postgres-First Law** architecture with Hybrid OCR and Grounded Local LLMs.
+An enterprise-grade, offline-capable civic intelligence backend engineered to ingest, transcribe, verify, classify, and route handwritten and printed Tamil grievance petitions.
 
 ---
 
 ## 🏗️ Architecture & The Postgres-First Law
 
-One database. One single source of truth. PostgreSQL 16 replaces all specialized data stores:
-- **pgvector (HNSW Index)**: Replaces ChromaDB / Pinecone (384-dim multilingual embeddings).
-- **tsvector + GIN Index**: Replaces Elasticsearch (Tamil & English full-text search).
-- **JSONB**: Replaces MongoDB (stores OCR blocks, tables, and AI action items).
-- **FOR UPDATE SKIP LOCKED**: Replaces Redis / RabbitMQ / Kafka for background job execution.
-- **BYTEA + Filesystem Cache**: Stores source documents & rendered page images.
-- **Partitioned Tables**: Monthly partitioned `audit_log` with 1:1 event traceability.
+One database. One single source of truth. A single hardened PostgreSQL 16 instance satisfies all persistence, search, vector, and queuing requirements:
+
+- **pgvector (HNSW Index)**: 384-dimensional multilingual vector embeddings (`document_chunks`) with sub-millisecond cosine similarity search.
+- **tsvector + GIN Index**: Native full-text search across Tamil and English petition transcripts.
+- **JSONB Document Store**: Stores OCR bounding boxes, polygon coordinates, recognized tables, and AI-extracted structures.
+- **`FOR UPDATE SKIP LOCKED` ACID Queue**: Zero Redis / RabbitMQ / Kafka. Background workers poll concurrent processing jobs (`ocr`, `vector`, `ner`, `ai`) with zero race conditions and automatic timeout recovery.
+- **Monthly Partitioned Audit Logging**: Immutable 1:1 trace of all actions (`upload`, `ocr`, `analysis`, `update`, `approve`, `push`) stored in `audit_log`.
+
+---
+
+## 🧠 Cognitive & Processing Engine
+
+1. **Hybrid Optical Character Recognition (OCR)**:
+   - **Primary Engine**: Datalab Chandra OCRv2 API (`https://www.datalab.to/api/v1/convert`) tailored for complex Tamil orthography, historical handwriting, and multi-column layouts.
+   - **Offline Fallback**: Local PaddleOCR (PP-OCRv5) with adaptive OpenCV image preprocessing (deskewing, Otsu binarization, noise filtering).
+   - **OCR Noise Filtering**: Automatically detects and cleans non-Tamil court fee stamps and OCR artifacts.
+   - **Devanagari Normalization**: Converts Devanagari vowel artifacts (e.g. `\u0908` Devanagari `ई`) to Tamil (`\u0B88` `ஈ`), ensuring district names like `ஈரோடு` are always canonical.
+
+2. **Multi-Page Context Budgeting**:
+   - For multi-page petitions, dynamically budgets context across **Page 1** (salutation/applicant header), **intermediate pages** (factual dispute context), and the **Final Page** (where legal sign-offs like `இப்படிக்கு, (மனுதாரர் பெயர்)` and prayers reside).
+
+3. **Dynamic CM Helpline Taxonomy Matching**:
+   - Directly loaded from `backend/data/cm_helpline_taxonomy.json` containing **40 official Tamil Nadu Government Departments** and **1,862 sub-types**.
+   - Zero hardcoded keyword dictionaries. Uses dynamic token matching, semantic concept bridging (`ஆக்கிரமிப்பு` $\rightarrow$ `encroachment`, `பட்டா` $\rightarrow$ `patta`, `முதியோர்`/`விதவை` $\rightarrow$ `pension`), and official acronym mappings (REV, RDPR, MAWS, ENERGY, SWNM).
+
+4. **Anti-Hallucination Claim Verification Barrier**:
+   - Every factual claim extracted by the LLM is verified against the raw source OCR text chunks. If ungrounded or `hallucination_score > 0.20`, officer verification is enforced.
+
+5. **Strict Formal Administrative Tamil Summaries**:
+   - Summaries strictly conform to DRO 3rd-person administrative standards (`மனுதாரர் [பெயர்] ... கோரியுள்ளார்`), completely stripping colloquial or 1st-person phrasing (`நான்`, `பிறப்பித்தேன்`).
 
 ---
 
 ## 📂 Project Structure
 
 ```
-GDP_Assistant/
-├── alembic/
+backend/
+├── alembic/                    # Database migrations
 │   ├── versions/
-│   │   └── 001_initial_schema.py    # DDL with pgvector, JSONB, tsvector, and partitions
 │   └── env.py
 ├── app/
-│   ├── config.py                   # Pydantic Settings (.env configuration)
-│   ├── dependencies.py             # DB sessions, JWT officer auth, and audit logger
-│   ├── main.py                     # FastAPI application factory & lifespan
+│   ├── config.py               # Pydantic v2 settings (.env loader)
+│   ├── dependencies.py         # DB session & JWT officer authentication
+│   ├── main.py                 # FastAPI application factory & lifespan
 │   └── routers/
-│       ├── grievance.py            # /api/v1/grievance (upload, ocr, extract, analyze, draft, push, chat)
-│       ├── search.py               # /api/v1/search (vector, fulltext, hybrid RRF)
-│       └── admin.py                # /api/v1/admin (queue status, system metrics, master locations)
-├── services/
-│   ├── ocr_router.py               # Hybrid PaddleOCR (PP-OCRv5) + lazy-loaded Surya
-│   ├── tamil_chunker.py            # Semantic chunking on Tamil sentence boundaries
-│   ├── vector_store.py             # pgvector embedding indexer & RRF hybrid search
-│   ├── entity_extractor.py         # Regex + AI NER + Aadhaar masking + Master DB validation
-│   ├── ai_analyzer.py              # Qwen 2.5 summary, classification & claim verification barrier
-│   ├── dro_bridge.py               # External DRO portal API integration
-│   ├── job_queue.py                # PostgreSQL SKIP LOCKED worker queue
-│   └── file_store.py               # Document & page image storage
-├── models/
-│   ├── database.py                 # Async engine & session pooling
-│   ├── orm.py                      # SQLAlchemy 2.0 ORM mappings
-│   └── schemas.py                  # Pydantic v2 request/response schemas
+│       ├── grievance.py        # /api/v1/grievance (upload, ocr, draft, chat)
+│       ├── search.py           # /api/v1/search (vector, fulltext, hybrid RRF)
+│       └── admin.py            # /api/v1/admin (queue status, master locations)
 ├── core/
-│   ├── security.py                 # JWT token encoding & verification
-│   └── llm_client.py               # Local Qwen 2.5 client (Ollama / llama.cpp / OpenAI-compatible)
-├── test_ui/
-│   └── app.py                      # Interactive Streamlit validation console
+│   ├── llm_client.py           # Ollama / OpenAI-compatible LLM client
+│   └── security.py             # JWT token utilities
+├── data/
+│   └── cm_helpline_taxonomy.json # Official CM Helpline Taxonomy (1,862 records)
+├── models/
+│   ├── database.py             # SQLAlchemy 2.0 async engine & asyncpg pool
+│   ├── orm.py                  # Tables: sources, ocr_results, grievance_drafts, etc.
+│   └── schemas.py              # Pydantic schemas for requests/responses
+├── services/
+│   ├── ai_analyzer.py          # Cognitive summarization & multi-page context engine
+│   ├── dro_bridge.py           # External state DRO portal integration
+│   ├── entity_extractor.py     # LLM-first NER + Aadhaar masking (`XXXX-XXXX-1234`)
+│   ├── file_store.py           # Safe document & page image persistence
+│   ├── job_queue.py            # SKIP LOCKED background queue worker
+│   ├── ocr_router.py           # Chandra OCRv2 + PaddleOCR hybrid router
+│   ├── tamil_chunker.py        # Semantic Tamil sentence chunking
+│   ├── taxonomy_matcher.py     # Dynamic CM Helpline validator
+│   └── vector_store.py         # pgvector HNSW indexing & hybrid RRF search
 ├── tests/
-│   └── test_end_to_end.py          # Unit & integration tests
-├── docker-compose.yml              # PostgreSQL 16 + pgvector container
-├── requirements.txt                # Python dependencies
-└── alembic.ini                     # Alembic migration configuration
+│   ├── test_production_pipeline.py # Production pipeline tests
+│   └── test_end_to_end.py      # End-to-end integration tests
+├── Dockerfile                  # Production container image definition
+├── docker-compose.yml          # Standalone PostgreSQL 16 + pgvector container
+├── init_db.py                  # Master location seeder (Erode revenue hierarchy)
+└── requirements.txt            # Python dependencies
 ```
 
 ---
 
-## 🚀 Quickstart Guide
+## 🚀 Quickstart & Setup
 
-### 1. Start PostgreSQL 16 + pgvector
+### 1. Prerequisites
+- **Python**: 3.11.x – 3.12.x
+- **PostgreSQL**: 16 with `pgvector` extension
+- **Ollama**: Running locally with `qwen2.5:3b` or `qwen2.5:1.5b`
+
+### 2. Start PostgreSQL 16 + pgvector
 ```bash
 docker compose up -d
 ```
 
-### 2. Install Dependencies
+### 3. Install Python Dependencies
 ```bash
+# Create and activate virtual environment
+python -m venv .venv
+
+# Windows:
+.venv\Scripts\activate
+# Linux / macOS:
+source .venv/bin/activate
+
+# Install requirements
 pip install -r requirements.txt
 ```
 
-### 3. Run Database Migrations
+### 4. Run Migrations & Seed Master Data
 ```bash
 alembic upgrade head
+python init_db.py
 ```
 
-### 4. Start the FastAPI Backend
+### 5. Launch FastAPI Backend
 ```bash
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
-Interactive API documentation will be available at: `http://localhost:8000/api/v1/docs`.
-
-### 5. Launch the Streamlit Validation Console
-```bash
-streamlit run test_ui/app.py
-```
+Interactive Swagger documentation: `http://localhost:8000/api/v1/docs`
 
 ---
 
-## 🛡️ Anti-Hallucination & Security Contract
+## 🧪 Testing
 
-1. **Claim Grounding Barrier**: Every claim in the AI summary must match a specific source page number and pass substring/keyword verification.
-2. **Aadhaar Masking**: Aadhaar numbers are automatically masked (`XXXX-XXXX-1234`) during regex extraction before being saved to the database.
-3. **Master DB Validation**: Villages and taluks are cross-validated against `master_locations`. Unmatched entries are flagged as `suspect`.
-4. **Mandatory Officer Sign-Off**: The DRO Bridge rejects submissions unless `officer_approved == TRUE`. If `hallucination_score > 0.20`, a Section Officer override is enforced.
-5. **Full Audit Logging**: Every upload, OCR extraction, AI analysis, update, and push action is logged in `audit_log`.
+Run the automated test suite:
+```bash
+pytest tests/test_production_pipeline.py tests/test_end_to_end.py -v
+```

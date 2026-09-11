@@ -221,4 +221,4 @@ Ensure all tests pass and static checks report zero errors before opening a pull
 
 ## License
 
-By contributing to GDP Assistant, you agree that your contributions will be licensed under the **Apache License, Version 2.0**. See the [LICENSE](file:///e:/test_rat/GDP_Assistant/LICENSE) file for details.
+By contributing to GDP Assistant, you agree that your contributions will be licensed under the **Apache License, Version 2.0**. See the [LICENSE](LICENSE) file for details.

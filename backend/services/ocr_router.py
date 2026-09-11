@@ -115,21 +115,31 @@ class HybridOCRRouter:
         if self._paddle is None:
             try:
                 import site
-                search_dirs = [
-                    r'e:\test_rat\GDP_Assistant\backend\.venv\Lib\site-packages\torch\lib',
-                    r'E:\test_rat\GDP_Assistant\.venv\Lib\site-packages\torch\lib'
-                ]
+                search_dirs = []
+                # Dynamically locate torch/lib if present for Windows DLL resolution
                 try:
-                    for s in site.getsitepackages():
-                        search_dirs.append(os.path.join(s, "torch", "lib"))
+                    import torch
+                    torch_lib = os.path.join(os.path.dirname(torch.__file__), "lib")
+                    if os.path.exists(torch_lib):
+                        search_dirs.append(torch_lib)
                 except Exception:
                     pass
-                for t_dir in search_dirs:
-                    if os.path.exists(t_dir):
-                        try:
-                            os.add_dll_directory(t_dir)
-                        except Exception:
-                            pass
+
+                try:
+                    for s in site.getsitepackages():
+                        t_lib = os.path.join(s, "torch", "lib")
+                        if os.path.exists(t_lib):
+                            search_dirs.append(t_lib)
+                except Exception:
+                    pass
+
+                if hasattr(os, "add_dll_directory"):
+                    for t_dir in search_dirs:
+                        if os.path.exists(t_dir):
+                            try:
+                                os.add_dll_directory(t_dir)
+                            except Exception:
+                                pass
 
                 self._use_gpu = self._check_gpu()
                 logger.info(f"PaddleOCR hardware acceleration: GPU={self._use_gpu}")
