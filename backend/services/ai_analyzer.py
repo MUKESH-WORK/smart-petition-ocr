@@ -92,20 +92,34 @@ class AIAnalyzer:
         entity_map = {e["entity_type"]: e["entity_value"] for e in entities}
 
         pet_name = entity_map.get("petitioner_name", "")
-        g_type = entity_map.get("grievance_type", "")
-        loc = entity_map.get("village") or entity_map.get("taluk") or ""
-        surv = entity_map.get("survey_no", "")
+        if pet_name in ["நான்", "நாங்கள்", "அவர்கள்", "இவர்", "மனுதாரர்", "விண்ணப்பதாரர்", "பொதுமக்கள்", "-", "--", "none", "unknown"] or len(pet_name) <= 2:
+            pet_name = ""
 
-        detected_category = g_type
-        if not detected_category or detected_category == "பொது குறை":
+        # Secondary check for sender in doc_text if pet_name was empty or filtered
+        if not pet_name:
+            wo_match = re.search(r'(?:^|\n)\s*([^\n:]+?)\s*(?:\(\d+\))?\s*\n+\s*(?:w/o|w\.o|க/பெ|க\.பெ|மனைவி)\s+([^\n,]+)', doc_text, re.IGNORECASE)
+            if wo_match:
+                cw = re.sub(r'^(?:அனுப்புநர்|அனுப்புதல்|விண்ணப்பதாரர்|மனுதாரர்)\s*[:\.\-]?\s*', '', wo_match.group(1)).strip()
+                cw = re.sub(r'\(\d+\)|\d+', '', cw).strip()
+                if len(cw) >= 2 and cw not in ["நான்", "நாங்கள்", "-", "--"]:
+                    pet_name = cw
+
+        g_type = entity_map.get("grievance_type", "")
+        if not g_type or g_type in ["பொது குறை", "-", "--", "None", "none", "unknown"] or len(g_type) <= 2:
+            detected_category = None
+        else:
+            detected_category = g_type
+
+        if not detected_category:
             for cat, keywords in {
+                "வாரிசு சான்றிதழ்": ["வாரிசு", "இறப்பு", "சான்று", "சான்றிதழ்", "heir"],
                 "பட்டா / நிலம்": ["நில", "பட்டா", "சர்வே", "ஆக்கிரமிப்பு", "land", "patta", "நத்தம்"],
                 "ஆதார் / பெயர் மாற்றம்": ["ஆதார்", "aadhar", "aadhaar", "பெயர் மாற்றம்", "name change"],
                 "சாலை வசதி": ["சாலை", "road", "பாலம்", "bridge", "தெரு"],
                 "குடிநீர் வசதி": ["குடிநீர்", "நீர்", "water", "கிணறு", "குழாய்"],
                 "மின்சார வசதி": ["மின்", "electric", "electricity", "eb"],
-                "உதவித்தொகை": ["உதவி", "pension", "allowance", "ஓய்வூதியம்", "முதியோர்"],
-                "வருவாய்த்துறை": ["வருவாய்", "revenue", "சான்றிதழ்"],
+                "உதவித்தொகை": ["உதவி", "pension", "allowance", "ஓய்வூதியம்", "முதியோர்", "விதவை"],
+                "வருவாய்த்துறை": ["வருவாய்", "revenue"],
                 "சுகாதாரம்": ["சுகாதாரம்", "சாக்கடை", "குப்பை"]
             }.items():
                 if any(k.lower() in doc_text.lower() for k in keywords):
@@ -113,8 +127,19 @@ class AIAnalyzer:
                     break
 
         detected_category = detected_category or "பொது குறை"
+        if detected_category in ["-", "--", ""]:
+            detected_category = "பொது குறை"
+
+        loc = entity_map.get("village") or entity_map.get("taluk") or ""
+        if loc in ["-", "--", "None"]:
+            loc = ""
+
+        surv = entity_map.get("survey_no", "")
+        if surv in ["-", "--", "None"] or re.search(r'^\d+/\d+$', surv):
+            surv = ""
 
         dept_map = {
+            "வாரிசு சான்றிதழ்": "வருவாய்த்துறை",
             "பட்டா / நிலம்": "வருவாய்த்துறை",
             "ஆதார் / பெயர் மாற்றம்": "தகவல் தொழில்நுட்பவியல் & வருவாய்த்துறை",
             "சாலை வசதி": "நெடுஞ்சாலை & ஊரக வளர்ச்சி",
@@ -129,13 +154,15 @@ class AIAnalyzer:
         parts = []
         if pet_name:
             parts.append(f"மனுதாரர் {pet_name}")
+        else:
+            parts.append("மனுதாரர்")
         if loc:
             parts.append(f"{loc} பகுதி")
         if surv:
             parts.append(f"புல எண் {surv} சார்ந்து")
         parts.append(f"{detected_category} தொடர்பாக நடவடிக்கை கோரியுள்ளார்.")
         summary_ta = " ".join(parts)
-        summary_en = f"Petitioner {pet_name} has requested administrative action regarding {detected_category} in {loc}."
+        summary_en = f"Petitioner {pet_name or 'Applicant'} has requested administrative action regarding {detected_category} in {loc or 'the district'}."
 
         return {
             "grievance_type": detected_category,
@@ -270,14 +297,16 @@ Document Text:
         # 3. Clean and normalize extracted values
         INVALID_VALUES = {
             "null", "none", "n/a", "தெரியவில்லை", "இல்லை", "விண்ணப்பதாரர் பெயர்",
-            "தந்தை அல்லது கணவர் பெயர்", "முழு முகவரி", "கிராமம்", "வட்டம்", "மாவட்டம்"
+            "தந்தை அல்லது கணவர் பெயர்", "முழு முகவரி", "கிராமம்", "வட்டம்", "மாவட்டம்",
+            "நான்", "நாங்கள்", "அவர்கள்", "இவர்", "மனுதாரர்", "விண்ணப்பதாரர்", "பொதுமக்கள்",
+            "-", "--", "none", "unknown"
         }
 
         def clean_field(val: Any) -> Optional[str]:
             if not val or not isinstance(val, str):
                 return None
             s = val.strip()
-            if s.lower() in INVALID_VALUES or s.startswith("[தகவல்") or "அல்லது null" in s:
+            if s.lower() in INVALID_VALUES or s.startswith("[தகவல்") or "அல்லது null" in s or s in ["-", "--"]:
                 return None
             return s
 
@@ -290,22 +319,24 @@ Document Text:
         cand_wife = None
         cand_hubby = None
         wo_same = re.search(r'([^\n,:]+?)\s+(?:w/o|w\.o|க/பெ|க\.பெ|மனைவி)\s+([^\n,]+)', doc_context, re.IGNORECASE)
-        if wo_same and wo_same.group(1).strip() and not wo_same.group(1).strip().startswith("அனுப்புநர்"):
-            cand_wife = wo_same.group(1).strip()
-            cand_hubby = wo_same.group(2).strip()
+        if wo_same and wo_same.group(1).strip() and not any(wo_same.group(1).strip().startswith(h) for h in ["அனுப்புநர்", "அனுப்புதல்"]):
+            cand_wife = re.sub(r'\(\d+\)|\d+', '', wo_same.group(1)).strip()
+            cand_hubby = re.sub(r'[\(\)0-9]', '', wo_same.group(2)).strip()
         else:
             wo_multi = re.search(r'(?:^|\n)\s*([^\n:]+?)\s*\n+\s*(?:w/o|w\.o|க/பெ|க\.பெ|மனைவி)\s+([^\n,]+)', doc_context, re.IGNORECASE)
             if wo_multi:
-                cw = wo_multi.group(1).replace("அனுப்புநர்", "").replace(":-", "").replace(":", "").strip()
+                cw = wo_multi.group(1).strip()
+                cw = re.sub(r'^(?:அனுப்புநர்|அனுப்புதல்|விண்ணப்பதாரர்|மனுதாரர்)\s*[:\.\-]?\s*', '', cw).strip()
+                cw = re.sub(r'\(\d+\)|\d+', '', cw).strip()
                 if cw:
                     cand_wife = cw
-                    cand_hubby = wo_multi.group(2).strip()
+                    cand_hubby = re.sub(r'[\(\)0-9]', '', wo_multi.group(2)).strip()
 
         if cand_wife or cand_hubby:
             p_gender = "Female"
             if cand_hubby:
                 f_name = cand_hubby
-            if cand_wife and (not p_name or p_name == cand_hubby or cand_hubby in p_name):
+            if cand_wife and (not p_name or p_name in INVALID_VALUES or p_name == cand_hubby or cand_hubby in p_name):
                 p_name = cand_wife
             elif not p_name and cand_wife:
                 p_name = cand_wife
