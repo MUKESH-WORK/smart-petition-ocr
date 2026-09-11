@@ -188,15 +188,39 @@ class CMHelplineTaxonomyValidator:
             item = self.subtypes_map[gsub_in.lower()]
             return {
                 "department": item["department"],
-                "grievance_type": item["grievance_type"],
-                "grievance_subtype": item["grievance_sub_type"],
+                "grievance_type": item["grievance_type"] or gtype_in or "General Grievance",
+                "grievance_subtype": item["grievance_sub_type"] or gsub_in or "Public Grievance Redressal",
                 "sub_department": item.get("sub_department", ""),
                 "responsible_officer": item.get("responsible_officer", ""),
                 "validated": True,
                 "match_score": 100
             }
 
-        # Step 2: Search within candidate department if detected, otherwise full taxonomy
+        # Step 2: Semantic concept bridge for Tamil grievance terminology
+        concept_terms = set()
+        TAMIL_CONCEPT_MAP = {
+            "ஆக்கிரமிப்பு": ["encroachment"],
+            "போக வழி": ["encroachment", "pathway"],
+            "வழிப்பாதை": ["encroachment", "road"],
+            "பட்டா": ["patta", "patta transfer"],
+            "உட்பிரிவு": ["sub division", "survey"],
+            "சர்வே": ["survey"],
+            "வாரிசு": ["legal heir", "heir", "certificate"],
+            "விதவை": ["destitute widow", "widow", "pension"],
+            "முதியோர்": ["old age pension", "pension"],
+            "உதவித்தொகை": ["pension", "scholarship", "financial assistance"],
+            "குடிநீர்": ["drinking water", "water supply"],
+            "சாலை": ["road", "street"],
+            "தெருவிளக்கு": ["street light", "lighting"],
+            "மின்சாரம்": ["electricity", "power", "tangedco"],
+            "ரேஷன்": ["ration card", "civil supplies"],
+            "சாதி": ["community certificate"]
+        }
+        for tam_key, eng_synonyms in TAMIL_CONCEPT_MAP.items():
+            if tam_key in gtype_in or tam_key in gsub_in or tam_key in petition_text:
+                concept_terms.update(eng_synonyms)
+
+        # Step 3: Search within candidate department if detected, otherwise full taxonomy
         search_items = self.dept_entries.get(dept_norm, self.taxonomy)
         query_text = f"{gsub_in} {gtype_in} {petition_text}".lower()
         query_tokens = set(re.findall(r'\b\w{3,}\b', query_text))
@@ -206,44 +230,68 @@ class CMHelplineTaxonomyValidator:
 
         for item in search_items:
             t_dept = item.get("department", "").lower()
-            t_gtype = item.get("grievance_type", "").lower()
-            t_gsub = item.get("grievance_sub_type", "").lower()
+            t_gtype = item.get("grievance_type", "").lower().strip()
+            t_gsub = item.get("grievance_sub_type", "").lower().strip()
 
             score = 0.0
 
-            # Subtype overlap
-            if gsub_in:
+            # Subtype overlap (prevent empty string match)
+            if gsub_in and t_gsub:
                 g_sub_lower = gsub_in.lower()
-                if g_sub_lower in t_gsub or t_gsub in g_sub_lower:
+                if g_sub_lower == t_gsub:
+                    score += 20.0
+                elif len(t_gsub) >= 4 and t_gsub in g_sub_lower:
+                    score += 15.0
+                elif len(g_sub_lower) >= 4 and g_sub_lower in t_gsub:
                     score += 15.0
 
-            # Grievance type overlap
-            if gtype_in:
+            # Grievance type overlap (prevent empty string match)
+            if gtype_in and t_gtype:
                 g_type_lower = gtype_in.lower()
-                if g_type_lower in t_gtype or t_gtype in g_type_lower:
+                if g_type_lower == t_gtype:
+                    score += 12.0
+                elif len(t_gtype) >= 4 and t_gtype in g_type_lower:
+                    score += 8.0
+                elif len(g_type_lower) >= 4 and g_type_lower in t_gtype:
+                    score += 8.0
+
+            # Semantic concept matches (e.g. encroachment, patta, pension)
+            for c in concept_terms:
+                if t_gsub and c in t_gsub:
+                    score += 12.0
+                elif t_gtype and c in t_gtype:
                     score += 8.0
 
             # Department bonus
             if dept_norm and dept_norm.lower() == t_dept:
-                score += 5.0
+                score += 4.0
 
-            # Token overlap
+            # General token overlap
             for token in query_tokens:
-                if token in t_gsub:
-                    score += 3.0
-                elif token in t_gtype:
-                    score += 1.5
+                if t_gsub and len(token) >= 4 and token in t_gsub:
+                    score += 2.0
+                elif t_gtype and len(token) >= 4 and token in t_gtype:
+                    score += 1.0
 
             if score > best_score:
                 best_score = score
                 best_item = item
 
         # If confident match found in taxonomy
-        if best_item and best_score >= 8.0:
+        if best_item and best_score >= 10.0:
+            final_type = best_item["grievance_type"] or gtype_in or "General Grievance"
+            final_subtype = best_item["grievance_sub_type"] or gsub_in or "Public Grievance Redressal"
+
+            # Retain Tamil classification alongside official English taxonomy entry if input was in Tamil
+            if gtype_in and any('\u0B80' <= c <= '\u0BFF' for c in gtype_in) and gtype_in not in final_type:
+                final_type = f"{gtype_in} / {final_type}" if final_type else gtype_in
+            if gsub_in and any('\u0B80' <= c <= '\u0BFF' for c in gsub_in) and gsub_in not in final_subtype:
+                final_subtype = f"{gsub_in} / {final_subtype}" if final_subtype else gsub_in
+
             return {
                 "department": best_item["department"],
-                "grievance_type": best_item["grievance_type"],
-                "grievance_subtype": best_item["grievance_sub_type"],
+                "grievance_type": final_type,
+                "grievance_subtype": final_subtype,
                 "sub_department": best_item.get("sub_department", ""),
                 "responsible_officer": best_item.get("responsible_officer", ""),
                 "validated": True,

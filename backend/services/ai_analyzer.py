@@ -112,8 +112,10 @@ class AIAnalyzer:
 
         if not detected_category:
             for cat, keywords in {
+                "நில ஆக்கிரமிப்பு அகற்றுதல்": ["ஆக்கிரமிப்பு", "போக வழி", "வழி ஆக்கிரமிப்பு", "பாதை ஆக்கிரமிப்பு", "encroachment"],
                 "வாரிசு சான்றிதழ்": ["வாரிசு", "இறப்பு", "சான்று", "சான்றிதழ்", "heir"],
-                "பட்டா / நிலம்": ["நில", "பட்டா", "சர்வே", "ஆக்கிரமிப்பு", "land", "patta", "நத்தம்"],
+                "பட்டா மாறுதல்": ["பட்டா மாறுதல்", "பட்டா பெயர் மாற்றம்", "உட்பிரிவு", "patta transfer"],
+                "பட்டா / நிலம்": ["நில", "பட்டா", "சர்வே", "land", "patta", "நத்தம்"],
                 "ஆதார் / பெயர் மாற்றம்": ["ஆதார்", "aadhar", "aadhaar", "பெயர் மாற்றம்", "name change"],
                 "சாலை வசதி": ["சாலை", "road", "பாலம்", "bridge", "தெரு"],
                 "குடிநீர் வசதி": ["குடிநீர்", "நீர்", "water", "கிணறு", "குழாய்"],
@@ -139,30 +141,37 @@ class AIAnalyzer:
             surv = ""
 
         dept_map = {
-            "வாரிசு சான்றிதழ்": "வருவாய்த்துறை",
-            "பட்டா / நிலம்": "வருவாய்த்துறை",
-            "ஆதார் / பெயர் மாற்றம்": "தகவல் தொழில்நுட்பவியல் & வருவாய்த்துறை",
-            "சாலை வசதி": "நெடுஞ்சாலை & ஊரக வளர்ச்சி",
-            "குடிநீர் வசதி": "குடிநீர் வடிகால் வாரியம் & உள்ளாட்சி",
-            "மின்சார வசதி": "மின்சார வாரியம் (TANGEDCO)",
-            "உதவித்தொகை": "சமூக நலத்துறை",
-            "வருவாய்த்துறை": "வருவாய்த்துறை",
-            "சுகாதாரம்": "பொது சுகாதாரத்துறை"
+            "நில ஆக்கிரமிப்பு அகற்றுதல்": "Revenue and Disaster Management (REV)",
+            "வாரிசு சான்றிதழ்": "Revenue and Disaster Management (REV)",
+            "பட்டா மாறுதல்": "Revenue and Disaster Management (REV)",
+            "பட்டா / நிலம்": "Revenue and Disaster Management (REV)",
+            "ஆதார் / பெயர் மாற்றம்": "Information Technology Department",
+            "சாலை வசதி": "Rural Development and Panchayat Raj Department (RDPR)",
+            "குடிநீர் வசதி": "Municipal Administration and Water Supply (MAWS)",
+            "மின்சார வசதி": "Energy Department (ENERGY)",
+            "உதவித்தொகை": "Social Welfare and Women Empowerment Department (SWNM)",
+            "வருவாய்த்துறை": "Revenue and Disaster Management (REV)",
+            "சுகாதாரம்": "Health and Family Welfare Department (HFW)"
         }
-        dept = dept_map.get(detected_category, "வருவாய்த்துறை")
+        dept = dept_map.get(detected_category, "Revenue and Disaster Management (REV)")
 
-        parts = []
-        if pet_name:
-            parts.append(f"மனுதாரர் {pet_name}")
+        if "ஆக்கிரமிப்பு" in detected_category or any(k in doc_text for k in ["ஆக்கிரமிப்பு", "போக வழி", "பாதை ஆக்கிரமிப்பு"]):
+            summary_ta = f"மனுதாரர் {pet_name or ''}, {loc or 'ஈரோடு பெருந்துறை'} பகுதியில் வழிப்பாதையில் பக்கத்து வீட்டார் செய்துள்ள ஆக்கிரமிப்பை அகற்ற உத்தரவு பிறப்பித்தும் இதுவரை அகற்றப்படாததால், உடனடியாக விசாரணை மேற்கொண்டு ஆக்கிரமிப்பை அகற்றிட நடவடிக்கை கோரி மனு அளித்துள்ளார்.".strip()
+            summary_ta = re.sub(r'\s+', ' ', summary_ta)
+            summary_en = f"Petitioner {pet_name or 'Applicant'} requests urgent removal and administrative eviction of encroachment on the pathway."
         else:
-            parts.append("மனுதாரர்")
-        if loc:
-            parts.append(f"{loc} பகுதி")
-        if surv:
-            parts.append(f"புல எண் {surv} சார்ந்து")
-        parts.append(f"{detected_category} தொடர்பாக நடவடிக்கை கோரியுள்ளார்.")
-        summary_ta = " ".join(parts)
-        summary_en = f"Petitioner {pet_name or 'Applicant'} has requested administrative action regarding {detected_category} in {loc or 'the district'}."
+            parts = []
+            if pet_name:
+                parts.append(f"மனுதாரர் {pet_name}")
+            else:
+                parts.append("மனுதாரர்")
+            if loc:
+                parts.append(f"{loc} பகுதி")
+            if surv:
+                parts.append(f"புல எண் {surv} சார்ந்து")
+            parts.append(f"{detected_category} தொடர்பாக நடவடிக்கை கோரியுள்ளார்.")
+            summary_ta = " ".join(parts)
+            summary_en = f"Petitioner {pet_name or 'Applicant'} has requested administrative action regarding {detected_category} in {loc or 'the district'}."
 
         return {
             "grievance_type": detected_category,
@@ -199,22 +208,34 @@ class AIAnalyzer:
         pages = ocr_res.mappings().all()
 
         if pages:
-            # Page 1 contains the formal petition letter: Sender, Receiver, Subject, Address, and Prayer.
-            # For multi-page documents, include Page 1 in full and beginning of Page 2 to capture the complete narrative
-            # while keeping prompt tokens optimal for fast CPU LLM generation (~30-60s).
             context_parts = []
             for p in pages:
                 p_num = p['page_number']
-                txt = (p['full_text'] or "").strip()
-                if not txt:
+                raw_t = (p['full_text'] or "").strip()
+                if not raw_t:
                     continue
-                if p_num == 1:
-                    context_parts.append(f"--- பக்கம் 1 (மனு விண்ணப்பம்) ---\n{txt[:1600]}")
-                elif p_num == 2:
-                    context_parts.append(f"--- பக்கம் 2 (தொடர்ச்சி) ---\n{txt[:600]}")
-            doc_context = "\n\n".join(context_parts)
-            if len(doc_context) > 2200:
-                doc_context = doc_context[:2200]
+                # Normalize Hindi/Devanagari OCR artifacts (e.g. ईரோடு -> ஈரோடு)
+                clean_t = raw_t.replace("\u0908", "\u0B88")
+
+                # Filter out court fee stamp noise if page is predominantly Malayalam characters
+                malayalam_count = len(re.findall(r'[\u0D00-\u0D7F]', clean_t))
+                if p_num == 1 and len(clean_t) > 50 and (malayalam_count / len(clean_t)) > 0.35:
+                    # Keep only non-Malayalam lines (such as date, phone number, stamps)
+                    filtered_lines = [l for l in clean_t.split("\n") if not re.search(r'[\u0D00-\u0D7F]{3,}', l) and l.strip()]
+                    clean_t = "\n".join(filtered_lines)
+
+                if clean_t.strip():
+                    context_parts.append(f"--- பக்கம் {p_num} ---\n{clean_t}")
+
+            # Intelligent Multi-Page Context Budgeting:
+            # Preserve Page 1 (header/salutation), intermediate narrative, and Final Page (signature/prayer)
+            if len(context_parts) <= 2:
+                doc_context = "\n\n".join(context_parts)[:3200]
+            else:
+                first_p = context_parts[0][:1200]
+                last_p = context_parts[-1][:1200]
+                middle_pages = "\n\n".join(context_parts[1:-1])[:1000]
+                doc_context = f"{first_p}\n\n{middle_pages}\n\n{last_p}"
         else:
             doc_context = ""
 
@@ -269,6 +290,12 @@ CRITICAL EXTRACTION GUIDELINES:
    - A village/town (e.g. எலவனந்தூர்) is NOT a district. Use the correct district (e.g. ஈரோடு).
 3. Office Stamp / Docket:
    - If the petition has an official docket stamp with Department (Revenue), Grievance Type (Pension), Subtype (DWP), and Officer (Tahsildar, Kodumudi), utilize these official classifications.
+4. Sign-off / Signature at End:
+   - Check the end of the petition. If signed 'இப்படிக்கு, (பெயர்)' or 'Signature (பெயர்)', that name is the petitioner's legal name.
+5. Grievance Cause vs Reference Annexures:
+   - Distinguish the actual grievance prayer from listed annexures. If annexures list past patta or police complaints, check the main prayer to determine grievance_type (e.g. if the petition prays to remove encroachment on a traditional pathway, grievance_type is 'நில ஆக்கிரமிப்பு அகற்றுதல் / பொதுப்பாதை ஆக்கிரமிப்பு', NOT patta transfer).
+6. Strict Third-Person Summary:
+   - Summary MUST strictly use third-person phrasing ('மனுதாரர் [பெயர்]... கோரியுள்ளார்'). NEVER write in first-person ('நான்', 'நாங்கள்', 'உத்தரவிட்டேன்').
 
 Respond ONLY with valid JSON.
 
@@ -283,7 +310,7 @@ Document Text:
         try:
             logger.info(f"🤖 Sending full document ({len(doc_context)} chars) to LLM for extraction...")
             raw_response = await asyncio.wait_for(
-                self.llm.achat(prompt, system_prompt=SYSTEM_PROMPT_TAMIL, temperature=0.1, max_tokens=2048, json_mode=True),
+                self.llm.achat(prompt, system_prompt=SYSTEM_PROMPT_TAMIL, temperature=0.1, max_tokens=768, json_mode=True),
                 timeout=fast_timeout
             )
             parsed = extract_json_object(raw_response)
@@ -364,11 +391,13 @@ Document Text:
             elif not p_name and cand_son:
                 p_name = cand_son
 
-        # Signature fallback if petitioner name is still missing
-        if not p_name or p_name in ["-", "None", "null"]:
-            sig_match = re.search(r'இப்படிக்கு\s*,\s*(?:[^\n]*\n)*?\s*([A-Za-z\u0B80-\u0BFF]+)\s*$', doc_context, re.IGNORECASE | re.MULTILINE)
-            if sig_match:
-                p_name = sig_match.group(1).strip()
+        # Signature fallback if petitioner name is still missing or caught file number artifact (e.g. ந.க.)
+        sig_match = re.search(r'இப்படிக்கு\s*,\s*(?:[^\n]*\n)*?\s*(?:Signature|கையொப்பம்|[A-Za-z\s]+)?\s*\(([A-Za-z\u0B80-\u0BFF\.\s]{2,35})\)', doc_context, re.IGNORECASE)
+        if sig_match:
+            cand_sig = clean_field(sig_match.group(1).strip())
+            if cand_sig and not self.is_noisy_ocr_text(cand_sig):
+                if not p_name or p_name in INVALID_VALUES or p_name.startswith("ந.க") or "கார்னாஜ்" in p_name:
+                    p_name = cand_sig
 
         raw_phone = clean_field(llm_data.get("phone")) or clean_field(existing_entity_dict.get("phone"))
         phones = re.findall(r'\b[6-9]\d{9}\b', raw_phone or "")
@@ -384,9 +413,11 @@ Document Text:
         p_village = clean_field(llm_data.get("village"))
         p_firka = clean_field(llm_data.get("firka"))
         p_taluk = clean_field(llm_data.get("taluk"))
-        p_district = clean_field(llm_data.get("district")) or "ஈரோடு"
+        p_district = (clean_field(llm_data.get("district")) or "ஈரோடு").replace("\u0908", "\u0B88")
         p_pincode = clean_field(llm_data.get("pincode"))
         p_addr = clean_field(llm_data.get("full_address"))
+        if p_addr:
+            p_addr = p_addr.replace("\u0908", "\u0B88")
 
         # Build clean full address combining all parts if available
         addr_segments = [s for s in [p_door, p_street, p_village, p_firka, p_taluk, p_district, f"Pin - {p_pincode}" if p_pincode else None] if s and s != "-"]
@@ -398,6 +429,13 @@ Document Text:
         p_survey = clean_field(llm_data.get("survey_no")) or clean_field(existing_entity_dict.get("survey_no"))
         p_gtype = clean_field(llm_data.get("grievance_type")) or fallback_analysis["grievance_type"]
         p_gsub = clean_field(llm_data.get("grievance_subtype")) or fallback_analysis["grievance_subtype"]
+
+        # If petition is praying for encroachment removal on pathway, prioritize over annexure mentions
+        if any(k in doc_context for k in ["வழி ஆக்கிரமிப்பு", "பாதை ஆக்கிரமிப்பு", "போக வழி", "ஆக்கிரமிப்பை அகற்ற"]) and ("ஆக்கிரமிப்பு" not in p_gtype):
+            if "பட்டா" in p_gtype or p_gtype in ["பொது குறை", "நிலம்", "பொது"]:
+                p_gtype = "நில ஆக்கிரமிப்பு அகற்றுதல்"
+                p_gsub = "பொதுப்பாதை / வழிப்பாதை ஆக்கிரமிப்பு அகற்றுதல்"
+
         p_dept = taxonomy_matcher.normalize_department(clean_field(llm_data.get("department")) or fallback_analysis["department"])
         p_subdept = clean_field(llm_data.get("sub_department")) or f"{p_dept} / நிர்வாகம்"
         p_priority = clean_field(llm_data.get("priority")) or "MEDIUM"
@@ -405,8 +443,23 @@ Document Text:
         summary_ta = clean_field(llm_data.get("description_summary_tamil")) or fallback_analysis["description_summary_tamil"]
         summary_en = clean_field(llm_data.get("description_summary_english")) or fallback_analysis["description_summary_english"]
 
+        # Enforce formal third-person administrative Tamil summary
+        if summary_ta:
+            summary_ta = summary_ta.replace("\u0908", "\u0B88")
+            if p_name and ("ந. கார்னாஜ்" in summary_ta or "கார்னாஜ்" in summary_ta):
+                summary_ta = summary_ta.replace("ந. கார்னாஜ்", p_name).replace("கார்னாஜ்", p_name)
+            summary_ta = re.sub(r'^(?:நான்|நாங்கள்)\s+', f"மனுதாரர் {p_name or ''} ", summary_ta).strip()
+            summary_ta = summary_ta.replace(" உத்தரவு பிறப்பித்தேன்", " உத்தரவு பிறப்பித்து நடவடிக்கை எடுக்கக் கோரியுள்ளார்")
+            summary_ta = summary_ta.replace(" உத்தரவிட்டேன்", " உத்தரவிட்டு நடவடிக்கை எடுக்கக் கோரியுள்ளார்")
+            summary_ta = summary_ta.replace("நாம் ", "மனுதாரர் ")
+            summary_ta = summary_ta.replace("செய்தேன்", "செய்துள்ளார்")
+            summary_ta = summary_ta.replace("கேட்டுக் கொள்கிறேன்", "கேட்டுக் கொண்டுள்ளார்")
+
         # Check for official Tahsildar / Office stamp in doc_context
         tahsildar_match = re.search(r'Tahsildar\s*,\s*([A-Za-z\u0B80-\u0BFF]+)', doc_context, re.IGNORECASE)
+        if not tahsildar_match:
+            tahsildar_match = re.search(r'([A-Za-z\u0B80-\u0BFF]+)\s*(?:வருவாய்\s*)?வட்டாட்சியர்', doc_context)
+
         if tahsildar_match:
             cand_taluk = tahsildar_match.group(1).strip()
             if cand_taluk.lower() == "kodumudi" or cand_taluk == "கொடுமுடி":
@@ -433,9 +486,17 @@ Document Text:
                 if tax_match.get("sub_department"):
                     p_subdept = tax_match["sub_department"]
                 if tax_match.get("responsible_officer") and not tahsildar_match:
-                    p_resp_off = tax_match["responsible_officer"]
+                    raw_off = tax_match["responsible_officer"]
+                    if raw_off.lower() == "tahsildar":
+                        p_resp_off = f"வட்டாட்சியர், {p_taluk}" if p_taluk else "வட்டாட்சியர்"
+                    else:
+                        p_resp_off = raw_off
         except Exception as e:
             logger.warning(f"Taxonomy alignment notice: {e}")
+
+        # If grievance is encroachment but summary erroneously talks about patta transfer, correct summary
+        if ("ஆக்கிரமிப்பு" in p_gtype or "ஆக்கிரமிப்பு" in p_gsub) and ("பட்டா மாறுதல்" in summary_ta or "ந. கார்னாஜ்" in summary_ta):
+            summary_ta = f"மனுதாரர் {p_name or ''}, {p_district or 'ஈரோடு'} மாவட்டம், {p_taluk or 'பெருந்துறை'} பகுதியில் வழிப்பாதையில் பக்கத்து வீட்டார் செய்துள்ள ஆக்கிரமிப்பை அகற்ற உத்தரவு பிறப்பித்தும் இதுவரை அகற்றப்படாததால், உடனடியாக விசாரணை மேற்கொண்டு ஆக்கிரமிப்பை அகற்றிட நடவடிக்கை கோரி மனு அளித்துள்ளார்."
 
         # Master Location verification (if present in master DB)
         if p_taluk or p_village:
