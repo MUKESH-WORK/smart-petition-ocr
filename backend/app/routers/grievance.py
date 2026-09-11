@@ -34,7 +34,7 @@ async def upload_petition(
     request: Request,
     file: UploadFile = File(...),
     officer_id: str = Form("DRO_DEFAULT_OFFICER"),
-    process_now: bool = Form(True),
+    process_now: bool = Form(False),
     db: AsyncSession = Depends(get_db)
 ):
     """

@@ -587,6 +587,6 @@ class HybridOCRRouter:
             "total_time_ms": int((time.time() - start_time) * 1000),
             "ocr_engine": engine_used
         }
-
+print(text)
 
 ocr_router = HybridOCRRouter()

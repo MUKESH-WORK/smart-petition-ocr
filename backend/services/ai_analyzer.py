@@ -303,7 +303,7 @@ Document Text:
 {doc_context}
 """
 
-        fast_timeout = getattr(settings, "LLM_FAST_TIMEOUT", 300.0)
+        fast_timeout = min(getattr(settings, "LLM_FAST_TIMEOUT", 45.0), 60.0)
         llm_data: Dict[str, Any] = {}
         raw_response = ""
 

@@ -1,13 +1,145 @@
 import uuid
+import json
 from datetime import datetime
-from sqlalchemy import (Column, Integer, String, Text, Boolean, Float, DateTime, ForeignKey, Index, BigInteger, LargeBinary)
-from sqlalchemy.dialects.postgresql import UUID, JSONB, ARRAY, INET
-from pgvector.sqlalchemy import Vector
+from sqlalchemy import (
+    Column, Integer, String, Text, Boolean, Float, DateTime, ForeignKey,
+    Index, BigInteger, LargeBinary, UniqueConstraint
+)
+from sqlalchemy.types import TypeDecorator, CHAR, JSON, String as SAString
 from models.database import Base
+
+
+class GUID(TypeDecorator):
+    """Platform-independent GUID type.
+    Uses PostgreSQL's UUID type, otherwise uses CHAR(36), storing as stringified hex.
+    """
+    impl = CHAR
+    cache_ok = True
+
+    def load_dialect_impl(self, dialect):
+        if dialect.name == "postgresql":
+            from sqlalchemy.dialects.postgresql import UUID
+            return dialect.type_descriptor(UUID(as_uuid=True))
+        else:
+            return dialect.type_descriptor(CHAR(36))
+
+    def process_bind_param(self, value, dialect):
+        if value is None:
+            return value
+        return str(value)
+
+    def process_result_value(self, value, dialect):
+        if value is None:
+            return value
+        if not isinstance(value, uuid.UUID):
+            try:
+                return uuid.UUID(str(value))
+            except (ValueError, AttributeError):
+                return value
+        return value
+
+
+class SafeJSON(TypeDecorator):
+    """Uses JSONB on PostgreSQL and JSON on SQLite/others."""
+    impl = JSON
+    cache_ok = True
+
+    def load_dialect_impl(self, dialect):
+        if dialect.name == "postgresql":
+            from sqlalchemy.dialects.postgresql import JSONB
+            return dialect.type_descriptor(JSONB())
+        else:
+            return dialect.type_descriptor(JSON())
+
+
+class SafeArray(TypeDecorator):
+    """Uses ARRAY on PostgreSQL, JSON list on SQLite/others."""
+    impl = JSON
+    cache_ok = True
+
+    def __init__(self, item_type=SAString, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.item_type = item_type
+
+    def load_dialect_impl(self, dialect):
+        if dialect.name == "postgresql":
+            from sqlalchemy.dialects.postgresql import ARRAY
+            return dialect.type_descriptor(ARRAY(self.item_type))
+        else:
+            return dialect.type_descriptor(JSON())
+
+    def process_bind_param(self, value, dialect):
+        if value is None:
+            return value
+        if dialect.name != "postgresql" and isinstance(value, str):
+            try:
+                return json.loads(value)
+            except Exception:
+                return [value]
+        return value
+
+    def process_result_value(self, value, dialect):
+        if value is None:
+            return []
+        if isinstance(value, str):
+            try:
+                return json.loads(value)
+            except Exception:
+                return [value]
+        return list(value)
+
+
+class SafeINET(TypeDecorator):
+    """Uses INET on PostgreSQL, String(45) on SQLite/others."""
+    impl = SAString
+    cache_ok = True
+
+    def load_dialect_impl(self, dialect):
+        if dialect.name == "postgresql":
+            from sqlalchemy.dialects.postgresql import INET
+            return dialect.type_descriptor(INET())
+        else:
+            return dialect.type_descriptor(SAString(45))
+
+
+class SafeVector(TypeDecorator):
+    """Uses pgvector Vector on PostgreSQL (if available), JSON float array on SQLite/others."""
+    impl = JSON
+    cache_ok = True
+
+    def __init__(self, dim=384, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.dim = dim
+
+    def load_dialect_impl(self, dialect):
+        if dialect.name == "postgresql":
+            try:
+                from pgvector.sqlalchemy import Vector
+                return dialect.type_descriptor(Vector(self.dim))
+            except Exception:
+                return dialect.type_descriptor(JSON())
+        else:
+            return dialect.type_descriptor(JSON())
+
+    def process_bind_param(self, value, dialect):
+        if value is None:
+            return value
+        if dialect.name != "postgresql":
+            if isinstance(value, (list, tuple)):
+                return list(value)
+            elif isinstance(value, str):
+                try:
+                    return json.loads(value)
+                except Exception:
+                    return value
+        return value
 
 
 class MasterLocation(Base):
     __tablename__ = "master_locations"
+    __table_args__ = (
+        UniqueConstraint("district_code", "taluk_code", "block_code", "firka_code", "village_code", name="uq_master_location"),
+    )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     district_code = Column(String(10), nullable=False)
@@ -29,14 +161,14 @@ class Officer(Base):
     name_tamil = Column(String(100))
     designation = Column(String(100))
     department = Column(String(50))
-    taluk_access = Column(ARRAY(String(10)))
+    taluk_access = Column(SafeArray(String(10)))
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
 class Source(Base):
     __tablename__ = "sources"
 
-    source_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    source_id = Column(GUID(), primary_key=True, default=uuid.uuid4)
     officer_id = Column(String(50), ForeignKey("officers.officer_id"), nullable=True)
     file_name = Column(String(255), nullable=False)
     file_type = Column(String(20), nullable=False)
@@ -44,7 +176,7 @@ class Source(Base):
     file_hash = Column(String(64), unique=True)
     page_count = Column(Integer, default=0)
     status = Column(String(30), default="uploaded")
-    content_fingerprint = Column(JSONB, nullable=True)
+    content_fingerprint = Column(SafeJSON, nullable=True)
     file_data = Column(LargeBinary, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -52,13 +184,16 @@ class Source(Base):
 
 class OCRResult(Base):
     __tablename__ = "ocr_results"
+    __table_args__ = (
+        UniqueConstraint("source_id", "page_number", name="uq_ocr_source_page"),
+    )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    source_id = Column(UUID(as_uuid=True), ForeignKey("sources.source_id", ondelete="CASCADE"), nullable=False)
+    source_id = Column(GUID(), ForeignKey("sources.source_id", ondelete="CASCADE"), nullable=False)
     page_number = Column(Integer, nullable=False)
     full_text = Column(Text)
-    blocks = Column(JSONB)
-    tables = Column(JSONB)
+    blocks = Column(SafeJSON)
+    tables = Column(SafeJSON)
     avg_confidence = Column(Float)
     ocr_engine = Column(String(50))
     processing_time_ms = Column(Integer)
@@ -68,13 +203,13 @@ class OCRResult(Base):
 class DocumentChunk(Base):
     __tablename__ = "document_chunks"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    source_id = Column(UUID(as_uuid=True), ForeignKey("sources.source_id", ondelete="CASCADE"), nullable=False)
+    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
+    source_id = Column(GUID(), ForeignKey("sources.source_id", ondelete="CASCADE"), nullable=False)
     page_number = Column(Integer)
     chunk_index = Column(Integer)
     chunk_text = Column(Text, nullable=False)
-    embedding = Column(Vector(384))
-    metadata_ = Column("metadata", JSONB)
+    embedding = Column(SafeVector(384))
+    metadata_ = Column("metadata", SafeJSON)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
@@ -82,13 +217,13 @@ class ExtractedEntity(Base):
     __tablename__ = "extracted_entities"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    source_id = Column(UUID(as_uuid=True), ForeignKey("sources.source_id", ondelete="CASCADE"), nullable=False)
+    source_id = Column(GUID(), ForeignKey("sources.source_id", ondelete="CASCADE"), nullable=False)
     entity_type = Column(String(50), nullable=False)
     entity_value = Column(Text, nullable=False)
     confidence = Column(Float)
     validation_status = Column(String(20), default="pending")
     source_page = Column(Integer)
-    source_chunk_id = Column(UUID(as_uuid=True), ForeignKey("document_chunks.id"), nullable=True)
+    source_chunk_id = Column(GUID(), ForeignKey("document_chunks.id"), nullable=True)
     extracted_by = Column(String(20), default="regex")
     officer_corrected = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -98,26 +233,26 @@ class AIAnalysis(Base):
     __tablename__ = "ai_analysis"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    source_id = Column(UUID(as_uuid=True), ForeignKey("sources.source_id", ondelete="CASCADE"), nullable=False)
+    source_id = Column(GUID(), ForeignKey("sources.source_id", ondelete="CASCADE"), nullable=False)
     grievance_type_suggested = Column(String(100))
     grievance_subtype_suggested = Column(String(100))
     department_suggested = Column(String(100))
     priority_suggested = Column(String(20))
     description_summary_tamil = Column(Text)
     description_summary_english = Column(Text)
-    action_items = Column(JSONB)
-    claims = Column(JSONB)
+    action_items = Column(SafeJSON)
+    claims = Column(SafeJSON)
     hallucination_score = Column(Float)
     grounding_score = Column(Float)
-    raw_ai_response = Column(JSONB)
+    raw_ai_response = Column(SafeJSON)
     generated_at = Column(DateTime, default=datetime.utcnow)
 
 
 class GrievanceDraft(Base):
     __tablename__ = "grievance_drafts"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    source_id = Column(UUID(as_uuid=True), ForeignKey("sources.source_id"), nullable=True)
+    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
+    source_id = Column(GUID(), ForeignKey("sources.source_id"), nullable=True)
     officer_id = Column(String(50), ForeignKey("officers.officer_id"), nullable=True)
     
     # 1. Petitioner Details
@@ -184,8 +319,8 @@ class JobQueue(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     job_type = Column(String(50), nullable=False)
-    source_id = Column(UUID(as_uuid=True), ForeignKey("sources.source_id"), nullable=True)
-    payload = Column(JSONB)
+    source_id = Column(GUID(), ForeignKey("sources.source_id"), nullable=True)
+    payload = Column(SafeJSON)
     status = Column(String(20), default="pending")
     worker_id = Column(String(50))
     error_message = Column(Text)
@@ -198,9 +333,10 @@ class AuditLog(Base):
     __tablename__ = "audit_log"
 
     id = Column(BigInteger, primary_key=True, autoincrement=True)
-    timestamp = Column(DateTime, primary_key=True, default=datetime.utcnow)
-    source_id = Column(UUID(as_uuid=True), nullable=True)
+    timestamp = Column(DateTime, default=datetime.utcnow, index=True)
+    source_id = Column(GUID(), nullable=True)
     officer_id = Column(String(50), nullable=True)
     action = Column(String(100), nullable=False)
-    details = Column(JSONB)
-    ip_address = Column(INET, nullable=True)
+    details = Column(SafeJSON)
+    ip_address = Column(SafeINET, nullable=True)
+

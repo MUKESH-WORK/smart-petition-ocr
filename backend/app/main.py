@@ -1,9 +1,11 @@
 import os
+import json
 import tempfile
 import asyncio
 import logging
+from contextlib import asynccontextmanager
 
-# Ensure all uploads & temp buffers use E: drive with 30GB+ free space instead of full C: drive
+# Ensure all uploads & temp buffers use workspace temp cache
 _workspace_temp = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "temp_cache"))
 os.makedirs(_workspace_temp, exist_ok=True)
 os.environ["TEMP"] = _workspace_temp
@@ -11,15 +13,15 @@ os.environ["TMP"] = _workspace_temp
 os.environ["TMPDIR"] = _workspace_temp
 tempfile.tempdir = _workspace_temp
 
-from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from sqlalchemy import text
 
 from app.config import settings
 from app.routers import grievance, search, admin
-from models.database import engine, AsyncSessionLocal
+from models.database import engine, AsyncSessionLocal, init_db_schema, is_sqlite
 from services.job_queue import job_queue
 
 # Configure logging
@@ -34,35 +36,49 @@ logger = logging.getLogger("dro_backend")
 async def lifespan(app: FastAPI):
     logger.info("Initializing DRO Grievance AI Backend...")
 
-    # Seed default officer and master locations if empty
+    # 1. Ensure all database tables exist (SQLite & PostgreSQL)
+    try:
+        await init_db_schema()
+    except Exception as e:
+        logger.error(f"Schema initialization warning: {e}")
+
+    # 2. Seed default officer and master locations portably if empty
     try:
         async with AsyncSessionLocal() as db:
             # Seed default officer
-            await db.execute(text("""
-                INSERT INTO officers (officer_id, name_tamil, designation, department, taluk_access)
-                VALUES ('DRO_ERODE_01', 'சுந்தரம் கே.', 'மாவட்ட வருவாய் அலுவலர்', 'வருவாய்த்துறை', ARRAY['பெருந்துறை', 'ஈரோடு', 'பவானி'])
-                ON CONFLICT (officer_id) DO NOTHING;
-            """))
+            off_check = await db.execute(text("SELECT officer_id FROM officers WHERE officer_id = 'DRO_ERODE_01'"))
+            if not off_check.scalar():
+                if is_sqlite:
+                    await db.execute(text("""
+                        INSERT INTO officers (officer_id, name_tamil, designation, department, taluk_access)
+                        VALUES ('DRO_ERODE_01', 'சுந்தரம் கே.', 'மாவட்ட வருவாய் அலுவலர்', 'வருவாய்த்துறை', :taluk)
+                    """), {"taluk": json.dumps(['பெருந்துறை', 'ஈரோடு', 'பவானி'])})
+                else:
+                    await db.execute(text("""
+                        INSERT INTO officers (officer_id, name_tamil, designation, department, taluk_access)
+                        VALUES ('DRO_ERODE_01', 'சுந்தரம் கே.', 'மாவட்ட வருவாய் அலுவலர்', 'வருவாய்த்துறை', ARRAY['பெருந்துறை', 'ஈரோடு', 'பவானி'])
+                        ON CONFLICT (officer_id) DO NOTHING;
+                    """))
 
-            # Seed sample master locations
-            await db.execute(text("""
-                INSERT INTO master_locations (district_code, district_name_tamil, taluk_code, taluk_name_tamil, block_code, block_name_tamil, firka_code, firka_name_tamil, village_code, village_name_tamil)
-                VALUES 
-                ('10', 'ஈரோடு', '01', 'பெருந்துறை', '01', 'பெருந்துறை', '01', 'பெருந்துறை', '001', 'காந்தி நகர்'),
-                ('10', 'ஈரோடு', '01', 'பெருந்துறை', '01', 'பெருந்துறை', '01', 'பெருந்துறை', '002', 'விஜயமங்கலம்'),
-                ('10', 'ஈரோடு', '02', 'பவானி', '02', 'பவானி', '02', 'பவானி', '003', 'அந்தியூர்'),
-                ('10', 'ஈரோடு', '03', 'ஈரோடு', '03', 'ஈரோடு', '03', 'சூரியம்பாளையம்', '004', 'சூரியம்பாளையம்'),
-                ('12', 'கோயம்புத்தூர்', '01', 'பொள்ளாச்சி', '01', 'பொள்ளாச்சி', '01', 'ஆனைமலை', '005', 'ஆனைமலை')
-                ON CONFLICT (district_code, taluk_code, block_code, firka_code, village_code) DO NOTHING;
-            """))
+            # Seed sample master locations if empty
+            loc_cnt = await db.execute(text("SELECT COUNT(*) FROM master_locations"))
+            if (loc_cnt.scalar() or 0) == 0:
+                await db.execute(text("""
+                    INSERT INTO master_locations (district_code, district_name_tamil, taluk_code, taluk_name_tamil, block_code, block_name_tamil, firka_code, firka_name_tamil, village_code, village_name_tamil)
+                    VALUES 
+                    ('10', 'ஈரோடு', '01', 'பெருந்துறை', '01', 'பெருந்துறை', '01', 'பெருந்துறை', '001', 'காந்தி நகர்'),
+                    ('10', 'ஈரோடு', '01', 'பெருந்துறை', '01', 'பெருந்துறை', '01', 'பெருந்துறை', '002', 'விஜயமங்கலம்'),
+                    ('10', 'ஈரோடு', '02', 'பவானி', '02', 'பவானி', '02', 'பவானி', '003', 'அந்தியூர்'),
+                    ('10', 'ஈரோடு', '03', 'ஈரோடு', '03', 'ஈரோடு', '03', 'சூரியம்பாளையம்', '004', 'சூரியம்பாளையம்'),
+                    ('12', 'கோயம்புத்தூர்', '01', 'பொள்ளாச்சி', '01', 'பொள்ளாச்சி', '01', 'ஆனைமலை', '005', 'ஆனைமலை')
+                """))
             await db.commit()
             logger.info("Master locations and default officers verified.")
     except Exception as e:
         logger.warning(f"Could not auto-seed master locations: {e}")
 
-    # Warm up background services asynchronously so server binds instantly (<1s)
+    # 3. Warm up background services asynchronously so server binds instantly (<1s)
     from services.vector_store import vector_store
-    from services.ocr_router import ocr_router
     from core.llm_client import llm_client
 
     async def _async_warmup():
@@ -75,7 +91,7 @@ async def lifespan(app: FastAPI):
 
     asyncio.create_task(_async_warmup())
 
-    # Start background job queue worker
+    # 4. Start background job queue worker
     worker_task = asyncio.create_task(job_queue.run_worker_loop(worker_id="worker-primary-01"))
     
     yield
@@ -113,16 +129,21 @@ app.include_router(grievance.router, prefix=settings.API_V1_STR)
 app.include_router(search.router, prefix=settings.API_V1_STR)
 app.include_router(admin.router, prefix=settings.API_V1_STR)
 
+# Locate pre-built frontend distribution
+frontend_dist = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "frontend", "dist"))
+frontend_assets = os.path.join(frontend_dist, "assets")
+if os.path.isdir(frontend_assets):
+    app.mount("/assets", StaticFiles(directory=frontend_assets), name="frontend_assets")
+
 
 @app.get("/health")
 @app.get(f"{settings.API_V1_STR}/health")
 async def health_check():
     """
     Enterprise health check endpoint (Microsoft/Azure/Google Cloud monitoring pattern).
-    Inspects PostgreSQL, pgvector, Ollama/LLM, disk storage, and queue status.
+    Inspects database, Ollama/LLM, disk storage, and queue status.
     """
     import shutil
-    from services.ocr_router import ocr_router
     from core.llm_client import llm_client
 
     checks = {
@@ -131,25 +152,25 @@ async def health_check():
         "components": {}
     }
 
-    # 1. Check PostgreSQL & pgvector
+    # 1. Check Database
     try:
         async with AsyncSessionLocal() as db:
             db_res = await db.execute(text("SELECT 1"))
             db_res.scalar_one()
 
-            # Check queue counts
+            # Check queue counts using portable aggregation
             q_res = await db.execute(text("""
                 SELECT 
-                    COUNT(*) FILTER (WHERE status = 'pending') AS pending_count,
-                    COUNT(*) FILTER (WHERE status = 'processing') AS processing_count,
-                    COUNT(*) FILTER (WHERE status = 'failed') AS failed_count
+                    SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS pending_count,
+                    SUM(CASE WHEN status = 'processing' THEN 1 ELSE 0 END) AS processing_count,
+                    SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed_count
                 FROM job_queue
             """))
-            q_stats = dict(q_res.mappings().one())
+            q_stats = {k: v or 0 for k, v in dict(q_res.mappings().one()).items()}
 
         checks["components"]["database"] = {
             "status": "up",
-            "type": "PostgreSQL 16 + pgvector",
+            "type": "SQLite (Zero-Dependency Embedded Mode)" if is_sqlite else "PostgreSQL 16 + pgvector",
             "queue": q_stats
         }
     except Exception as e:
@@ -198,11 +219,47 @@ async def health_check():
 
 
 @app.get("/")
-async def root():
+async def root(request: Request):
+    """
+    Root endpoint:
+    - Serves the Single Page Application (SPA) HTML to web browsers
+    - Returns structured JSON to API clients and automated tests
+    """
+    accept = request.headers.get("accept", "")
+    index_file = os.path.join(frontend_dist, "index.html")
+
+    # If browser is requesting HTML and dist build exists, serve the rich UI
+    if accept.startswith("text/html") and os.path.isfile(index_file):
+        return FileResponse(index_file)
+
+    # Otherwise return API info JSON (compatible with TestClient and API explorers)
     return {
         "module": "DRO Grievance AI Module",
         "state": "Tamil Nadu Revenue Department",
-        "database": "PostgreSQL 16 with pgvector, tsvector & JSONB",
+        "database": "SQLite (Zero-Dependency Embedded Mode)" if is_sqlite else "PostgreSQL 16 with pgvector",
         "health": "/health",
-        "docs": "/api/v1/docs"
+        "docs": f"{settings.API_V1_STR}/docs",
+        "ui": "/app" if os.path.isfile(index_file) else None
     }
+
+
+@app.get("/app")
+@app.get("/ui")
+async def serve_ui():
+    """Explicit endpoint to serve the frontend application."""
+    index_file = os.path.join(frontend_dist, "index.html")
+    if os.path.isfile(index_file):
+        return FileResponse(index_file)
+    raise HTTPException(status_code=404, detail="Frontend distribution build not found. Run 'npm run build' in frontend/.")
+
+
+# Static root files for the frontend (icons, logos)
+for static_asset in ["favicon.svg", "icons.svg", "tn-emblem.png"]:
+    asset_path = os.path.join(frontend_dist, static_asset)
+    if os.path.isfile(asset_path):
+        def _make_static_route(p):
+            async def _serve():
+                return FileResponse(p)
+            return _serve
+        app.get(f"/{static_asset}")(_make_static_route(asset_path))
+

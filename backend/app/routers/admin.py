@@ -16,10 +16,10 @@ async def get_queue_status(db: AsyncSession = Depends(get_db)):
     """
     res = await db.execute(text("""
         SELECT 
-            COUNT(*) FILTER (WHERE status = 'pending') as pending,
-            COUNT(*) FILTER (WHERE status = 'processing') as processing,
-            COUNT(*) FILTER (WHERE status = 'completed') as completed,
-            COUNT(*) FILTER (WHERE status = 'failed') as failed
+            SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending,
+            SUM(CASE WHEN status = 'processing' THEN 1 ELSE 0 END) as processing,
+            SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed,
+            SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed
         FROM job_queue
     """))
     counts = res.mappings().one()
@@ -29,6 +29,7 @@ async def get_queue_status(db: AsyncSession = Depends(get_db)):
         completed=counts["completed"] or 0,
         failed=counts["failed"] or 0
     )
+
 
 
 @router.get("/stats")

@@ -2,6 +2,41 @@ import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
 import crypto from 'crypto'
 import os from 'os'
+import net from 'net'
+
+// Dynamic backend port detection (auto-checks 8001, 8000, or process.env.BACKEND_PORT)
+let activeBackendPort = Number(process.env.BACKEND_PORT || process.env.VITE_BACKEND_PORT || 8001)
+
+function checkBackendPort(port) {
+  return new Promise((resolve) => {
+    const socket = net.createConnection({ port, host: '127.0.0.1', timeout: 400 }, () => {
+      socket.destroy()
+      resolve(true)
+    })
+    socket.on('error', () => resolve(false))
+    socket.on('timeout', () => { socket.destroy(); resolve(false) })
+  })
+}
+
+async function updateActiveBackendPort() {
+  if (process.env.BACKEND_PORT) {
+    activeBackendPort = Number(process.env.BACKEND_PORT)
+    return
+  }
+  const is8001 = await checkBackendPort(8001)
+  if (is8001) {
+    activeBackendPort = 8001
+    return
+  }
+  const is8000 = await checkBackendPort(8000)
+  if (is8000) {
+    activeBackendPort = 8000
+  }
+}
+
+updateActiveBackendPort()
+setInterval(updateActiveBackendPort, 3000)
+
 
 // In-memory store for upload sessions during dev server execution
 const sessions = new Map()
@@ -236,20 +271,23 @@ export default defineConfig({
     port: 5174,
     proxy: {
       '/api/v1': {
-        target: 'http://127.0.0.1:8000',
+        target: 'http://127.0.0.1:8001',
         changeOrigin: true,
+        router: () => `http://127.0.0.1:${activeBackendPort}`,
         configure: (proxy) => {
           proxy.on('error', (err, req, res) => {
+            updateActiveBackendPort()
             if (err.code === 'ECONNREFUSED') {
-              console.warn(`[vite proxy] Backend (127.0.0.1:8000) is starting up or temporarily offline. Retrying... (${req.url})`)
+              console.warn(`[vite proxy] Backend (127.0.0.1:${activeBackendPort}) offline/restarting (${req.url})`)
               if (res && !res.headersSent) {
                 res.writeHead(503, { 'Content-Type': 'application/json' })
-                res.end(JSON.stringify({ error: 'Backend server is starting up. Please retry in a few seconds.' }))
+                res.end(JSON.stringify({ error: `Backend server (127.0.0.1:${activeBackendPort}) is starting up. Please retry in a few seconds.` }))
               }
             }
           })
         }
       }
     }
+
   }
 })

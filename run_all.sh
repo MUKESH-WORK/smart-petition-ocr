@@ -1,22 +1,14 @@
 #!/usr/bin/env bash
 set -e
+DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
+cd "$DIR"
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PYTHON_EXE="python3"
+if [ -f "$DIR/backend/.venv/bin/python" ]; then
+    PYTHON_EXE="$DIR/backend/.venv/bin/python"
+elif [ -f "$DIR/.venv/bin/python" ]; then
+    PYTHON_EXE="$DIR/.venv/bin/python"
+fi
 
-echo "Starting GDP Assistant (Backend + Frontend)..."
-
-"$SCRIPT_DIR/run_backend.sh" &
-BACKEND_PID=$!
-
-sleep 3
-
-"$SCRIPT_DIR/run_frontend.sh" &
-FRONTEND_PID=$!
-
-echo ""
-echo "Both servers started!"
-echo "Frontend: http://localhost:5174/"
-echo "Backend:  http://127.0.0.1:8000/api/v1/docs"
-
-trap "kill $BACKEND_PID $FRONTEND_PID 2>/dev/null || true" EXIT
-wait
+echo "Starting DRO Grievance AI System with $PYTHON_EXE..."
+"$PYTHON_EXE" run.py "$@"

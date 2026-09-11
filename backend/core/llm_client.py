@@ -235,14 +235,15 @@ class LLMClient:
         if json_mode:
             payload["response_format"] = {"type": "json_object"}
 
+        call_timeout = min(getattr(settings, "LLM_FAST_TIMEOUT", 30.0), 45.0)
         try:
             client = await self._get_async_client()
-            resp = await client.post(endpoint, json=payload)
+            resp = await client.post(endpoint, json=payload, timeout=call_timeout)
             if resp.status_code == 404:
                 self._model_verified = False
                 active_model = await self._verify_or_discover_model()
                 payload["model"] = active_model
-                resp = await client.post(endpoint, json=payload)
+                resp = await client.post(endpoint, json=payload, timeout=call_timeout)
 
             resp.raise_for_status()
             data = resp.json()

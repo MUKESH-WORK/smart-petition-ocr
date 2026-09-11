@@ -190,42 +190,65 @@ class EntityExtractor:
             if not clean_l or self._is_invalid_value(clean_l):
                 continue
 
-            # 1. Father/Husband Relationship Extraction (e.g. S/o, W/o, D/o, த/பெ, க/பெ, மகன், மனைவி)
-            if any(f_prefix in clean_l for f_prefix in ["S/o", "D/o", "W/o", "Wo", "த/பெ", "க/பெ", "த/\s*ப", "தந்தை", "கணவர்", "Father", "Husband", "மகன்", "மனைவி"]):
+            # 1. Combined Petitioner & Relationship Extraction (e.g. "மு. கார்த்திகேயன், த/பெ முருகேசன்")
+            rel_match = re.search(r'([^\n,:]+?)\s*[,;\s]\s*(?:S/o|D/o|W/o|Wo|த/பெ|க/பெ|த/\s*ப|தந்தை|கணவர்|Father|Husband|மகன்|மனைவி)\s*[:\.]?\s*([^\n,;]+)', clean_l, re.IGNORECASE)
+            if rel_match:
+                cand_p = rel_match.group(1).strip()
+                cand_rel = rel_match.group(2).strip()
+                cand_p = re.sub(r'^(?:அனுப்புநர்|அனுப்புதல்|விண்ணப்பதாரர்|மனுதாரர்)\s*[:\.\-]?\s*', '', cand_p).strip()
+                cand_p = re.sub(r'[0-9]', '', cand_p).strip()
+                cand_rel = re.sub(r'[0-9]', '', cand_rel).strip()
+                if cand_p and 3 <= len(cand_p) <= 40 and not self._is_invalid_value(cand_p) and not any(e["entity_type"] == "petitioner_name" for e in entities):
+                    entities.append({
+                        "entity_type": "petitioner_name",
+                        "entity_value": cand_p,
+                        "confidence": 0.96,
+                        "source_page": page_number,
+                        "extracted_by": "regex",
+                        "validation_status": "pending",
+                        "officer_corrected": False
+                    })
+                if cand_rel and 3 <= len(cand_rel) <= 40 and not self._is_invalid_value(cand_rel) and not any(e["entity_type"] == "father_husband_name" for e in entities):
+                    entities.append({
+                        "entity_type": "father_husband_name",
+                        "entity_value": cand_rel,
+                        "confidence": 0.96,
+                        "source_page": page_number,
+                        "extracted_by": "regex",
+                        "validation_status": "pending",
+                        "officer_corrected": False
+                    })
+
+            # Standalone Relationship Extraction
+            elif any(f_prefix in clean_l for f_prefix in ["S/o", "D/o", "W/o", "Wo", "த/பெ", "க/பெ", "த/\s*ப", "தந்தை", "கணவர்", "Father", "Husband"]):
                 clean_f = re.sub(
-                    r'.*?(?:S/o|D/o|W/o|Wo|த/பெ|க/பெ|த/\s*ப|தந்தை|கணவர்|Father|Husband|மகன்|மனைவி)\s*(?:Late)?\s*[:\.]?\s*',
+                    r'.*?(?:S/o|D/o|W/o|Wo|த/பெ|க/பெ|த/\s*ப|தந்தை|கணவர்|Father|Husband)\s*(?:Late)?\s*[:\.]?\s*',
                     '', clean_l, flags=re.IGNORECASE
                 ).strip()
-                clean_f = re.sub(r'[0-9]', '', clean_f).strip().rstrip(",")
-                clean_f = re.sub(r'(?<=[\u0B80-\u0BFF])\s+(?=[\u0B80-\u0BFF])', '', clean_f)
-                if clean_f and len(clean_f) >= 3 and not self._is_invalid_value(clean_f):
+                clean_f = re.sub(r'[0-9]', '', clean_f).strip().split(',')[0].strip()
+                if clean_f and 3 <= len(clean_f) <= 40 and not self._is_invalid_value(clean_f) and not any(e["entity_type"] == "father_husband_name" for e in entities):
                     entities.append({
                         "entity_type": "father_husband_name",
                         "entity_value": clean_f,
                         "confidence": 0.95,
                         "source_page": page_number,
-                        "extracted_by": "structural",
+                        "extracted_by": "regex",
                         "validation_status": "pending",
                         "officer_corrected": False
                     })
 
-            # 2. Petitioner Name extraction from sender-like lines
+            # 2. Petitioner Name extraction from title lines
             if not any(e["entity_type"] == "petitioner_name" for e in entities):
-                # Detect lines with personal titles or top non-header lines
-                if any(k in clean_l for k in ["திரு", "திருமதி", "செல்வி", "Mr.", "Mrs.", "Ms.", "Smt.", "Thiru"]):
-                    clean_name = re.sub(
-                        r'^(?:திரு|திருமதி|செல்வி|மனுதாரர்|பெயர்|விண்ணப்பதாரர்|Mr\.?|Mrs\.?|Ms\.?|Smt\.?|Thiru)\s*[:\.]?\s*',
-                        '', clean_l, flags=re.IGNORECASE
-                    ).strip()
-                    clean_name = re.sub(r'\(\d+\)|\d+', '', clean_name).strip()
-                    clean_name = re.sub(r'(?<=[\u0B80-\u0BFF])\s+(?=[\u0B80-\u0BFF])', '', clean_name)
-                    if len(clean_name) >= 3 and not self._is_invalid_value(clean_name):
+                title_match = re.search(r'(?:^|[\s,])(?:திரு|திருமதி|செல்வி|Mr\.?|Mrs\.?|Ms\.?|Smt\.?|Thiru)\.?\s+([A-Za-z\u0B80-\u0BFF\.\s]{3,35})', clean_l, re.IGNORECASE)
+                if title_match:
+                    clean_name = title_match.group(1).strip().split(',')[0].strip()
+                    if 3 <= len(clean_name) <= 40 and not self._is_invalid_value(clean_name):
                         entities.append({
                             "entity_type": "petitioner_name",
                             "entity_value": clean_name,
                             "confidence": 0.95,
                             "source_page": page_number,
-                            "extracted_by": "structural",
+                            "extracted_by": "regex",
                             "validation_status": "pending",
                             "officer_corrected": False
                         })
@@ -323,7 +346,11 @@ Petition Text:
 {text_content[:2500]}
 """
         try:
-            response = await self.llm.achat(prompt, temperature=0.1, max_tokens=768, json_mode=True)
+            import asyncio
+            response = await asyncio.wait_for(
+                self.llm.achat(prompt, temperature=0.1, max_tokens=512, json_mode=True),
+                timeout=25.0
+            )
             parsed = extract_json_object(response) or {}
         except Exception as e:
             logger.warning(f"AI entity extraction call notice: {e}")
@@ -477,18 +504,18 @@ Petition Text:
             if not f_text.strip():
                 continue
 
-            # Deterministic number/code extraction
+            # Deterministic number/code extraction (< 1ms)
             regex_ents = self._extract_regex(f_text, p["page_number"])
             entities.extend(regex_ents)
 
-            # Primary cognitive LLM extraction
-            ai_ents = await self._extract_ai(f_text, p["page_number"])
-            entities.extend(ai_ents)
+            # High-speed structural extraction (< 5ms)
+            struct_ents = self._extract_structural_entities(f_text, p["page_number"])
+            entities.extend(struct_ents)
 
-            # Resilient structural fallback if AI returned sparse entities
-            if len(ai_ents) < 2:
-                struct_ents = self._extract_structural_entities(f_text, p["page_number"])
-                entities.extend(struct_ents)
+            # Cognitive LLM extraction if structural extraction found sparse information
+            if len(struct_ents) < 2:
+                ai_ents = await self._extract_ai(f_text, p["page_number"])
+                entities.extend(ai_ents)
 
         # 2. Location Validation against master PostgreSQL table
         validated = await self._validate_locations(db, entities)

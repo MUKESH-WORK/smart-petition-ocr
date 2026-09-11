@@ -39,7 +39,7 @@ class PostgresJobQueue:
               AND job_type = :job_type
               AND status IN ('pending', 'processing')
             LIMIT 1
-        """), {"source_id": source_id, "job_type": job_type})
+        """), {"source_id": str(source_id), "job_type": job_type})
         existing_row = existing.mappings().one_or_none()
         if existing_row:
             logger.info(f"Skipping duplicate enqueue: job {existing_row['id']} already active for source {source_id} ({job_type})")
@@ -47,11 +47,11 @@ class PostgresJobQueue:
 
         result = await db.execute(text("""
             INSERT INTO job_queue (job_type, source_id, payload, status, created_at)
-            VALUES (:job_type, CAST(:source_id AS UUID), :payload, 'pending', NOW())
+            VALUES (:job_type, CAST(:source_id AS UUID), :payload, 'pending', CURRENT_TIMESTAMP)
             RETURNING id
         """), {
             "job_type": job_type,
-            "source_id": source_id,
+            "source_id": str(source_id),
             "payload": json.dumps(payload or {}, ensure_ascii=False)
         })
         await db.commit()
@@ -61,10 +61,15 @@ class PostgresJobQueue:
         """Recovers any jobs stuck in 'processing' state due to worker crashes or machine restarts."""
         timeout_min = getattr(settings, "JOB_STUCK_TIMEOUT_MINUTES", 5)
         try:
+            from models.database import is_sqlite
+            if is_sqlite:
+                stuck_cond = f"started_at < datetime('now', '-{timeout_min} minutes')"
+            else:
+                stuck_cond = f"started_at < CURRENT_TIMESTAMP - INTERVAL '{timeout_min} minutes'"
             result = await db.execute(text(f"""
                 UPDATE job_queue
                 SET status = 'pending', worker_id = NULL, started_at = NULL
-                WHERE status = 'processing' AND started_at < NOW() - INTERVAL '{timeout_min} minutes'
+                WHERE status = 'processing' AND {stuck_cond}
             """))
             if result.rowcount > 0:
                 logger.warning(f"Recovered {result.rowcount} stuck jobs back to 'pending'")
@@ -73,19 +78,27 @@ class PostgresJobQueue:
             logger.debug(f"Stuck job check skipped: {e}")
 
     async def dequeue(self, db: AsyncSession, worker_id: str, job_types: List[str]) -> Optional[Dict[str, Any]]:
-        """Dequeues one pending job atomically using FOR UPDATE SKIP LOCKED"""
+        """Dequeues one pending job atomically using FOR UPDATE SKIP LOCKED (or serialized lock on SQLite)"""
+        if not job_types:
+            return None
+
         # Periodic recovery of orphaned jobs
         await self.recover_stuck_jobs(db)
 
-        sql = """
+        from models.database import is_sqlite
+        placeholders = ", ".join([f":jt_{i}" for i in range(len(job_types))])
+        params = {f"jt_{i}": jt for i, jt in enumerate(job_types)}
+        lock_clause = "" if is_sqlite else "FOR UPDATE SKIP LOCKED"
+
+        sql = f"""
             SELECT id, job_type, source_id, payload
             FROM job_queue
-            WHERE status = 'pending' AND job_type = ANY(:job_types)
+            WHERE status = 'pending' AND job_type IN ({placeholders})
             ORDER BY created_at ASC
-            FOR UPDATE SKIP LOCKED
+            {lock_clause}
             LIMIT 1
         """
-        result = await db.execute(text(sql), {"job_types": job_types})
+        result = await db.execute(text(sql), params)
         row = result.mappings().one_or_none()
         if not row:
             return None
@@ -93,7 +106,7 @@ class PostgresJobQueue:
         job_id = row["id"]
         await db.execute(text("""
             UPDATE job_queue
-            SET status = 'processing', worker_id = :worker_id, started_at = NOW()
+            SET status = 'processing', worker_id = :worker_id, started_at = CURRENT_TIMESTAMP
             WHERE id = :id
         """), {"id": job_id, "worker_id": worker_id})
         await db.commit()
@@ -105,7 +118,7 @@ class PostgresJobQueue:
         if success:
             await db.execute(text("""
                 UPDATE job_queue
-                SET status = 'completed', completed_at = NOW(), error_message = NULL
+                SET status = 'completed', completed_at = CURRENT_TIMESTAMP, error_message = NULL
                 WHERE id = :id
             """), {"id": job_id})
             await db.commit()
@@ -143,18 +156,22 @@ class PostgresJobQueue:
             logger.error(f"Job {job_id} exceeded max retries ({max_retries}). Marking permanently failed: {error}")
             await db.execute(text("""
                 UPDATE job_queue
-                SET status = 'failed', completed_at = NOW(), error_message = :error
+                SET status = 'failed', completed_at = CURRENT_TIMESTAMP, error_message = :error
                 WHERE id = :id
             """), {"id": job_id, "error": error})
 
             # Update source record to indicate failure
             if job and job.get("source_id"):
-                await db.execute(text("""
-                    UPDATE sources SET status = 'failed', updated_at = NOW()
-                    WHERE source_id = CAST(:source_id AS UUID)
-                """), {"source_id": str(job["source_id"])})
+                try:
+                    await db.execute(text("""
+                        UPDATE sources SET status = 'failed', updated_at = CURRENT_TIMESTAMP
+                        WHERE source_id = CAST(:source_id AS UUID)
+                    """), {"source_id": str(job["source_id"])})
+                except Exception as ex:
+                    logger.warning(f"Could not update source {job['source_id']} status to failed: {ex}")
 
         await db.commit()
+
 
     async def execute_job(self, db: AsyncSession, job: Dict[str, Any]):
         job_type = job["job_type"]
