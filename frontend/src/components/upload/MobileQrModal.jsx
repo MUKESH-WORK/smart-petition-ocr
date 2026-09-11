@@ -100,7 +100,7 @@ export default function MobileQrModal({ isOpen, onClose, onDocumentUploaded }) {
         width: 320,
         margin: 2,
         color: {
-          dark: '#000000',
+          dark: '#102C57',
           light: '#FFFFFF'
         },
         errorCorrectionLevel: 'M'
@@ -186,7 +186,7 @@ export default function MobileQrModal({ isOpen, onClose, onDocumentUploaded }) {
       aria-labelledby="qr-modal-title"
     >
       <div 
-        className="qr-centered-modal-card" 
+        className="qr-modal-card qr-centered-modal-card" 
         onClick={(e) => e.stopPropagation()}
       >
         
@@ -219,7 +219,7 @@ export default function MobileQrModal({ isOpen, onClose, onDocumentUploaded }) {
               >
                 {isGenerating ? (
                   <div className="qr-loading-spinner">
-                    <Loader2 size={32} className="spin text-orange" />
+                    <Loader2 size={32} className="spin qr-spinner-icon" />
                   </div>
                 ) : qrDataUrl ? (
                   <img 
@@ -229,7 +229,7 @@ export default function MobileQrModal({ isOpen, onClose, onDocumentUploaded }) {
                   />
                 ) : (
                   <div className="qr-loading-spinner">
-                    <Loader2 size={32} className="spin text-orange" />
+                    <Loader2 size={32} className="spin qr-spinner-icon" />
                   </div>
                 )}
               </div>
@@ -278,7 +278,7 @@ export default function MobileQrModal({ isOpen, onClose, onDocumentUploaded }) {
               <div className="received-title">✓ Petition uploaded successfully</div>
               <div className="received-subtext">Loading document into workspace...</div>
               <div className="received-loading-row">
-                <Loader2 size={15} className="spin text-orange" />
+                <Loader2 size={15} className="spin qr-spinner-icon" />
                 <span className="font-mono text-muted">{receivedFileMeta?.fileName || 'petition.jpg'}</span>
               </div>
             </div>

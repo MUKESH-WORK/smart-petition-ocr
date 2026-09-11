@@ -2,7 +2,6 @@ import React from 'react';
 import { 
   FileText, 
   History, 
-  Settings, 
   ChevronLeft, 
   ChevronRight 
 } from 'lucide-react';
@@ -40,9 +39,6 @@ export default function Sidebar({
                 <span className="sidebar-item-sub">Grievance Processing</span>
               </div>
             )}
-            {!isCollapsed && activeModule === 'gdp' && (
-              <span className="active-dot-indicator" aria-hidden="true"></span>
-            )}
           </button>
         </nav>
       </div>
@@ -69,30 +65,6 @@ export default function Sidebar({
               <div className="sidebar-item-text">
                 <span className="sidebar-item-label">Audit Logs</span>
               </div>
-            )}
-            {!isCollapsed && activeModule === 'audit' && (
-              <span className="active-dot-indicator" aria-hidden="true"></span>
-            )}
-          </button>
-
-          {/* Settings */}
-          <button
-            type="button"
-            className={`sidebar-nav-item ${activeModule === 'settings' ? 'active' : ''}`}
-            onClick={() => onSelectModule('settings')}
-            title="Settings"
-            aria-current={activeModule === 'settings' ? 'page' : undefined}
-          >
-            <div className="sidebar-item-icon">
-              <Settings size={18} />
-            </div>
-            {!isCollapsed && (
-              <div className="sidebar-item-text">
-                <span className="sidebar-item-label">Settings</span>
-              </div>
-            )}
-            {!isCollapsed && activeModule === 'settings' && (
-              <span className="active-dot-indicator" aria-hidden="true"></span>
             )}
           </button>
 

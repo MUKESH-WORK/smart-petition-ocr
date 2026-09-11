@@ -162,9 +162,9 @@ export default function ProcessingOverlay({ petition, onComplete, onCancel }) {
                   gap: '6px',
                   padding: '6px 14px',
                   fontSize: '13px',
-                  fontWeight: 500,
-                  color: '#fff',
-                  background: '#0ea5e9',
+                  fontWeight: 600,
+                  color: '#FEFAF6',
+                  background: '#102C57',
                   border: 'none',
                   borderRadius: '6px',
                   cursor: 'pointer'
@@ -183,9 +183,9 @@ export default function ProcessingOverlay({ petition, onComplete, onCancel }) {
                     padding: '6px 14px',
                     fontSize: '13px',
                     fontWeight: 500,
-                    color: '#64748b',
+                    color: 'var(--text-secondary)',
                     background: 'transparent',
-                    border: '1px solid #cbd5e1',
+                    border: '1px solid var(--border-medium)',
                     borderRadius: '6px',
                     cursor: 'pointer'
                   }}

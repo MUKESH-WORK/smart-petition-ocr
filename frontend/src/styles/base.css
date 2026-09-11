@@ -46,7 +46,7 @@ button {
 }
 
 button:focus-visible {
-  outline: 2px solid var(--orange-500);
+  outline: 2px solid var(--primary-brand, #102C57);
   outline-offset: 2px;
 }
 
@@ -58,8 +58,8 @@ input, textarea, select {
 
 input:focus-visible, select:focus-visible {
   outline: none;
-  border-color: var(--navy-700);
-  box-shadow: 0 0 0 2px var(--navy-100);
+  border-color: #102C57;
+  box-shadow: 0 0 0 2px rgba(16, 44, 87, 0.2);
 }
 
 /* Isolated Scrollbar styling */
@@ -73,12 +73,12 @@ input:focus-visible, select:focus-visible {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #CBD5E1;
+  background: var(--border-medium);
   border-radius: var(--radius-pill);
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #94A3B8;
+  background: var(--tan-500, #DAC0A3);
 }
 
 /* Utilities */

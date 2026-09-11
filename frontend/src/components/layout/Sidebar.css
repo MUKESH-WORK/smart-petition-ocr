@@ -1,10 +1,10 @@
 /* ==========================================================================
-   DEEP NAVY LEFT SIDEBAR STYLES (UNIFIED GRID & ALIGNMENT)
+   DEEP ROYAL NAVY LEFT SIDEBAR STYLES (#102C57 & #DAC0A3)
    ========================================================================== */
 
 .app-sidebar {
-  background-color: var(--navy-900);
-  border-right: 1px solid #143D68;
+  background-color: #081730;
+  border-right: 1px solid rgba(218, 192, 163, 0.22);
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -49,7 +49,7 @@
   gap: 6px;
   flex-shrink: 0;
   padding-top: var(--space-sections);
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  border-top: 1px solid rgba(218, 192, 163, 0.18);
 }
 
 /* Shared Navigation List */
@@ -67,7 +67,7 @@
   gap: 12px;
   padding: 8px 12px;
   border-radius: var(--radius-md);
-  color: #CBD5E1;
+  color: #EADBC8;
   background: transparent;
   width: 100%;
   text-align: left;
@@ -79,16 +79,16 @@
 }
 
 .sidebar-nav-item:hover {
-  background-color: rgba(255, 255, 255, 0.08);
-  color: #FFFFFF;
+  background-color: rgba(234, 219, 200, 0.12);
+  color: #FEFAF6;
 }
 
 .sidebar-nav-item.active {
-  background-color: rgba(255, 255, 255, 0.12);
-  color: #FFFFFF;
-  border-left: 3px solid var(--orange-500);
+  background-color: rgba(234, 219, 200, 0.2);
+  color: #FEFAF6;
+  border-left: 3.5px solid #DAC0A3;
   border-radius: 2px var(--radius-md) var(--radius-md) 2px;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
 }
 
 .sidebar-item-icon {
@@ -96,7 +96,7 @@
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  color: #94A3B8;
+  color: #DAC0A3;
   width: 20px;
   height: 20px;
   transition: color var(--transition-fast);
@@ -104,7 +104,7 @@
 
 .sidebar-nav-item:hover .sidebar-item-icon,
 .sidebar-nav-item.active .sidebar-item-icon {
-  color: var(--orange-400);
+  color: #FEFAF6;
 }
 
 .sidebar-item-text {
@@ -123,29 +123,19 @@
 
 .sidebar-item-sub {
   font-size: var(--font-size-btn-secondary);
-  color: #94A3B8;
+  color: #DAC0A3;
   white-space: nowrap;
   margin-top: 2px;
 }
 
-.active-dot-indicator {
-  margin-left: auto;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background-color: var(--orange-500);
-  box-shadow: 0 0 0 2px rgba(217, 83, 30, 0.3);
-  flex-shrink: 0;
-}
-
 .sidebar-nav-item.collapse-item {
-  color: #94A3B8;
+  color: #DAC0A3;
   margin-top: 2px;
 }
 
 .sidebar-nav-item.collapse-item:hover {
-  color: #FFFFFF;
-  background-color: rgba(255, 255, 255, 0.06);
+  color: #FEFAF6;
+  background-color: rgba(234, 219, 200, 0.12);
 }
 
 /* Collapsed Mode */

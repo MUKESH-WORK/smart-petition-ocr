@@ -41,8 +41,8 @@ export default function SettingsModal({ isOpen, onClose, onNotify }) {
             {/* Setting Item 1 */}
             <div style={{ padding: '12px 14px', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-lg)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                <span style={{ fontSize: '0.88rem', fontWeight: 600, color: 'var(--navy-900)' }}>Language Recognition Engine</span>
-                <span style={{ fontSize: '0.72rem', background: 'var(--navy-100)', color: 'var(--navy-900)', padding: '2px 8px', borderRadius: '4px', fontWeight: 600 }}>Tamil + English (Auto)</span>
+                <span style={{ fontSize: '0.88rem', fontWeight: 600, color: 'var(--text-primary)' }}>Language Recognition Engine</span>
+                <span style={{ fontSize: '0.72rem', background: 'var(--bg-subtle)', color: '#102C57', padding: '2px 8px', borderRadius: '4px', fontWeight: 600, border: '1px solid var(--border-subtle)' }}>Tamil + English (Auto)</span>
               </div>
               <p style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>Automatically detects script and dialect used across Tamil Nadu revenue and grievance petitions.</p>
             </div>
@@ -50,8 +50,8 @@ export default function SettingsModal({ isOpen, onClose, onNotify }) {
             {/* Setting Item 2 */}
             <div style={{ padding: '12px 14px', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-lg)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                <span style={{ fontSize: '0.88rem', fontWeight: 600, color: 'var(--navy-900)' }}>Grievance Portal Target</span>
-                <span style={{ fontSize: '0.72rem', background: 'var(--orange-100)', color: 'var(--orange-700)', padding: '2px 8px', borderRadius: '4px', fontWeight: 600 }}>TN e-District / Collectorate Cell</span>
+                <span style={{ fontSize: '0.88rem', fontWeight: 600, color: 'var(--text-primary)' }}>Grievance Portal Target</span>
+                <span style={{ fontSize: '0.72rem', background: '#F5EDE2', color: '#102C57', border: '1px solid #DAC0A3', padding: '2px 8px', borderRadius: '4px', fontWeight: 700 }}>TN e-District / Collectorate Cell</span>
               </div>
               <p style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>Orders extracted fields to match the official Monday Grievance Day portal entry schema.</p>
             </div>
@@ -59,7 +59,7 @@ export default function SettingsModal({ isOpen, onClose, onNotify }) {
             {/* Setting Item 3 */}
             <div style={{ padding: '12px 14px', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-lg)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                <span style={{ fontSize: '0.88rem', fontWeight: 600, color: 'var(--navy-900)' }}>Confidence Highlighting</span>
+                <span style={{ fontSize: '0.88rem', fontWeight: 600, color: '#102C57' }}>Confidence Highlighting</span>
                 <span style={{ fontSize: '0.72rem', background: '#ECFDF5', color: '#047857', padding: '2px 8px', borderRadius: '4px', fontWeight: 600 }}>Active (&lt;95% highlighted)</span>
               </div>
               <p style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>Displays AI confidence chips only for fields requiring extra officer scrutiny.</p>

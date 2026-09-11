@@ -7,7 +7,7 @@ import WorkspaceHeader from './components/workspace/WorkspaceHeader';
 import SummaryChatView from './components/workspace/SummaryChatView';
 import DocumentDrawer from './components/workspace/DocumentDrawer';
 import AuditLogsView from './components/audit/AuditLogsView';
-import SettingsView from './components/settings/SettingsView';
+import ProfileView from './components/profile/ProfileView';
 import MobileCapturePage from './components/mobile/MobileCapturePage';
 import { ChevronRight, ChevronLeft } from 'lucide-react';
 import { fetchAuditHistory, fetchPetitionBySourceId } from './services/apiService';
@@ -31,9 +31,45 @@ function getCaptureSessionFromUrl() {
   return null;
 }
 
+const DEFAULT_OFFICER_PROFILE = {
+  fullName: 'S. Ramanathan',
+  designation: 'Tahsildar',
+  department: 'Grievance Cell',
+  officerId: 'TN-GRIEV-2024-8842',
+  email: 's.ramanathan@tn.gov.in',
+  phone: '+91 44 2530 1000',
+  role: 'Tahsildar',
+  assignedOffice: 'Revenue & Disaster Management Department, Chennai District',
+  accessLevel: 'Level 2 Administrative Access (Grievance Pre-Processing & Approval)'
+};
+
+const PROFILE_STORAGE_KEY = 'tn_gdp_officer_profile';
+
 export default function App() {
   // Check if current route is dedicated mobile capture page
   const [mobileSessionId, setMobileSessionId] = useState(() => getCaptureSessionFromUrl());
+
+  // Officer profile state with persistent local storage
+  const [officerProfile, setOfficerProfile] = useState(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem(PROFILE_STORAGE_KEY);
+        if (saved) return { ...DEFAULT_OFFICER_PROFILE, ...JSON.parse(saved) };
+      } catch (err) {
+        console.warn('Failed to parse saved officer profile:', err);
+      }
+    }
+    return DEFAULT_OFFICER_PROFILE;
+  });
+
+  const handleSaveProfile = (updatedProfile) => {
+    setOfficerProfile(updatedProfile);
+    try {
+      localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(updatedProfile));
+    } catch (err) {
+      console.error('Failed to persist officer profile:', err);
+    }
+  };
 
   // Listen for navigation changes
   useEffect(() => {
@@ -181,6 +217,12 @@ export default function App() {
     }
   };
 
+  // Handle user logout action from top-right officer profile menu
+  const handleLogout = () => {
+    showToast('Session ended. Officer logged out successfully.');
+    // Future backend auth session clear integration can be called here
+  };
+
   // -------------------------------------------------------------
   // If user is accessing the mobile capture route on phone/browser
   // -------------------------------------------------------------
@@ -196,9 +238,12 @@ export default function App() {
       
       {/* 1. Slim Top Navigation Header (Stationary, Fixed Height) */}
       <Header
+        officerProfile={officerProfile}
         onLogoClick={handleNewPetition}
         currentLanguage={currentLanguage}
         onLanguageChange={setCurrentLanguage}
+        onNavigateToProfile={() => setActiveModule('profile')}
+        onLogout={handleLogout}
       />
 
       {/* 2. Application Body Container (Left Sidebar + Main Content Area) */}
@@ -298,9 +343,11 @@ export default function App() {
             />
           )}
 
-          {/* VIEW C: FULL-PAGE SETTINGS MODULE */}
-          {activeModule === 'settings' && (
-            <SettingsView
+          {/* VIEW C: FULL-PAGE MY PROFILE MODULE */}
+          {activeModule === 'profile' && (
+            <ProfileView
+              officerProfile={officerProfile}
+              onSaveProfile={handleSaveProfile}
               onNotify={showToast}
             />
           )}
