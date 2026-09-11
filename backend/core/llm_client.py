@@ -18,33 +18,18 @@ SYSTEM_PROMPT_TAMIL = """
 5. உறுதியற்ற தகவலுக்கு null அல்லது "[தகவல் இல்லை]" பயன்படுத்து.
 6. கற்பனை செய்யாதே. தகவல் இல்லை என்றால், அதை ஒப்புக்கொள்.
 7. தொகைகள், தேதிகள், கோப்பு எண்கள் ஆகியவற்றை தவறாக எழுதாதே.
+8. உறவுமுறை பிரித்தறிதல்:
+   - "W/o" அல்லது "க/பெ" என்றால் மனைவி/கணவர் உறவு. விண்ணப்பதாரர் பெண் (Female), அடுத்து வருபவர் கணவர் பெயர் (father_husband_name). ஒருபோதும் கணவர் பெயரை விண்ணப்பதாரர் பெயருடன் இணைக்காதே!
+   - "S/o" அல்லது "த/பெ" என்றால் மகன்/தந்தை உறவு.
+   - "D/o" அல்லது "ம/பெ" என்றால் மகள்/தந்தை உறவு.
+9. மனுவின் சுருக்கம் (description_summary_tamil):
+   - பேச்சு வழக்கு மற்றும் உடைந்த வரிகளை அப்படியே நகலெடுக்காமல், முழுமையான அலுவலக நடையில் 2-3 வரிகளில் சுருக்கமாக எழுத வேண்டும்.
+   - மனுதாரர் பெயர், உறவினர் பெயர், பகுதி, பின்னணி சூழல் (எ.கா: கணவர் இயற்கை எய்தியதால்), மற்றும் கோரப்படும் திட்டத்தின் முழுப் பெயர் (எ.கா: ஆதரவற்ற விதவை உதவித்தொகை - DWP, பட்டா மாறுதல்) ஆகியவற்றை கட்டாயம் குறிப்பிட வேண்டும்.
+   - முக்கிய சொற்களை (விதவை, உதவித்தொகை, பட்டா போன்றவை) ஒருபோதும் நீக்கவோ அல்லது பொதுவான சொல்லாகவோ மாற்றாதே.
 """
 
-CATEGORY_KEYWORDS = {
-    "ஆதார்": ["ஆதார்", "ஆதார் கார்டு", "Aadhar", "Aadhaar", "UIDAI", "ஆதார் பெயர் மாற்றம்", "ஆதார் திருத்தம்", "கெசட்", "Gazette", "இ-சேவை", "e-Sevai", "Information Technology", "சான்றிதழ் மாற்றம்"],
-    "சுகாதாரம்": ["சுகாதாரம்", "குப்பை", "சாக்கடை", "Drainage", "Health", "Sanitation", "கழிவுநீர்", "கொசு", "தூய்மை"],
-    "நிலம்": ["நில", "பட்டா", "சர்வே", "ஆக்கிரமிப்பு", "Land", "Patta", "Survey", "boundary", "எல்லை", "புல எண்"],
-    "சாலை": ["சாலை", "Road", "பாலம்", "Bridge", "போக்குவரத்து", "தெரு", "Street", "தார்ப்பாய்"],
-    "குடிநீர்": ["குடிநீர்", "குடி தண்ணீர்", "drinking water", "கிணறு", "குழாய்", "மேல்நிலை நீர்த்தேக்கத் தொட்டி", "borewell"],
-    "மின்சாரம்": ["மின்", "Electric", "Electricity", "இணைப்பு", "கம்பம்", "மின்கட்டணம்", "EB", "power"],
-    "உதவித்தொகை": ["உதவி", "Pension", "Allowance", "ஓய்வூதியம்", "முதியோர்", "விதவை", "மாற்றுத்திறனாளி", "scholarship"],
-    "வருவாய்": ["வருவாய்", "Revenue", "சான்றிதழ்", "வாரிசு", "Community", "Income", "சாதி சான்றிதழ்", "Certificate"]
-}
-
-DEPARTMENT_MAP = {
-    "ஆதார்": "தகவல் தொழில்நுட்பவியல் & வருவாய்த்துறை",
-    "நிலம்": "வருவாய்த்துறை",
-    "சாலை": "நெடுஞ்சாலை & ஊரக வளர்ச்சி",
-    "குடிநீர்": "குடிநீர் வடிகால் வாரியம் & உள்ளாட்சி",
-    "மின்சாரம்": "மின்சார வாரியம் (TANGEDCO)",
-    "உதவித்தொகை": "சமூக நலத்துறை",
-    "வருவாய்": "வருவாய்த்துறை",
-    "சுகாதாரம்": "பொது சுகாதாரத்துறை"
-}
-
-
 def extract_json_object(raw_text: str) -> Optional[Dict[str, Any]]:
-    """Robustly extract and parse a JSON object from raw LLM text."""
+    """Robustly extract and parse a JSON object from raw LLM text with auto-repair for truncated output."""
     if not raw_text:
         return None
     cleaned = raw_text.strip()
@@ -56,17 +41,34 @@ def extract_json_object(raw_text: str) -> Optional[Dict[str, Any]]:
         cleaned = cleaned[:-3]
     cleaned = cleaned.strip()
 
+    # 1. Direct parse
     try:
         return json.loads(cleaned)
     except Exception:
         pass
 
+    # 2. Regex outermost object
     match = re.search(r'(\{[\s\S]*\})', cleaned)
     if match:
         try:
             return json.loads(match.group(1))
         except Exception:
             pass
+
+    # 3. Automatic repair for truncated JSON (e.g. when LLM reaches max_tokens limit)
+    candidates = [
+        cleaned + '"}',
+        cleaned + '}',
+        re.sub(r',?\s*"[^"]*":\s*"[^"]*$', '', cleaned).rstrip(' ,') + '}',
+        re.sub(r',?\s*"[^"]*":\s*$', '', cleaned).rstrip(' ,') + '}',
+        re.sub(r',?\s*"[^"]*$', '', cleaned).rstrip(' ,') + '}',
+    ]
+    for candidate in candidates:
+        try:
+            return json.loads(candidate)
+        except Exception:
+            pass
+
     return None
 
 
@@ -105,13 +107,13 @@ class LLMClient:
 
     def _get_sync_client(self) -> httpx.Client:
         if self._sync_client is None or self._sync_client.is_closed:
-            self._sync_client = httpx.Client(timeout=getattr(settings, "LLM_FULL_TIMEOUT", 90.0))
+            self._sync_client = httpx.Client(timeout=getattr(settings, "LLM_FULL_TIMEOUT", 300.0))
         return self._sync_client
 
     async def _get_async_client(self) -> httpx.AsyncClient:
         if self._async_client is None or self._async_client.is_closed:
             self._async_client = httpx.AsyncClient(
-                timeout=getattr(settings, "LLM_FULL_TIMEOUT", 90.0),
+                timeout=getattr(settings, "LLM_FULL_TIMEOUT", 300.0),
                 limits=httpx.Limits(max_keepalive_connections=5, max_connections=10)
             )
         return self._async_client
@@ -202,13 +204,14 @@ class LLMClient:
             client = self._get_sync_client()
             resp = client.post(endpoint, json=payload)
             if resp.status_code == 404:
-                logger.warning(f"Model {self.model} returned 404 at {endpoint}. Engaging dynamic fallback.")
+                logger.warning(f"Model {self.model} returned 404 at {endpoint}. Engaging dynamic discovery.")
+                self._model_verified = False
             resp.raise_for_status()
             data = resp.json()
             return data["choices"][0]["message"]["content"]
         except Exception as e:
-            logger.warning(f"Error calling LLM endpoint {endpoint}: {e}")
-            return self._heuristic_fallback(prompt)
+            logger.error(f"Error calling LLM endpoint {endpoint}: {e}")
+            raise
 
     async def achat(self, prompt: str, system_prompt: Optional[str] = None, temperature: Optional[float] = None, max_tokens: Optional[int] = None, json_mode: bool = False) -> str:
         """Asynchronous chat completion with auto-discovery and zero 404 errors"""
@@ -245,8 +248,8 @@ class LLMClient:
             data = resp.json()
             return data["choices"][0]["message"]["content"]
         except Exception as e:
-            logger.warning(f"Error calling async LLM {endpoint}: {e}. Engaging rule-based grounding fallback.")
-            return self._heuristic_fallback(prompt)
+            logger.error(f"Error calling async LLM {endpoint}: {repr(e)}", exc_info=True)
+            raise
 
     async def astream(self, prompt: str, system_prompt: Optional[str] = None) -> AsyncGenerator[str, None]:
         """Stream chunks from LLM for live interactive chat"""
@@ -290,76 +293,8 @@ class LLMClient:
                         except json.JSONDecodeError:
                             continue
         except Exception as e:
-            logger.warning(f"Streaming failed: {e}. Yielding structured answer.")
-            fallback = self._heuristic_fallback(prompt)
-            yield fallback
-
-    def _heuristic_fallback(self, prompt: str) -> str:
-        """Deterministic rule-based response covering all 7 government grievance categories"""
-        context_text = ""
-        if "ஆவணப் பகுதிகள்:" in prompt:
-            parts = prompt.split("ஆவணப் பகுதிகள்:")
-            if len(parts) > 1:
-                context_text = parts[1].split("கேள்வி:")[0].strip()
-        elif "ஆவண உரை:" in prompt:
-            parts = prompt.split("ஆவண உரை:")
-            if len(parts) > 1:
-                context_text = parts[1].split("கீழ்கண்ட JSON")[0].strip()
-
-        # Detect category from keywords
-        matched_cat = "பொது குறை"
-        matched_dept = "வருவாய்த்துறை"
-
-        for cat, kw_list in CATEGORY_KEYWORDS.items():
-            if any(k.lower() in context_text.lower() for k in kw_list):
-                matched_cat = cat
-                matched_dept = DEPARTMENT_MAP.get(cat, "வருவாய்த்துறை")
-                break
-
-        # If JSON format requested for AI analysis
-        if "JSON:" in prompt or "விண்ணப்பதாரர் பெயர்" in prompt or "grievance_type" in prompt:
-            clean_summary_ta = f"மனுதாரர் {matched_cat} தொடர்பாக நிர்வாக நடவடிக்கை எடுக்க வேண்டி மனு சமர்ப்பித்துள்ளார்."
-            clean_summary_en = f"The petitioner has submitted an administrative grievance regarding {matched_cat}."
-            if matched_cat == "ஆதார்":
-                clean_summary_ta = "மனுதாரர் ஆதார் அட்டையில் பெயர் மாற்றம் மற்றும் திருத்தம் மேற்கொள்ள வேண்டி உரிய ஆவணங்களுடன் மனு சமர்ப்பித்துள்ளார்."
-                clean_summary_en = "The petitioner has submitted a formal grievance requesting name correction in Aadhaar Card."
-            elif matched_cat == "நிலம்":
-                clean_summary_ta = "மனுதாரர் நில பட்டா மாற்றம் / நில அளவீடு தொடர்பாக உரிய நடவடிக்கை எடுக்கக் கோரி மனு சமர்ப்பித்துள்ளார்."
-                clean_summary_en = "The petitioner has submitted an application for patta transfer and land survey."
-
-            return json.dumps({
-                "grievance_type": matched_cat,
-                "grievance_subtype": "விசாரணை மற்றும் நடவடிக்கை",
-                "department": matched_dept,
-                "priority": "HIGH" if matched_cat in ["குடிநீர்", "மின்சாரம்"] else "MEDIUM",
-                "description_summary_tamil": clean_summary_ta,
-                "description_summary_english": clean_summary_en,
-                "action_items": [
-                    {"action": f"சம்பந்தப்பட்ட {matched_dept} அலுவலர் புலத்தணிக்கை மேற்கொள்ளுதல்", "department": matched_dept, "deadline_hint": "15 நாட்கள்"},
-                    {"action": "மனு மீது உரிய தீர்வு காண உத்தரவு பிறப்பித்தல்", "department": matched_dept, "deadline_hint": "30 நாட்கள்"}
-                ],
-                "claims": [
-                    {"text": clean_summary_ta[:80], "source_page": 1, "confidence": 0.95}
-                ],
-                "hallucination_score": 0.0
-            }, ensure_ascii=False)
-
-        q_part = prompt.split("கேள்வி:")[-1].lower() if "கேள்வி:" in prompt else prompt.lower()
-        context_lines = [l.strip() for l in context_text.split("\n") if l.strip() and not l.startswith("[Page")]
-
-        if "department" in q_part or "துறை" in q_part or "officer" in q_part:
-            return f"இம்மனு **{matched_dept}** தொடர்பானதாகும். சம்பந்தப்பட்ட அலுவலர் மூலம் பரிசீலிக்கப்பட வேண்டும்."
-        elif "what action" in q_part or "நடவடிக்கை" in q_part or "action" in q_part:
-            action_snippet = " ".join(context_lines[:4]) if context_lines else f"மனுவில் குறிப்பிட்டுள்ள {matched_cat} கோரிக்கையை பரிசீலித்து உரிய நடவடிக்கை எடுத்தல்."
-            return f"மனுதாரரின் கோரிக்கை: {action_snippet}"
-        elif "one line" in q_part or "சுருக்கம்" in q_part or "summarize" in q_part:
-            summary_line = context_lines[0] if context_lines else f"மனுதாரர் {matched_cat} தொடர்பாக நடவடிக்கை கோரி மனு சமர்ப்பித்துள்ளார்."
-            return summary_line
-        elif "explain" in q_part or "விளக்க" in q_part or "detail" in q_part:
-            details_text = " ".join(context_lines[:8]) if context_lines else context_text[:300]
-            return f"மனு விவரங்கள்:\n{details_text}"
-
-        return f"மனுவில் உள்ள விவரங்களின்படி, சம்பந்தப்பட்ட {matched_dept} அலுவலர் உரிய விசாரணை நடத்த பரிந்துரைக்கப்படுகிறது."
+            logger.error(f"Streaming failed: {e}")
+            yield f"பிழை ஏற்பட்டது: {e}"
 
     # Aliases
     acomplete = achat

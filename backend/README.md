@@ -34,7 +34,7 @@ GDP_Assistant/
 │       ├── search.py               # /api/v1/search (vector, fulltext, hybrid RRF)
 │       └── admin.py                # /api/v1/admin (queue status, system metrics, master locations)
 ├── services/
-│   ├── ocr_router.py               # PaddleOCR (PP-OCRv5) bilingual Tamil/English Indic OCR
+│   ├── ocr_router.py               # Hybrid PaddleOCR (PP-OCRv5) + lazy-loaded Surya
 │   ├── tamil_chunker.py            # Semantic chunking on Tamil sentence boundaries
 │   ├── vector_store.py             # pgvector embedding indexer & RRF hybrid search
 │   ├── entity_extractor.py         # Regex + AI NER + Aadhaar masking + Master DB validation

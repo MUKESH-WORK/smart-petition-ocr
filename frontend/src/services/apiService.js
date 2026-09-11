@@ -132,41 +132,29 @@ export async function uploadAndAnalyzePetition(file, onProgress) {
       if (statusRes.ok) {
         const sData = await statusRes.json();
         
+        if (sData.status === 'failed') {
+          throw new Error('Petition processing failed in background worker.');
+        }
+
         // Progress stage mapping:
-        // sData.draft_ready or sData.ai_analysis_ready => Complete (Step 5)
-        // sData.chunk_count > 0 or sData.entity_count > 0 => Entities & Summary (Step 4)
-        // sData.page_count > 0 or sData.status === 'ocr_complete' => OCR Done (Step 3)
-        // sData.status === 'uploaded' => Reading document (Step 1 or 2)
-        if (sData.draft_ready || sData.ai_analysis_ready) {
+        if (sData.draft_ready) {
           if (onProgress) onProgress(5);
           break;
-        } else if (sData.chunk_count > 0 || sData.entity_count > 0) {
+        } else if (sData.ai_analysis_ready) {
           if (onProgress) onProgress(4);
-        } else if (sData.page_count > 0 || sData.status === 'ocr_complete') {
+        } else if (sData.chunk_count > 0 || sData.entity_count > 0) {
           if (onProgress) onProgress(3);
+        } else if (sData.page_count > 0 || sData.status === 'ocr_complete') {
+          if (onProgress) onProgress(2);
         } else {
-          if (onProgress) onProgress(Math.min(2, Math.floor(attempts / 2) + 1));
+          if (onProgress) onProgress(1);
         }
       }
-    } catch {
+    } catch (err) {
+      if (err.message && err.message.includes('failed')) {
+        throw err;
+      }
       // transient network poll glitch, keep trying
-    }
-
-    // Check if draft has been compiled
-    if (attempts > 3 && attempts % 2 === 0) {
-      try {
-        const dRes = await fetch(`${API_BASE}/grievance/${sourceId}/draft`);
-        if (dRes.ok) {
-          const d = await dRes.json();
-          if (d && (d.dro_grievance_id || d.description || d.petitioner_name)) {
-            draftData = d;
-            if (onProgress) onProgress(5);
-            break;
-          }
-        }
-      } catch {
-        // ignore
-      }
     }
   }
 

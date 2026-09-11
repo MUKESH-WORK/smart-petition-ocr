@@ -40,36 +40,6 @@ class SourceStatusResponse(BaseModel):
 
 
 # --- OCR Schemas ---
-class OCRLineItem(BaseModel):
-    line_id: Optional[int] = None
-    page_number: int
-    line_index: int
-    polygon: List[List[float]]
-    text: str
-    score: Optional[float] = None
-    script: Optional[str] = "ta"
-    style: Optional[str] = "printed"
-    struck: bool = False
-    region_type: str = "body"
-
-
-class OCRPageLinesResult(BaseModel):
-    page_number: int
-    full_text: Optional[str] = ""
-    avg_confidence: Optional[float] = None
-    ocr_engine: Optional[str] = "paddleocr_v5"
-    processing_time_ms: Optional[int] = 0
-    lines: List[OCRLineItem] = []
-    tables: Optional[List[Dict[str, Any]]] = []
-
-
-class OCRDocumentLinesResponse(BaseModel):
-    source_id: UUID
-    pages: List[OCRPageLinesResult]
-    total_lines: int
-
-
-# Backward compatibility if needed
 class OCRBlock(BaseModel):
     text: str
     confidence: float
@@ -80,10 +50,9 @@ class OCRBlock(BaseModel):
 class OCRPageResult(BaseModel):
     page_number: int
     full_text: Optional[str] = ""
-    avg_confidence: Optional[float] = None
-    ocr_engine: Optional[str] = "paddleocr_v5"
+    avg_confidence: Optional[float] = 0.0
+    ocr_engine: Optional[str] = "paddleocr"
     processing_time_ms: Optional[int] = 0
-    lines: List[OCRLineItem] = []
     blocks: List[Dict[str, Any]] = []
     tables: Optional[List[Dict[str, Any]]] = []
 
@@ -91,32 +60,17 @@ class OCRPageResult(BaseModel):
 class OCRDocumentResponse(BaseModel):
     source_id: UUID
     pages: List[OCRPageResult]
-    total_lines: int = 0
-    total_blocks: int = 0
+    total_blocks: int
+    surya_fallback_count: int = 0
 
 
-# --- Stamp Schemas ---
-class StampParseResponse(BaseModel):
-    source_id: UUID
-    stamp_found: bool
-    raw_cells: Dict[str, Any] = {}
-    date_norm: Optional[str] = None
-    department: Optional[str] = None
-    subject: Optional[str] = None
-    sub_subject: Optional[str] = None
-    forwarding_officer: Optional[str] = None
-    validation: Dict[str, Any] = {}
-
-
-# --- Entity & Provenance Schemas ---
+# --- Entity Schemas ---
 class ExtractedEntityItem(BaseModel):
     id: Optional[int] = None
     entity_type: str
     entity_value: str
-    confidence: Optional[float] = None
+    confidence: Optional[float] = 1.0
     validation_status: str = "pending"  # pending, verified, suspect, missing
-    review_state: str = "pending"  # pending, confirmed, corrected, rejected
-    officer_note: Optional[str] = None
     source_page: Optional[int] = None
     source_chunk_id: Optional[UUID] = None
     extracted_by: str = "regex"  # regex, ai_ner, master_db_lookup, officer_edit
@@ -130,38 +84,6 @@ class EntityExtractionResponse(BaseModel):
     suspect_count: int
 
 
-class FieldProvenanceItem(BaseModel):
-    field_name: str
-    value: Optional[str] = None
-    provenance: str  # grounded, inferred, missing
-    confidence: Optional[float] = None
-    review_state: str = "pending"  # pending, confirmed, corrected, rejected
-    officer_note: Optional[str] = None
-    citation: Optional[Dict[str, Any]] = None
-
-
-class FieldsResponse(BaseModel):
-    source_id: UUID
-    fields: Dict[str, FieldProvenanceItem]
-    missing_critical_fields: List[str] = []
-    can_approve: bool = True
-
-
-class FieldUpdateRequest(BaseModel):
-    value: str
-    note: Optional[str] = None
-
-
-
-# --- Quality Metrics Schemas ---
-class QualityMetricsResponse(BaseModel):
-    total_petitions: int
-    pass_rate: float
-    review_rate: float
-    avg_hallucination_score: float
-    stage_failures: Dict[str, int] = {}
-
-
 # --- AI Analysis Schemas ---
 class ActionItem(BaseModel):
     action: str
@@ -172,7 +94,6 @@ class ActionItem(BaseModel):
 class ClaimItem(BaseModel):
     text: str
     source_page: Optional[int] = None
-    source_line: Optional[int] = None
     confidence: Optional[float] = None
     verified: Optional[bool] = False
 

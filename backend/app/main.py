@@ -184,8 +184,11 @@ async def health_check():
         checks["components"]["storage"] = {"status": "error", "error": str(e)}
 
     # 4. OCR Engine
+    provider = getattr(settings, "OCR_PROVIDER", "datalab")
+    engine_label = "Datalab Chandra OCR (Cloud API)" if provider == "datalab" else "PaddleOCR PP-OCRv5 (Tamil/English)"
     checks["components"]["ocr"] = {
-        "engine": "PaddleOCR PP-OCRv5 (Tamil/English)",
+        "engine": engine_label,
+        "provider": provider,
         "preprocessing": getattr(settings, "OCR_PREPROCESSING_ENABLED", True),
         "target_dimension": getattr(settings, "OCR_MAX_IMAGE_DIMENSION", 1500),
         "dpi": getattr(settings, "OCR_DPI", 200)

@@ -74,17 +74,17 @@ def test_vector_store_embedding_shape():
 
 
 def test_ai_analyzer_claim_verification():
-    ocr_lines = [
-        {"page_number": 1, "line_number": 1, "text": "மனுதாரர் ராமலிங்கம் நில பட்டா மாறுதல் கோரியுள்ளார்."}
+    chunks = [
+        {"page_number": 1, "chunk_text": "மனுதாரர் ராமலிங்கம் நில பட்டா மாறுதல் கோரியுள்ளார்."}
     ]
     sample_analysis = {
         "description_summary_tamil": "ராமலிங்கம் பட்டா மாறுதல் கோரியுள்ளார்",
         "claims": [
-            {"text": "ராமலிங்கம் நில பட்டா மாறுதல்", "source_page": 1, "source_line": 1, "confidence": 0.95},
-            {"text": "விண்வெளி ஆராய்ச்சி கோரிக்கை", "source_page": 1, "source_line": 1, "confidence": 0.95}
+            {"text": "ராமலிங்கம் நில பட்டா மாறுதல்", "source_page": 1, "confidence": 0.95},
+            {"text": "விண்வெளி ஆராய்ச்சி கோரிக்கை", "source_page": 1, "confidence": 0.95}
         ]
     }
-    verified = ai_analyzer._verify_claims_against_lines(sample_analysis, ocr_lines)
+    verified = ai_analyzer._verify_claims(sample_analysis, chunks)
     assert verified["claims"][0]["verified"] is True
     assert verified["claims"][1]["verified"] is False
     assert verified["hallucination_score"] == 0.5

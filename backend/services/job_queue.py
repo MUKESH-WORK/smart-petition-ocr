@@ -32,6 +32,19 @@ class PostgresJobQueue:
         self.pool = pool
 
     async def enqueue(self, db: AsyncSession, job_type: str, source_id: str, payload: Optional[Dict[str, Any]] = None) -> int:
+        # Deduplication: check if an active job already exists for this source and job_type
+        existing = await db.execute(text("""
+            SELECT id FROM job_queue
+            WHERE source_id = CAST(:source_id AS UUID)
+              AND job_type = :job_type
+              AND status IN ('pending', 'processing')
+            LIMIT 1
+        """), {"source_id": source_id, "job_type": job_type})
+        existing_row = existing.mappings().one_or_none()
+        if existing_row:
+            logger.info(f"Skipping duplicate enqueue: job {existing_row['id']} already active for source {source_id} ({job_type})")
+            return existing_row["id"]
+
         result = await db.execute(text("""
             INSERT INTO job_queue (job_type, source_id, payload, status, created_at)
             VALUES (:job_type, CAST(:source_id AS UUID), :payload, 'pending', NOW())
@@ -136,19 +149,10 @@ class PostgresJobQueue:
 
             # Update source record to indicate failure
             if job and job.get("source_id"):
-                sid = str(job["source_id"])
                 await db.execute(text("""
                     UPDATE sources SET status = 'failed', updated_at = NOW()
                     WHERE source_id = CAST(:source_id AS UUID)
-                """), {"source_id": sid})
-
-                from app.dependencies import log_audit_event
-                await log_audit_event(
-                    db,
-                    action="FAILURE",
-                    source_id=sid,
-                    details={"job_id": job_id, "error": error, "job_type": job.get("job_type")}
-                )
+                """), {"source_id": str(job["source_id"])})
 
         await db.commit()
 
@@ -164,30 +168,7 @@ class PostgresJobQueue:
 
         logger.info(f"Executing queue job {job['id']} of type {job_type} for source {source_id}")
 
-        if job_type == "preprocess":
-            file_path = payload.get("file_path")
-            file_type = payload.get("file_type", "pdf")
-            from services.file_store import file_store
-            from services.image_preprocessor import image_preprocessor
-            from app.dependencies import log_audit_event
-
-            images = await file_store.convert_document_to_images(source_id, file_path, file_type)
-            for img_p in images:
-                try:
-                    image_preprocessor.process_image(img_p)
-                except Exception as ex_p:
-                    logger.warning(f"Preprocessing error on {img_p}: {ex_p}")
-
-            await log_audit_event(
-                db,
-                action="PREPROCESSED",
-                source_id=source_id,
-                details={"page_count": len(images)}
-            )
-            # Chain to OCR
-            await self.enqueue(db, "ocr", source_id, {"file_path": file_path, "file_type": file_type})
-
-        elif job_type == "ocr":
+        if job_type == "ocr":
             file_path = payload.get("file_path")
             file_type = payload.get("file_type", "pdf")
             await ocr_router.process_source(db, source_id, file_path, file_type)
@@ -223,7 +204,7 @@ class PostgresJobQueue:
         worker_id = worker_id or f"worker-{uuid.uuid4().hex[:6]}"
         interval = poll_interval or getattr(settings, "WORKER_POLL_INTERVAL", 1.5)
         logger.info(f"PostgresJobQueue worker {worker_id} started with {interval}s poll interval")
-        job_types = ["preprocess", "ocr", "vector_indexing", "entity_extraction", "ai_analysis"]
+        job_types = ["ocr", "vector_indexing", "entity_extraction", "ai_analysis"]
 
         while True:
             try:

@@ -54,12 +54,19 @@ class Settings(BaseSettings):
     UPLOAD_DIR: str = "uploads"
     STATIC_MEDIA_DIR: str = "static/media"
     
+    # OCR Engine (datalab / paddleocr)
+    OCR_PROVIDER: str = "datalab"
+    DATALAB_API_KEY: str = "5yUzF15xFS5Wg5cYND2FrWdgt1hRZUMJLMXJ3toTdPw"
+    DATALAB_API_URL: str = "https://www.datalab.to/api/v1/convert"
+    DATALAB_MODE: str = "balanced"
+    DATALAB_TIMEOUT: int = 120
+
     # Production Performance & Pipeline Tuning
     OCR_MAX_IMAGE_DIMENSION: int = 1500      # Max long-edge px (up from 1100 for enhanced Tamil separation)
     OCR_DPI: int = 200                        # PDF render DPI (optimal balance for Tamil OCR)
     OCR_PREPROCESSING_ENABLED: bool = True     # Adaptive binarization, deskew, denoise
-    LLM_FAST_TIMEOUT: float = 30.0            # Fast timeout with entity-grounded fallback
-    LLM_FULL_TIMEOUT: float = 90.0            # Full timeout for LLM
+    LLM_FAST_TIMEOUT: float = 300.0           # Fast timeout with entity-grounded fallback
+    LLM_FULL_TIMEOUT: float = 300.0           # Full timeout for LLM
     JOB_MAX_RETRIES: int = 3                  # Max job retries on transient failures
     JOB_STUCK_TIMEOUT_MINUTES: int = 5        # Auto-recover stuck processing jobs
     WORKER_POLL_INTERVAL: float = 1.5         # Worker polling frequency (seconds)
