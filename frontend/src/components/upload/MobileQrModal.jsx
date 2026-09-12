@@ -12,7 +12,6 @@ import {
   subscribeToUpload, 
   cleanupUploadSession 
 } from '../../services/uploadSessionService';
-import { MOCK_PETITIONS } from '../../data/mockPetitions';
 
 export default function MobileQrModal({ isOpen, onClose, onDocumentUploaded }) {
   const [sessionId, setSessionId] = useState('');

@@ -5,8 +5,9 @@ from sqlalchemy import text
 
 from models.database import get_db
 from models.schemas import QueueStatusResponse, MasterLocationCreate
+from app.dependencies import get_current_officer
 
-router = APIRouter(prefix="/admin", tags=["Admin & System"])
+router = APIRouter(prefix="/admin", tags=["Admin & System"], dependencies=[Depends(get_current_officer)])
 
 
 @router.get("/queue-status", response_model=QueueStatusResponse)

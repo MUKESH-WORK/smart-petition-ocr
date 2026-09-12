@@ -86,16 +86,36 @@ class PostgresJobQueue:
         await self.recover_stuck_jobs(db)
 
         from models.database import is_sqlite
+
+        if is_sqlite:
+            placeholders = ", ".join([f":jt_{i}" for i in range(len(job_types))])
+            params = {f"jt_{i}": jt for i, jt in enumerate(job_types)}
+            params["worker_id"] = worker_id
+            claim_sql = f"""
+                UPDATE job_queue
+                SET status = 'processing', worker_id = :worker_id, started_at = CURRENT_TIMESTAMP
+                WHERE id = (
+                    SELECT id FROM job_queue
+                    WHERE status = 'pending' AND job_type IN ({placeholders})
+                    ORDER BY created_at ASC
+                    LIMIT 1
+                )
+                RETURNING id, job_type, source_id, payload
+            """
+            result = await db.execute(text(claim_sql), params)
+            row = result.mappings().one_or_none()
+            await db.commit()
+            return dict(row) if row else None
+
         placeholders = ", ".join([f":jt_{i}" for i in range(len(job_types))])
         params = {f"jt_{i}": jt for i, jt in enumerate(job_types)}
-        lock_clause = "" if is_sqlite else "FOR UPDATE SKIP LOCKED"
 
         sql = f"""
             SELECT id, job_type, source_id, payload
             FROM job_queue
             WHERE status = 'pending' AND job_type IN ({placeholders})
             ORDER BY created_at ASC
-            {lock_clause}
+            FOR UPDATE SKIP LOCKED
             LIMIT 1
         """
         result = await db.execute(text(sql), params)
@@ -173,6 +193,19 @@ class PostgresJobQueue:
         await db.commit()
 
 
+    async def _check_and_trigger_ai_analysis(self, db: AsyncSession, source_id: str):
+        """DAG Convergence Barrier: Triggers ai_analysis only when both vector_indexing and entity_extraction are complete."""
+        res = await db.execute(text("""
+            SELECT job_type, status FROM job_queue
+            WHERE source_id = CAST(:source_id AS UUID)
+              AND job_type IN ('vector_indexing', 'entity_extraction')
+        """), {"source_id": source_id})
+        rows = res.mappings().all()
+        completed_types = {r["job_type"] for r in rows if r["status"] == "completed"}
+        if "vector_indexing" in completed_types and "entity_extraction" in completed_types:
+            logger.info(f"DAG Convergence reached for source {source_id}: vector_indexing and entity_extraction complete. Enqueueing ai_analysis.")
+            await self.enqueue(db, "ai_analysis", source_id)
+
     async def execute_job(self, db: AsyncSession, job: Dict[str, Any]):
         job_type = job["job_type"]
         source_id = str(job["source_id"])
@@ -188,7 +221,10 @@ class PostgresJobQueue:
         if job_type == "ocr":
             file_path = payload.get("file_path")
             file_type = payload.get("file_type", "pdf")
-            await ocr_router.process_source(db, source_id, file_path, file_type)
+            ocr_res = await ocr_router.process_source(db, source_id, file_path, file_type)
+            if ocr_res and ocr_res.get("status") == "ocr_review":
+                logger.warning(f"OCR gating halted downstream pipeline for source {source_id}: {ocr_res.get('error')}")
+                return
             # Parallel dispatch: vector indexing and entity extraction run independently
             await self.enqueue(db, "vector_indexing", source_id)
             await self.enqueue(db, "entity_extraction", source_id)
@@ -205,11 +241,15 @@ class PostgresJobQueue:
                 all_chunks.extend(chunks)
             if all_chunks:
                 await vector_store.index_document(db, source_id, all_chunks)
+            # Mark current job completed in db transaction so convergence check sees it
+            await db.execute(text("UPDATE job_queue SET status = 'completed' WHERE id = :id"), {"id": job["id"]})
+            await self._check_and_trigger_ai_analysis(db, source_id)
 
         elif job_type == "entity_extraction":
             await entity_extractor.extract_all(db, source_id)
-            # Trigger AI analysis once entities are extracted
-            await self.enqueue(db, "ai_analysis", source_id)
+            # Mark current job completed in db transaction so convergence check sees it
+            await db.execute(text("UPDATE job_queue SET status = 'completed' WHERE id = :id"), {"id": job["id"]})
+            await self._check_and_trigger_ai_analysis(db, source_id)
 
         elif job_type == "ai_analysis":
             await ai_analyzer.analyze(db, source_id)
@@ -233,6 +273,10 @@ class PostgresJobQueue:
                             await self.complete(db, job["id"], success=True, job=job)
                         except Exception as e:
                             logger.error(f"Worker failed executing job {job['id']}: {e}", exc_info=True)
+                            try:
+                                await db.rollback()
+                            except Exception:
+                                pass
                             await self.complete(db, job["id"], success=False, error=str(e), job=job)
                     else:
                         await asyncio.sleep(interval)

@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import re
@@ -111,11 +112,23 @@ class LLMClient:
         return self._sync_client
 
     async def _get_async_client(self) -> httpx.AsyncClient:
-        if self._async_client is None or self._async_client.is_closed:
+        current_loop = asyncio.get_running_loop()
+        client = self._async_client
+        if client is not None:
+            client_loop = getattr(client, "_loop", None)
+            if client.is_closed or (client_loop is not None and (client_loop.is_closed() or client_loop != current_loop)):
+                try:
+                    await client.aclose()
+                except Exception:
+                    pass
+                self._async_client = None
+
+        if self._async_client is None:
             self._async_client = httpx.AsyncClient(
                 timeout=getattr(settings, "LLM_FULL_TIMEOUT", 300.0),
                 limits=httpx.Limits(max_keepalive_connections=5, max_connections=10)
             )
+            self._async_client._loop = current_loop
         return self._async_client
 
     async def _verify_or_discover_model(self) -> str:
@@ -235,10 +248,18 @@ class LLMClient:
         if json_mode:
             payload["response_format"] = {"type": "json_object"}
 
-        call_timeout = min(getattr(settings, "LLM_FAST_TIMEOUT", 30.0), 45.0)
+        call_timeout = float(getattr(settings, "LLM_FAST_TIMEOUT", 300.0))
         try:
             client = await self._get_async_client()
             resp = await client.post(endpoint, json=payload, timeout=call_timeout)
+        except RuntimeError as r_err:
+            if "Event loop is closed" in str(r_err) or "loop" in str(r_err).lower():
+                self._async_client = None
+                client = await self._get_async_client()
+                resp = await client.post(endpoint, json=payload, timeout=call_timeout)
+            else:
+                raise
+        try:
             if resp.status_code == 404:
                 self._model_verified = False
                 active_model = await self._verify_or_discover_model()

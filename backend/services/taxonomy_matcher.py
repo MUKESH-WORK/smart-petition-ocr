@@ -23,7 +23,42 @@ class CMHelplineTaxonomyValidator:
         self.dept_entries: Dict[str, List[Dict[str, str]]] = {}
         self.subtypes_map: Dict[str, Dict[str, str]] = {}
         self.types_map: Dict[str, List[str]] = {}
+        self.concept_map = self._load_tamil_concept_map()
         self.load_taxonomy()
+
+    @staticmethod
+    def _load_tamil_concept_map() -> Dict[str, List[str]]:
+        """Loads semantic bridge mappings from backend/data/tamil_concept_map.json"""
+        candidates = [
+            os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "tamil_concept_map.json"),
+            os.path.join(os.getcwd(), "backend", "data", "tamil_concept_map.json"),
+            os.path.join(os.getcwd(), "data", "tamil_concept_map.json"),
+        ]
+        for cand in candidates:
+            if os.path.exists(cand):
+                try:
+                    with open(cand, "r", encoding="utf-8") as f:
+                        return json.load(f)
+                except Exception as e:
+                    logger.warning(f"Error reading concept map {cand}: {e}")
+        return {
+            "ஆக்கிரமிப்பு": ["encroachment"],
+            "போக வழி": ["encroachment", "pathway"],
+            "வழிப்பாதை": ["encroachment", "road"],
+            "பட்டா": ["patta", "patta transfer"],
+            "உட்பிரிவு": ["sub division", "survey"],
+            "சர்வே": ["survey"],
+            "வாரிசு": ["legal heir", "heir", "certificate"],
+            "விதவை": ["destitute widow", "widow", "pension"],
+            "முதியோர்": ["old age pension", "pension"],
+            "உதவித்தொகை": ["pension", "scholarship", "financial assistance"],
+            "குடிநீர்": ["drinking water", "water supply"],
+            "சாலை": ["road", "street"],
+            "தெருவிளக்கு": ["street light", "lighting"],
+            "மின்சாரம்": ["electricity", "power", "tangedco"],
+            "ரேஷன்": ["ration card", "civil supplies"],
+            "சாதி": ["community certificate"]
+        }
 
     @staticmethod
     def _resolve_taxonomy_path(json_path: Optional[str] = None) -> str:
@@ -101,14 +136,13 @@ class CMHelplineTaxonomyValidator:
         """Returns the complete list of departments derived directly from cm_helpline_taxonomy.json."""
         return list(self.departments)
 
-    def normalize_department(self, dept_input: Optional[str]) -> str:
+    def normalize_department(self, dept_input: Optional[str]) -> Optional[str]:
         """
         Dynamically matches and normalizes any user/LLM input against the official
         departments extracted from cm_helpline_taxonomy.json.
         """
         if not dept_input:
-            # If no department provided, return first department or REV if available
-            return self.department_acronyms.get("REV") or (self.departments[0] if self.departments else "Revenue and Disaster Management (REV)")
+            return None
 
         raw = dept_input.strip()
         raw_upper = raw.upper()
@@ -197,30 +231,24 @@ class CMHelplineTaxonomyValidator:
 
         # Step 2: Semantic concept bridge for Tamil grievance terminology
         concept_terms = set()
-        TAMIL_CONCEPT_MAP = {
-            "ஆக்கிரமிப்பு": ["encroachment"],
-            "போக வழி": ["encroachment", "pathway"],
-            "வழிப்பாதை": ["encroachment", "road"],
-            "பட்டா": ["patta", "patta transfer"],
-            "உட்பிரிவு": ["sub division", "survey"],
-            "சர்வே": ["survey"],
-            "வாரிசு": ["legal heir", "heir", "certificate"],
-            "விதவை": ["destitute widow", "widow", "pension"],
-            "முதியோர்": ["old age pension", "pension"],
-            "உதவித்தொகை": ["pension", "scholarship", "financial assistance"],
-            "குடிநீர்": ["drinking water", "water supply"],
-            "சாலை": ["road", "street"],
-            "தெருவிளக்கு": ["street light", "lighting"],
-            "மின்சாரம்": ["electricity", "power", "tangedco"],
-            "ரேஷன்": ["ration card", "civil supplies"],
-            "சாதி": ["community certificate"]
-        }
-        for tam_key, eng_synonyms in TAMIL_CONCEPT_MAP.items():
+        is_education_query = any(k in (gtype_in + " " + gsub_in + " " + petition_text).lower() for k in ["கல்வி", "படிப்பு", "கல்லூரி", "பள்ளி", "மாணவர்", "scholarship", "education", "degree"])
+        is_employee_query = any(k in (gtype_in + " " + gsub_in + " " + petition_text).lower() for k in ["employee", "பணியாளர்", "ஊழியர்", "ஆசிரியர் பணி", "ஓய்வூதியம்", "pension"])
+
+        for tam_key, eng_synonyms in self.concept_map.items():
             if tam_key in gtype_in or tam_key in gsub_in or tam_key in petition_text:
-                concept_terms.update(eng_synonyms)
+                if is_education_query and not is_employee_query:
+                    concept_terms.update([s for s in eng_synonyms if "pension" not in s])
+                else:
+                    concept_terms.update(eng_synonyms)
 
         # Step 3: Search within candidate department if detected, otherwise full taxonomy
-        search_items = self.dept_entries.get(dept_norm, self.taxonomy)
+        # If query is specifically about education/scholarship, do not lock into Revenue or mismatched departments
+        if is_education_query and dept_norm and "education" not in dept_norm.lower() and "welfare" not in dept_norm.lower():
+            search_items = self.taxonomy
+        elif dept_norm:
+            search_items = self.dept_entries.get(dept_norm, self.taxonomy)
+        else:
+            search_items = self.taxonomy
         query_text = f"{gsub_in} {gtype_in} {petition_text}".lower()
         query_tokens = set(re.findall(r'\b\w{3,}\b', query_text))
 
@@ -234,35 +262,74 @@ class CMHelplineTaxonomyValidator:
 
             score = 0.0
 
+            # Education query department affinities
+            if is_education_query:
+                if any(k in query_text for k in ["கல்லூரி", "college", "b.e", "பொறியியல்", "degree", "higher education"]):
+                    if "higher education" in t_dept:
+                        score += 20.0
+                elif "higher education" in t_dept or "school education" in t_dept or "minorities" in t_dept or "social justice" in t_dept:
+                    score += 10.0
+
+            # Penalize employee/pension grievances if the applicant is a citizen/student
+            if not is_employee_query and ("employee" in t_gtype or "pension" in t_gsub or "pension" in t_gtype):
+                score -= 30.0
+
+            # Subtype specific semantic constraints
+            if "bus pass" in t_gsub and not any(b in query_text for b in ["bus", "பேருந்து"]):
+                score -= 35.0
+
+            # Penalize religious / Waqf / temple institutions if not explicitly requested
+            is_religious_query = any(w in query_text for w in ["waqf", "temple", "கோவில்", "பள்ளிவாசல்", "தேவாலயம்", "மசூதி", "church", "mosque"])
+            if not is_religious_query:
+                if "waqf" in t_gsub or "waqf" in t_gtype or "religious institutions" in t_gtype:
+                    score -= 40.0
+                if "temple land" in t_gsub or "temple land" in t_gtype:
+                    score -= 40.0
+
+            # Encroachment priority for land/pathway grievances
+            if any(e in query_text for e in ["encroachment", "ஆக்கிரமிப்பு", "பொதுப்பாதை", "முள்வேலி", "வழிப்பாதை"]):
+                if "encroachment" in t_gsub or "encroachment" in t_gtype or "eviction of encroachments" in t_gsub:
+                    score += 25.0
+                    if any(r in query_text for r in ["வருவாய்", "revenue", "நில அளவை", "சர்வே", "கிராம", "பாதை", "வழி"]):
+                        if "revenue" in t_dept:
+                            score += 20.0
+
+            # Scholarship priority when seeking educational financial assistance
+            if any(s in query_text for s in ["scholarship", "உதவித்தொகை", "கல்வி உதவி"]):
+                if "scholarship" in t_gsub:
+                    score += 35.0
+                elif "scholarship" in t_gtype:
+                    score += 25.0
+
             # Subtype overlap (prevent empty string match)
             if gsub_in and t_gsub:
                 g_sub_lower = gsub_in.lower()
                 if g_sub_lower == t_gsub:
-                    score += 20.0
+                    score += 25.0
                 elif len(t_gsub) >= 4 and t_gsub in g_sub_lower:
-                    score += 15.0
+                    score += 18.0
                 elif len(g_sub_lower) >= 4 and g_sub_lower in t_gsub:
-                    score += 15.0
+                    score += 18.0
 
             # Grievance type overlap (prevent empty string match)
             if gtype_in and t_gtype:
                 g_type_lower = gtype_in.lower()
                 if g_type_lower == t_gtype:
-                    score += 12.0
+                    score += 15.0
                 elif len(t_gtype) >= 4 and t_gtype in g_type_lower:
-                    score += 8.0
+                    score += 10.0
                 elif len(g_type_lower) >= 4 and g_type_lower in t_gtype:
-                    score += 8.0
+                    score += 10.0
 
-            # Semantic concept matches (e.g. encroachment, patta, pension)
+            # Semantic concept matches (e.g. encroachment, patta, scholarship)
             for c in concept_terms:
                 if t_gsub and c in t_gsub:
-                    score += 12.0
+                    score += 20.0
                 elif t_gtype and c in t_gtype:
-                    score += 8.0
+                    score += 15.0
 
-            # Department bonus
-            if dept_norm and dept_norm.lower() == t_dept:
+            # Department bonus (do not bonus Revenue if petition is an education query)
+            if dept_norm and dept_norm.lower() == t_dept and not (is_education_query and "revenue" in dept_norm.lower()):
                 score += 4.0
 
             # General token overlap
@@ -298,12 +365,13 @@ class CMHelplineTaxonomyValidator:
             }
 
         # Graceful passthrough with normalized department
+        fallback_dept = dept_norm or "General Administration / பொது நிர்வாகம்"
         return {
-            "department": dept_norm,
+            "department": fallback_dept,
             "grievance_type": gtype_in or "General Grievance",
             "grievance_subtype": gsub_in or "Public Grievance Redressal",
-            "sub_department": f"{dept_norm.split('(')[0].strip()} / நிர்வாகம்",
-            "responsible_officer": "வட்டாட்சியர் / துறை அலுவலர்",
+            "sub_department": f"{fallback_dept.split('(')[0].strip()} / நிர்வாகம்",
+            "responsible_officer": "துறை அலுவலர்",
             "validated": False,
             "match_score": 0
         }

@@ -16,6 +16,7 @@ else:
     except ImportError:
         AsyncSession = Any
         text = lambda x: x
+import asyncio
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -45,25 +46,21 @@ class PGVectorStore:
                 except Exception:
                     self._embedder = SentenceTransformer(self.model_name)
             except Exception as e:
-                logger.warning(f"SentenceTransformer not loaded directly: {e}. Using deterministic normalized embedding generator.")
-                self._embedder = "mock_embedder"
+                logger.error(f"SentenceTransformer failed to load: {e}")
+                self._embedder = None
+                raise RuntimeError(f"SentenceTransformer model '{self.model_name}' is unavailable. Random embeddings are disabled in production: {e}")
         return self._embedder
 
     def encode(self, texts: List[str]) -> List[List[float]]:
         embedder = self._get_embedder()
-        if embedder != "mock_embedder" and embedder is not None:
-            embeddings = embedder.encode(texts, normalize_embeddings=True)
-            return embeddings.tolist()
-        
-        # Deterministic 384-dim normalized pseudo-embedding based on hash for zero-failure fallback
-        vectors = []
-        for t in texts:
-            np.random.seed(abs(hash(t)) % (2**32))
-            v = np.random.randn(384).astype(np.float32)
-            norm = np.linalg.norm(v)
-            v = v / norm if norm > 0 else v
-            vectors.append(v.tolist())
-        return vectors
+        if embedder is None or embedder == "mock_embedder":
+            raise RuntimeError(f"SentenceTransformer model '{self.model_name}' is unavailable. Random embeddings are disabled in production.")
+        embeddings = embedder.encode(texts, normalize_embeddings=True)
+        return embeddings.tolist()
+
+    async def aencode(self, texts: List[str]) -> List[List[float]]:
+        """Asynchronously offloads SentenceTransformer neural encoding to a worker thread."""
+        return await asyncio.to_thread(self.encode, texts)
 
     async def index_document(self, db: AsyncSession, source_id: str, chunks: List[Dict[str, Any]]):
         if not chunks:
@@ -71,7 +68,7 @@ class PGVectorStore:
 
         from models.database import is_sqlite
         texts = [c["text"] for c in chunks]
-        embeddings = self.encode(texts)
+        embeddings = await self.aencode(texts)
 
         for chunk, emb in zip(chunks, embeddings):
             chunk_id = str(uuid.uuid4())
@@ -95,7 +92,8 @@ class PGVectorStore:
 
     async def similarity_search(self, db: AsyncSession, query: str, source_id: Optional[str] = None, top_k: int = 5) -> List[Dict[str, Any]]:
         from models.database import is_sqlite
-        query_emb = self.encode([query])[0]
+        query_embs = await self.aencode([query])
+        query_emb = query_embs[0]
 
         # In PostgreSQL with pgvector, try native similarity search first
         if not is_sqlite:

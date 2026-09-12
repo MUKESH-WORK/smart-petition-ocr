@@ -23,18 +23,20 @@ class Settings(BaseSettings):
     
     # Database Settings
     POSTGRES_USER: str = "dro_user"
-    POSTGRES_PASSWORD: str = "dro_password_2026"
+    POSTGRES_PASSWORD: str = ""
     POSTGRES_HOST: str = "localhost"
     POSTGRES_PORT: int = 5432
     POSTGRES_DB: str = "dro_grievance_db"
     
-    DATABASE_URL: str = "postgresql+asyncpg://dro_user:dro_password_2026@localhost:5432/dro_grievance_db"
-    DATABASE_SYNC_URL: str = "postgresql://dro_user:dro_password_2026@localhost:5432/dro_grievance_db"
+    DATABASE_URL: str = ""
+    DATABASE_SYNC_URL: str = ""
     
     # Security
-    SECRET_KEY: str = "dro-super-secret-jwt-key-change-in-production-2026"
+    SECRET_KEY: str = ""
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440
+    ALLOWED_ORIGINS: str = "http://localhost:5173,http://localhost:5174,http://127.0.0.1:5173,http://127.0.0.1:5174"
+    SEED_DEMO_DATA: bool = False
     
     # NLP & Embeddings
     EMBEDDING_MODEL_NAME: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
@@ -53,10 +55,11 @@ class Settings(BaseSettings):
     # File Storage
     UPLOAD_DIR: str = "uploads"
     STATIC_MEDIA_DIR: str = "static/media"
+    STORE_FILE_BYTEA: bool = False
     
     # OCR Engine (datalab / paddleocr)
     OCR_PROVIDER: str = "datalab"
-    DATALAB_API_KEY: str = "5yUzF15xFS5Wg5cYND2FrWdgt1hRZUMJLMXJ3toTdPw"
+    DATALAB_API_KEY: str = ""
     DATALAB_API_URL: str = "https://www.datalab.to/api/v1/convert"
     DATALAB_MODE: str = "balanced"
     DATALAB_TIMEOUT: int = 120
@@ -72,8 +75,9 @@ class Settings(BaseSettings):
     WORKER_POLL_INTERVAL: float = 1.5         # Worker polling frequency (seconds)
     
     if SettingsConfigDict is not None:
+        _env_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env")
         model_config = SettingsConfigDict(
-            env_file=".env",
+            env_file=_env_path if os.path.exists(_env_path) else ".env",
             env_file_encoding="utf-8",
             extra="ignore"
         )

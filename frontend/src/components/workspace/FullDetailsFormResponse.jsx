@@ -175,12 +175,12 @@ export default function FullDetailsFormResponse({ initialDetails }) {
       </div>
 
       {/* =========================================================================
-          4. GRIEVANCE STATUS
+          4. PORTAL PROCESSING & STATUS (SYSTEM GENERATED)
           ========================================================================= */}
       <div className="portal-sub-section">
         <div className="portal-sub-section-header">
           <span className="portal-section-badge">4</span>
-          <h5 className="portal-section-title">GRIEVANCE STATUS</h5>
+          <h5 className="portal-section-title">PORTAL PROCESSING / STATUS (SYSTEM GENERATED)</h5>
         </div>
 
         <div className="full-details-form-grid">

@@ -1,4 +1,5 @@
 import os
+import sys
 import gc
 import json
 import logging
@@ -362,6 +363,31 @@ class HybridOCRRouter:
                     "ocr_engine": "datalab_chandra"
                 })
 
+            # Print exact Chandra OCR response to console for testing/inspection
+            print("\n" + "=" * 70, flush=True)
+            print("🌟 [CHANDRA OCR EXACT RESULT RESPONSE IN CONSOLE]", flush=True)
+            print("=" * 70, flush=True)
+            try:
+                print(f"[CHANDRA OCR STATUS]: {poll_result.get('status')}", flush=True)
+                print(f"[CHANDRA OCR QUALITY SCORE]: {poll_result.get('parse_quality_score')}", flush=True)
+                if "markdown" in poll_result and poll_result["markdown"]:
+                    print("\n--- [CHANDRA RAW MARKDOWN / TEXT] ---", flush=True)
+                    print(poll_result["markdown"], flush=True)
+                elif "text" in poll_result and poll_result["text"]:
+                    print("\n--- [CHANDRA RAW TEXT] ---", flush=True)
+                    print(poll_result["text"], flush=True)
+            except Exception as ex:
+                print(f"[Raw dump notice: {ex}]", flush=True)
+
+            for p in pages_output:
+                print(f"\n--- [CHANDRA OCR PAGE {p['page_number']} EXTRACTED TEXT] (Confidence: {p.get('avg_confidence', 0.98)}) ---", flush=True)
+                text_to_print = p.get("full_text", "")
+                try:
+                    print(text_to_print, flush=True)
+                except Exception:
+                    print(text_to_print.encode("utf-8", errors="replace").decode("utf-8"), flush=True)
+            print("=" * 70 + "\n", flush=True)
+
             logger.info(f"✅ Datalab Chandra OCR successfully extracted {len(pages_output)} pages.")
             return pages_output
 
@@ -411,10 +437,11 @@ class HybridOCRRouter:
 
             if clean_text:
                 text_segments.append(clean_text)
+                b_conf = float(b.get("confidence") if b.get("confidence") is not None else default_conf)
                 page_blocks.append({
                     "id": b.get("id", f"/page/{page_num}/{b_type}/{len(page_blocks)}"),
                     "text": clean_text,
-                    "confidence": round(default_conf, 3),
+                    "confidence": max(0.0, min(1.0, round(b_conf, 3))),
                     "bbox": poly_coords,
                     "page": page_num,
                     "block_type": b_type,
@@ -568,8 +595,31 @@ class HybridOCRRouter:
                 "processing_time_ms": int((time.time() - start_time) * 1000)
             })
 
-        # 5. Update source record
+        # 5. Check OCR confidence gating (unreadable or blank document)
+        total_chars = sum(len(p.get("full_text", "").strip()) for p in pages_data) if pages_data else 0
+        overall_avg_conf = float(np.mean([p.get("avg_confidence", 0.0) for p in pages_data])) if pages_data else 0.0
         page_count = len(pages_data) if pages_data else max(len(images), 1)
+
+        if overall_avg_conf < 0.50 or total_chars < 20:
+            logger.warning(f"OCR confidence gating triggered for source {source_id}: conf={overall_avg_conf:.2f}, chars={total_chars}")
+            await db.execute(text("""
+                UPDATE sources
+                SET page_count = :page_count, status = 'ocr_review', updated_at = NOW()
+                WHERE source_id = CAST(:source_id AS UUID)
+            """), {"source_id": source_id, "page_count": page_count})
+            await db.commit()
+            return {
+                "source_id": source_id,
+                "pages": page_count,
+                "total_blocks": total_blocks,
+                "cached": False,
+                "status": "ocr_review",
+                "error": "ஆவணத்தை தெளிவாக படிக்க முடியவில்லை. மீண்டும் ஸ்கேன் செய்யவும்.",
+                "total_time_ms": int((time.time() - start_time) * 1000),
+                "ocr_engine": engine_used
+            }
+
+        # 6. Update source record
         await db.execute(text("""
             UPDATE sources
             SET page_count = :page_count, status = 'ocr_complete', updated_at = NOW()
@@ -584,9 +634,9 @@ class HybridOCRRouter:
             "pages": page_count,
             "total_blocks": total_blocks,
             "cached": False,
+            "status": "ocr_complete",
             "total_time_ms": int((time.time() - start_time) * 1000),
             "ocr_engine": engine_used
         }
-print(text)
 
 ocr_router = HybridOCRRouter()

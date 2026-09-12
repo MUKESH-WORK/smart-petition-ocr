@@ -17,8 +17,11 @@ sqlite3.register_adapter(dict, lambda d: json.dumps(d))
 # SQLAlchemy Base
 Base = declarative_base()
 
+# Database URL resolution with safe fallback
+effective_db_url = settings.DATABASE_URL if settings.DATABASE_URL else "sqlite+aiosqlite:///temp_cache/dro_local.db"
+
 # Dialect detection
-is_sqlite = settings.DATABASE_URL.startswith("sqlite")
+is_sqlite = effective_db_url.startswith("sqlite")
 
 # Engine options
 engine_kwargs = {
@@ -34,7 +37,7 @@ else:
     engine_kwargs["pool_pre_ping"] = True
 
 # Async Engine
-engine = create_async_engine(settings.DATABASE_URL, **engine_kwargs)
+engine = create_async_engine(effective_db_url, **engine_kwargs)
 
 # For SQLite: attach compatibility listener to dynamically translate PostgreSQL-specific idioms
 if is_sqlite:
@@ -70,7 +73,7 @@ async def init_db_schema():
     """Idempotently create all tables if they do not exist."""
     # Ensure any SQLite directory exists
     if is_sqlite:
-        db_path = settings.DATABASE_URL.replace("sqlite+aiosqlite:///", "").replace("sqlite:///", "")
+        db_path = effective_db_url.replace("sqlite+aiosqlite:///", "").replace("sqlite:///", "")
         if db_path and not db_path.startswith(":memory:"):
             dirname = os.path.dirname(os.path.abspath(db_path))
             if dirname:
@@ -78,8 +81,14 @@ async def init_db_schema():
 
     # Import models so Base has all tables registered
     import models.orm  # noqa: F401
+    from sqlalchemy import text
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        if not is_sqlite:
+            try:
+                await conn.execute(text("ALTER TABLE extracted_entities DROP CONSTRAINT IF EXISTS extracted_entities_extracted_by_check;"))
+            except Exception as e:
+                logger.debug(f"Could not drop check constraint: {e}")
     logger.info(f"Database schema initialized successfully ({'SQLite' if is_sqlite else 'PostgreSQL'}).")
 
 

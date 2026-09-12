@@ -1,7 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { UploadCloud, Smartphone } from 'lucide-react';
 import MobileQrModal from './MobileQrModal';
-import { MOCK_PETITIONS } from '../../data/mockPetitions';
 import './Upload.css';
 
 export default function UploadLanding({ onSelectPetition }) {

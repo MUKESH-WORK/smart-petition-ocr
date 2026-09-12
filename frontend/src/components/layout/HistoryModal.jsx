@@ -1,6 +1,5 @@
-import React from 'react';
-import { History, FileText, X, ArrowRight, CheckCircle2, Clock } from 'lucide-react';
-import { MOCK_PETITIONS } from '../../data/mockPetitions';
+import React, { useState, useEffect } from 'react';
+import { History, FileText, X, ArrowRight, Clock, Loader2 } from 'lucide-react';
 import './HistoryModal.css';
 
 export default function HistoryModal({ 
@@ -9,6 +8,24 @@ export default function HistoryModal({
   currentPetitionId, 
   onSelectPetition 
 }) {
+  const [petitions, setPetitions] = useState([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setLoading(true);
+    fetch('/api/v1/grievance/recent?limit=25')
+      .then(res => res.ok ? res.json() : [])
+      .then(data => {
+        setPetitions(Array.isArray(data) ? data : []);
+      })
+      .catch(err => {
+        console.warn('Could not fetch recent petitions:', err);
+        setPetitions([]);
+      })
+      .finally(() => setLoading(false));
+  }, [isOpen]);
+
   if (!isOpen) return null;
 
   return (
@@ -39,62 +56,73 @@ export default function HistoryModal({
 
         {/* Modal Body */}
         <div className="modal-body-scroll">
-          <div className="history-list">
-            {MOCK_PETITIONS.map((pet) => {
-              const isCurrent = pet.id === currentPetitionId;
+          {loading ? (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px 0', gap: '8px', color: '#64748b' }}>
+              <Loader2 size={20} className="spin" />
+              <span>Loading recent documents...</span>
+            </div>
+          ) : petitions.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '40px 0', color: '#64748b' }}>
+              <p>No recent petition uploads found.</p>
+            </div>
+          ) : (
+            <div className="history-list">
+              {petitions.map((pet) => {
+                const isCurrent = pet.source_id === currentPetitionId || pet.id === currentPetitionId;
 
-              return (
-                <div 
-                  key={pet.id} 
-                  className={`history-item-row ${isCurrent ? 'current-item' : ''}`}
-                  onClick={() => {
-                    onSelectPetition(pet);
-                    onClose();
-                  }}
-                  role="button"
-                  tabIndex={0}
-                >
-                  <div className="history-item-icon">
-                    <FileText size={18} />
-                  </div>
-
-                  <div className="history-item-content">
-                    <div className="history-item-header">
-                      <span className="history-file-name">{pet.fileName}</span>
-                      <span className="history-pet-id font-mono">#{pet.id}</span>
-                      {isCurrent && <span className="active-tag">Active</span>}
+                return (
+                  <div 
+                    key={pet.source_id || pet.id} 
+                    className={`history-item-row ${isCurrent ? 'current-item' : ''}`}
+                    onClick={() => {
+                      if (onSelectPetition) {
+                        onSelectPetition(pet);
+                      }
+                      onClose();
+                    }}
+                    role="button"
+                    tabIndex={0}
+                  >
+                    <div className="history-item-icon">
+                      <FileText size={18} />
                     </div>
 
-                    <div className="history-item-summary">
-                      {pet.summary}
+                    <div className="history-item-content">
+                      <div className="history-item-header">
+                        <span className="history-file-name">{pet.fileName}</span>
+                        <span className="history-pet-id font-mono">#{pet.id}</span>
+                        {isCurrent && <span className="active-tag">Active</span>}
+                      </div>
+
+                      <div className="history-item-summary">
+                        {pet.summary}
+                      </div>
+
+                      <div className="history-item-meta">
+                        <span>Petitioner: <strong>{pet.petitionerName}</strong></span>
+                        <span>•</span>
+                        <span>Dept: <strong>{pet.department}</strong></span>
+                        <span>•</span>
+                        <span className="history-time">
+                          <Clock size={11} />
+                          {pet.uploadedAt}
+                        </span>
+                      </div>
                     </div>
 
-                    <div className="history-item-meta">
-                      <span>Language: <strong>{pet.language}</strong></span>
-                      <span>•</span>
-                      <span>Pages: <strong>{pet.totalPages}</strong></span>
-                      <span>•</span>
-                      <span>OCR: <strong>{pet.confidenceScore}%</strong></span>
-                      <span>•</span>
-                      <span className="history-time">
-                        <Clock size={11} />
-                        {pet.uploadedAt}
-                      </span>
+                    <div className="history-item-arrow">
+                      <ArrowRight size={15} />
                     </div>
                   </div>
-
-                  <div className="history-item-arrow">
-                    <ArrowRight size={15} />
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {/* Modal Footer */}
         <div className="modal-footer">
-          <span className="history-footer-count">{MOCK_PETITIONS.length} petitions available in current session</span>
+          <span className="history-footer-count">{petitions.length} documents recorded</span>
           <button type="button" className="secondary-modal-btn" onClick={onClose}>
             Close
           </button>

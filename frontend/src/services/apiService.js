@@ -1,7 +1,25 @@
 // API Service connecting the Frontend to FastAPI Backend
-import { MOCK_PETITIONS, getSmartAssistantReply } from '../data/mockPetitions';
+import { getSmartAssistantReply } from '../data/mockPetitions';
 
 const API_BASE = '/api/v1';
+
+/**
+ * Get current officer ID dynamically from local storage with fallback
+ */
+export function getOfficerId() {
+  return localStorage.getItem('officer_id') || 'DRO_ERODE_01';
+}
+
+/**
+ * Update current officer ID dynamically
+ */
+export function setOfficerId(id) {
+  if (id) {
+    localStorage.setItem('officer_id', id);
+  } else {
+    localStorage.removeItem('officer_id');
+  }
+}
 
 /**
  * Format raw bytes into human readable string
@@ -28,22 +46,22 @@ export function mapDraftToPortalDetails(draft = {}, analysis = {}) {
     petitionerName: petitionerName,
     email: draft.email || 'Not found',
     phoneNumber: phone,
-    isOwnNumber: draft.is_own_phone !== false ? 'Yes' : 'No',
+    isOwnNumber: draft.is_own_phone !== null && draft.is_own_phone !== undefined ? (draft.is_own_phone ? 'Yes' : 'No') : 'Not mentioned',
     alternatePhone: draft.alternate_phone || 'Not found',
     address: address,
-    gender: draft.gender || 'Not found',
-    differentlyAbled: draft.is_differently_abled || 'No',
-    petitionerCategory: draft.community_or_individual || 'Citizen / General Public',
+    gender: draft.gender || 'Not mentioned',
+    differentlyAbled: draft.is_differently_abled || 'Not mentioned',
+    petitionerCategory: draft.community_or_individual || 'Individual',
 
     // 2. Grievance Details
     description: draft.description || summaryText,
     grievanceSource: draft.grievance_source || 'Collectorate Grievance Day Petition',
     referenceNumber: draft.ref_number || (draft.dro_grievance_id ? `PET-${draft.dro_grievance_id}` : 'Not found'),
     governmentDepartment: draft.department || analysis.department_suggested || 'Not found',
-    localBodyType: draft.local_body_type || 'Village Panchayat',
+    localBodyType: draft.local_body_type || 'Not found',
     grievanceType: draft.grievance_type || analysis.grievance_type_suggested || 'Not found',
     grievanceSubType: draft.grievance_subtype || analysis.grievance_subtype_suggested || 'Not found',
-    district: draft.district || 'Erode (ERD)',
+    district: draft.district || 'Not found',
     subDepartment: draft.sub_department || 'Not found',
     ward: draft.ward || 'Not found',
     municipalityWard: draft.municipality_ward || 'Not found',
@@ -90,15 +108,19 @@ export async function uploadAndAnalyzePetition(file, onProgress) {
   const previewUrl = URL.createObjectURL(file);
   const sizeFormatted = formatFileSize(file.size);
 
+  const activeOfficerId = getOfficerId();
   const formData = new FormData();
   formData.append('file', file, file.name);
-  formData.append('officer_id', 'DRO_ERODE_01');
+  formData.append('officer_id', activeOfficerId);
   formData.append('process_now', 'false'); // Asynchronous queue processing for reliable production pipeline
 
   // 1. Upload & trigger backend pipeline
   if (onProgress) onProgress(0); // Document uploaded
   const uploadRes = await fetch(`${API_BASE}/grievance/upload`, {
     method: 'POST',
+    headers: {
+      'X-Officer-Id': activeOfficerId
+    },
     body: formData
   });
 
@@ -224,7 +246,10 @@ export async function askDocumentAssistant(sourceId, question, petition) {
     try {
       const res = await fetch(`${API_BASE}/grievance/${sourceId}/chat?stream=false`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Officer-Id': getOfficerId()
+        },
         body: JSON.stringify({ question, top_k: 5 })
       });
 

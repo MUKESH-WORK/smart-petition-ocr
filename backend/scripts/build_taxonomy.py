@@ -2,8 +2,17 @@ import os
 import json
 import openpyxl
 
-def build():
-    excel_path = r"D:\My_docs\IMP_Files\Documentation\Erode Collectorate\Confidential\AI Tools\GDP\Monday_GDP_Petitions\Monday GDP Petitions\CM Helpline Grievances Mapping.xlsx"
+import sys
+
+def build(excel_path=None):
+    if not excel_path:
+        excel_path = sys.argv[1] if len(sys.argv) > 1 else os.path.join("data", "CM_Helpline_Grievances_Mapping.xlsx")
+
+    if not os.path.exists(excel_path):
+        print(f"Error: Taxonomy file not found at: {excel_path}")
+        print("Usage: python build_taxonomy.py [path_to_excel_or_csv]")
+        return
+
     wb = openpyxl.load_workbook(excel_path, data_only=True)
     sheet = wb["Main Sheet"]
 

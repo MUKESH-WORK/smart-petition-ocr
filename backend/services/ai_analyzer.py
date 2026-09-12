@@ -20,6 +20,8 @@ else:
 from app.config import settings
 from core.llm_client import llm_client, SYSTEM_PROMPT_TAMIL, extract_json_object
 from services.taxonomy_matcher import taxonomy_matcher
+from services.verification_barrier import verification_barrier
+from services.prompt_builder import prompt_builder
 
 logger = logging.getLogger(__name__)
 
@@ -55,40 +57,107 @@ class AIAnalyzer:
                 return True
         return False
 
-    def _verify_claims(self, analysis: Dict[str, Any], doc_text: str) -> Dict[str, Any]:
-        """Anti-Hallucination Barrier: Verifies claims against actual source document text."""
+    def _verify_claims(self, analysis: Dict[str, Any], doc_text: Any) -> Dict[str, Any]:
+        """
+        Anti-Hallucination Barrier v2:
+        A claim is verified only if:
+        1. >= 60% of its content words (>3 chars, stopwords removed) appear in the SAME source chunk.
+        2. Every digit-sequence in the claim exists in the document text.
+        Otherwise verified=False, confidence=0.0.
+        Post-check: scan summary for ungrounded digit sequences -> block and flag.
+        """
+        STOPWORDS = {
+            "மற்றும்", "ஆகிய", "என்ற", "சார்ந்த", "கொண்டு", "மூலம்", "உள்ள", "குறித்து", "செய்து",
+            "உள்ளது", "வசித்து", "வருகிறார்", "கோரி", "மனு", "அளித்துள்ளார்", "நடவடிக்கை",
+            "the", "and", "for", "with", "from", "that", "this", "have", "has", "was", "are", "been"
+        }
+        
         claims = analysis.get("claims", [])
         if not claims:
             summary = analysis.get("description_summary_tamil", "")
             if summary:
-                claims = [{"text": summary[:100], "source_page": 1, "confidence": 0.95}]
+                claims = [{"text": summary[:140], "source_page": 1, "confidence": 0.90}]
             else:
                 claims = []
 
+        # Prepare chunk strings
+        chunks: List[str] = []
         if isinstance(doc_text, list):
-            doc_str = " ".join(c.get("chunk_text", "") if isinstance(c, dict) else str(c) for c in doc_text)
+            for c in doc_text:
+                t = c.get("chunk_text", "") if isinstance(c, dict) else str(c)
+                if t:
+                    chunks.append(t)
         else:
-            doc_str = str(doc_text or "")
-        doc_lower = doc_str.lower()
+            raw_s = str(doc_text or "")
+            # Split into natural paragraph/page chunks if single string
+            split_chunks = [p.strip() for p in raw_s.split("--- பக்கம் ") if p.strip()]
+            chunks = split_chunks if split_chunks else [raw_s]
+
+        full_doc_str = " ".join(chunks)
+        doc_lower = full_doc_str.lower()
         verified_count = 0
+
         for claim in claims:
-            text_str = claim.get("text", "").lower()
-            words = [w for w in text_str.split() if len(w) > 3]
-            if text_str in doc_lower or (words and any(w in doc_lower for w in words)):
+            claim_text = str(claim.get("text", "")).strip()
+            if not claim_text:
+                claim["verified"] = False
+                claim["confidence"] = 0.0
+                continue
+
+            # 1. Strict Digit Sequence Check: Every digit sequence in claim must exist in full_doc_str
+            claim_digits = re.findall(r'\d+', claim_text)
+            digits_ok = all(d in full_doc_str for d in claim_digits)
+            if not digits_ok:
+                claim["verified"] = False
+                claim["confidence"] = 0.0
+                continue
+
+            # 2. Content Word Grounding Check (>= 60% in the SAME source chunk)
+            words = [w for w in re.findall(r'[\w\u0B80-\u0BFF]+', claim_text.lower()) if len(w) > 3 and w not in STOPWORDS]
+            if not words:
+                is_sub = claim_text.lower() in doc_lower
+                claim["verified"] = is_sub
+                claim["confidence"] = 1.0 if is_sub else 0.0
+                if is_sub:
+                    verified_count += 1
+                continue
+
+            max_chunk_ratio = 0.0
+            for ch in chunks:
+                ch_lower = ch.lower()
+                matched_in_chunk = sum(1 for w in words if w in ch_lower)
+                ratio = matched_in_chunk / len(words)
+                if ratio > max_chunk_ratio:
+                    max_chunk_ratio = ratio
+
+            if max_chunk_ratio >= 0.60:
                 claim["verified"] = True
+                claim["confidence"] = round(max_chunk_ratio, 2)
                 verified_count += 1
             else:
                 claim["verified"] = False
+                claim["confidence"] = 0.0
+
+        # Post-check: regex-scan entire AI summary for ungrounded digit sequences
+        summary_all = f"{analysis.get('description_summary_tamil', '')} {analysis.get('description_summary_english', '')}"
+        summary_digits = re.findall(r'\d+', summary_all)
+        unverified_digits = [d for d in summary_digits if d not in full_doc_str]
+        if unverified_digits:
+            analysis["flagged_unverified_digits"] = unverified_digits
+            logger.warning(f"Anti-hallucination post-check blocked unverified digits in AI summary: {unverified_digits}")
 
         total = len(claims) if claims else 1
         hallucination_score = round((total - verified_count) / total, 2)
+        if unverified_digits:
+            hallucination_score = min(1.0, round(hallucination_score + 0.25, 2))
+
         analysis["claims"] = claims
         analysis["hallucination_score"] = max(0.0, min(1.0, hallucination_score))
         analysis["grounding_score"] = round(1.0 - analysis["hallucination_score"], 2)
         return analysis
 
     def _build_grounded_fallback(self, doc_text: str, entities: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """Precomputes a rule-based fallback if LLM is temporarily unreachable."""
+        """Precomputes an objective rule-based fallback if LLM is temporarily unreachable."""
         entity_map = {e["entity_type"]: e["entity_value"] for e in entities}
 
         pet_name = entity_map.get("petitioner_name", "")
@@ -100,9 +169,33 @@ class AIAnalyzer:
             wo_match = re.search(r'(?:^|\n)\s*([^\n:]+?)\s*(?:\(\d+\))?\s*\n+\s*(?:w/o|w\.o|க/பெ|க\.பெ|மனைவி)\s+([^\n,]+)', doc_text, re.IGNORECASE)
             if wo_match:
                 cw = re.sub(r'^(?:அனுப்புநர்|அனுப்புதல்|விண்ணப்பதாரர்|மனுதாரர்)\s*[:\.\-]?\s*', '', wo_match.group(1)).strip()
-                cw = re.sub(r'\(\d+\)|\d+', '', cw).strip()
+                cw = re.sub(r'\(\d+\)|\d+', '', cw).strip(',.-: ')
                 if len(cw) >= 2 and cw not in ["நான்", "நாங்கள்", "-", "--"]:
                     pet_name = cw
+
+        if not pet_name:
+            so_match = re.search(r'(?:^|\n)\s*([^\n:]+?)\s*(?:\(\d+\))?\s*\n+\s*(?:s/o|s\.o|த/பெ|த\.பெ|ம/பெ|மகன்)\s+([^\n,]+)', doc_text, re.IGNORECASE)
+            if so_match:
+                cs = re.sub(r'^(?:அனுப்புநர்|அனுப்புதல்|விண்ணப்பதாரர்|மனுதாரர்)\s*[:\.\-]?\s*', '', so_match.group(1)).strip()
+                cs = re.sub(r'\(\d+\)|\d+', '', cs).strip(',.-: ')
+                if len(cs) >= 2 and cs not in ["நான்", "நாங்கள்", "-", "--"]:
+                    pet_name = cs
+
+        if not pet_name:
+            idx_sig = doc_text.find("இப்படிக்கு")
+            if idx_sig == -1:
+                idx_sig = doc_text.find("இவண்")
+            if idx_sig != -1:
+                sig_lines = [l.strip() for l in doc_text[idx_sig:].split("\n") if l.strip()]
+                for sl in sig_lines[1:5]:
+                    cs = re.sub(r'\(\d+\)|\d+', '', sl).strip(',.-:() ')
+                    if (
+                        cs and 2 <= len(cs) <= 35 and
+                        not any(cs.startswith(w) for w in ["தங்கள்", "உண்மையுள்ள", "வணக்கம்", "நன்றி", "நாள்", "தேதி", "செல்", "போன்"]) and
+                        not any(skip in cs for skip in ["TK", "Dt", "District", "Taluk", "வட்டம்", "மாவட்டம்"])
+                    ):
+                        pet_name = cs
+                        break
 
         g_type = entity_map.get("grievance_type", "")
         if not g_type or g_type in ["பொது குறை", "-", "--", "None", "none", "unknown"] or len(g_type) <= 2:
@@ -112,6 +205,7 @@ class AIAnalyzer:
 
         if not detected_category:
             for cat, keywords in {
+                "கல்வி உதவித்தொகை": ["கல்வி உதவி", "உதவித்தொகை", "scholarship", "கல்வி", "படிப்பு", "கல்லூரி", "மாணவர்"],
                 "நில ஆக்கிரமிப்பு அகற்றுதல்": ["ஆக்கிரமிப்பு", "போக வழி", "வழி ஆக்கிரமிப்பு", "பாதை ஆக்கிரமிப்பு", "encroachment"],
                 "வாரிசு சான்றிதழ்": ["வாரிசு", "இறப்பு", "சான்று", "சான்றிதழ்", "heir"],
                 "பட்டா மாறுதல்": ["பட்டா மாறுதல்", "பட்டா பெயர் மாற்றம்", "உட்பிரிவு", "patta transfer"],
@@ -120,7 +214,7 @@ class AIAnalyzer:
                 "சாலை வசதி": ["சாலை", "road", "பாலம்", "bridge", "தெரு"],
                 "குடிநீர் வசதி": ["குடிநீர்", "நீர்", "water", "கிணறு", "குழாய்"],
                 "மின்சார வசதி": ["மின்", "electric", "electricity", "eb"],
-                "உதவித்தொகை": ["உதவி", "pension", "allowance", "ஓய்வூதியம்", "முதியோர்", "விதவை"],
+                "ஓய்வூதியம் / உதவித்தொகை": ["ஓய்வூதியம்", "முதியோர்", "விதவை", "pension"],
                 "வருவாய்த்துறை": ["வருவாய்", "revenue"],
                 "சுகாதாரம்": ["சுகாதாரம்", "சாக்கடை", "குப்பை"]
             }.items():
@@ -140,25 +234,23 @@ class AIAnalyzer:
         if surv in ["-", "--", "None"] or re.search(r'^\d+/\d+$', surv):
             surv = ""
 
-        dept_map = {
-            "நில ஆக்கிரமிப்பு அகற்றுதல்": "Revenue and Disaster Management (REV)",
-            "வாரிசு சான்றிதழ்": "Revenue and Disaster Management (REV)",
-            "பட்டா மாறுதல்": "Revenue and Disaster Management (REV)",
-            "பட்டா / நிலம்": "Revenue and Disaster Management (REV)",
-            "ஆதார் / பெயர் மாற்றம்": "Information Technology Department",
-            "சாலை வசதி": "Rural Development and Panchayat Raj Department (RDPR)",
-            "குடிநீர் வசதி": "Municipal Administration and Water Supply (MAWS)",
-            "மின்சார வசதி": "Energy Department (ENERGY)",
-            "உதவித்தொகை": "Social Welfare and Women Empowerment Department (SWNM)",
-            "வருவாய்த்துறை": "Revenue and Disaster Management (REV)",
-            "சுகாதாரம்": "Health and Family Welfare Department (HFW)"
-        }
-        dept = dept_map.get(detected_category, "Revenue and Disaster Management (REV)")
+        # Derive department ONLY from official CM helpline taxonomy matcher
+        tax_match = taxonomy_matcher.match(
+            petition_text=f"{detected_category} {doc_text[:400]}",
+            detected_type=detected_category
+        )
+        if tax_match and tax_match.get("validated"):
+            dept = tax_match["department"]
+            f_gtype = tax_match["grievance_type"]
+            f_gsub = tax_match["grievance_subtype"]
+        else:
+            dept = "Higher Education Department (HIGHEDU)" if "கல்வி" in (detected_category + " " + doc_text) else "General Administration"
+            f_gtype = detected_category
+            f_gsub = f"{detected_category} கோரிக்கை"
 
-        if "ஆக்கிரமிப்பு" in detected_category or any(k in doc_text for k in ["ஆக்கிரமிப்பு", "போக வழி", "பாதை ஆக்கிரமிப்பு"]):
-            summary_ta = f"மனுதாரர் {pet_name or ''}, {loc or 'ஈரோடு பெருந்துறை'} பகுதியில் வழிப்பாதையில் பக்கத்து வீட்டார் செய்துள்ள ஆக்கிரமிப்பை அகற்ற உத்தரவு பிறப்பித்தும் இதுவரை அகற்றப்படாததால், உடனடியாக விசாரணை மேற்கொண்டு ஆக்கிரமிப்பை அகற்றிட நடவடிக்கை கோரி மனு அளித்துள்ளார்.".strip()
-            summary_ta = re.sub(r'\s+', ' ', summary_ta)
-            summary_en = f"Petitioner {pet_name or 'Applicant'} requests urgent removal and administrative eviction of encroachment on the pathway."
+        if "கல்வி" in detected_category or "scholarship" in doc_text.lower() or "கல்வி உதவி" in doc_text:
+            summary_ta = f"மனுதாரர் {pet_name or ''} ஏழை குடும்பத்தைச் சேர்ந்தவர். குடும்ப வறுமை சூழ்நிலையில் கல்லூரி படிப்பைத் தொடர அரசு முதலமைச்சரின் கல்வி உதவித்தொகை (Scholarship) திட்டத்தின் கீழ் நிதி உதவி வழங்குமாறு கோரியுள்ளார்."
+            summary_en = f"Petitioner {pet_name or 'Applicant'} from an economically disadvantaged family has requested financial assistance under the Chief Minister's Scholarship Scheme to continue higher education studies."
         else:
             parts = []
             if pet_name:
@@ -174,14 +266,14 @@ class AIAnalyzer:
             summary_en = f"Petitioner {pet_name or 'Applicant'} has requested administrative action regarding {detected_category} in {loc or 'the district'}."
 
         return {
-            "grievance_type": detected_category,
-            "grievance_subtype": f"{detected_category} கோரிக்கை",
+            "grievance_type": f_gtype,
+            "grievance_subtype": f_gsub,
             "department": dept,
             "priority": "MEDIUM",
             "description_summary_tamil": summary_ta,
             "description_summary_english": summary_en,
             "action_items": [
-                {"action": f"சம்பந்தப்பட்ட {dept} அலுவலர் புலத்தணிக்கை மேற்கொள்ளுதல்", "department": dept, "deadline_hint": "15 நாட்கள்"},
+                {"action": f"சம்பந்தப்பட்ட {dept} அலுவலர் மனு மீது உரிய பரிசீலனை மேற்கொள்ளுதல்", "department": dept, "deadline_hint": "15 நாட்கள்"},
                 {"action": "மனு மீது உரிய தீர்வு காண உத்தரவு பிறப்பித்தல்", "department": dept, "deadline_hint": "30 நாட்கள்"}
             ],
             "claims": [
@@ -248,69 +340,29 @@ class AIAnalyzer:
         existing_entities = [dict(e) for e in ent_result.mappings().all()]
         existing_entity_dict = {e["entity_type"]: e["entity_value"] for e in existing_entities}
 
+        # Stage-C verified deterministic entities (read-only context for LLM)
+        verified_entity_dict = {}
+        for e in existing_entities:
+            etype = e.get("entity_type")
+            eval_ = e.get("entity_value")
+            if etype in ["phone", "alternate_phone", "survey_no", "file_number", "petition_no", "date_dmy", "pincode", "aadhaar"] and eval_:
+                verified_entity_dict[etype] = eval_
+
+        verified_entities_json = json.dumps(verified_entity_dict, ensure_ascii=False)
+
         fallback_analysis = self._build_grounded_fallback(doc_context, existing_entities)
 
         # 2. Comprehensive LLM Prompt for Dynamic Zero-Hardcoding Extraction
-        prompt = f"""Analyze this Tamil government grievance petition and extract all structured details into a JSON object:
-{{
-  "petitioner_name": "Full name of the petitioner from the sender/applicant section, or null",
-  "father_husband_name": "Father or husband name if specified, or null",
-  "gender": "Male or Female",
-  "phone": "Primary 10-digit mobile number, or null",
-  "alternate_phone": "Secondary phone number if mentioned, or null",
-  "door_no": "Door/House number, or null",
-  "street_name": "Street or road name, or null",
-  "village": "Village, town, or area, or null",
-  "firka": "Firka or post office area, or null",
-  "taluk": "Taluk name, or null",
-  "district": "District name (e.g. ஈரோடு), or null",
-  "pincode": "6-digit postal pincode, or null",
-  "full_address": "Complete residential address extracted from document, or null",
-  "grievance_type": "Specific grievance subject (e.g. ஓய்வூதியம், பட்டா மாறுதல், ஆக்கிரமிப்பு, உதவித்தொகை, குடிநீர், சாலை, மின்சாரம், சான்றிதழ்)",
-  "grievance_subtype": "Specific grievance sub-category or request details (e.g. Destitute Widow Pension Scheme (DWPS) / ஆதரவற்ற விதவை உதவித்தொகை)",
-  "department": "Government Department responsible for this grievance (e.g. Revenue and Disaster Management (REV), Rural Development and Panchayat Raj Department (RDPR), Municipal Administration and Water Supply (MAWS), Energy Department (ENERGY), Social Welfare and Women Empowerment Department (SWNM))",
-  "sub_department": "Sub department or null",
-  "survey_no": "Survey number or SF No if mentioned, or null",
-  "priority": "HIGH or MEDIUM or LOW",
-  "description_summary_tamil": "Clear, objective administrative summary in Tamil explaining petitioner identity, relation, location, background reason, and exact scheme/action requested",
-  "description_summary_english": "Accurate professional 2-3 sentence summary in English"
-}}
+        prompt = prompt_builder.build_analysis_prompt(doc_context, verified_entity_dict)
 
-CRITICAL EXTRACTION GUIDELINES:
-1. Petitioner vs Spouse/Father:
-   - If sender states 'Name W/o Husband' or 'க/பெ', petitioner_name is Name, father_husband_name is Husband, gender is Female. NEVER combine husband's name into petitioner_name!
-   - If sender states 'Name S/o Father' or 'த/பெ', petitioner_name is Name, father_husband_name is Father, gender is Male.
-   - If sender states 'Name D/o Father' or 'ம/பெ', petitioner_name is Name, father_husband_name is Father, gender is Female.
-2. Official Administrative Summary (description_summary_tamil):
-   - Formulate a formal, grammatically sound 2-3 sentence administrative summary in Tamil (DRO பார்வைக்கான மனு சுருக்கம்).
-   - Format: 'மனுதாரர் [பெயர்] (தந்தை/கணவர்: [பெயர்]), [பகுதி/கிராமம், வட்டம்/மாவட்டம்] பகுதியில் வசித்து வருகிறார். [மனுவிற்கான பின்னணி சூழல் / காரணம்], [கோரப்படும் அரசு திட்டம் அல்லது நிர்வாக நடவடிக்கை] வழங்கிட / நிறைவேற்றிடக் கோரி மனு அளித்துள்ளார்.'
-   - State the factual grievance cause accurately: whether it is social welfare pension, patta transfer, land survey, boundary dispute, encroachment eviction, drinking water, street light, road, ration card, certificate, or civil grievance.
-   - NEVER copy broken, ungrammatical, or colloquial handwritten phrasing verbatim (e.g. do not say 'அவருக்கு இறந்துவிட்டார்').
-   - PRESERVE all essential grievance keywords and specific scheme names.
-   - A village/town (e.g. எலவனந்தூர்) is NOT a district. Use the correct district (e.g. ஈரோடு).
-3. Office Stamp / Docket:
-   - If the petition has an official docket stamp with Department (Revenue), Grievance Type (Pension), Subtype (DWP), and Officer (Tahsildar, Kodumudi), utilize these official classifications.
-4. Sign-off / Signature at End:
-   - Check the end of the petition. If signed 'இப்படிக்கு, (பெயர்)' or 'Signature (பெயர்)', that name is the petitioner's legal name.
-5. Grievance Cause vs Reference Annexures:
-   - Distinguish the actual grievance prayer from listed annexures. If annexures list past patta or police complaints, check the main prayer to determine grievance_type (e.g. if the petition prays to remove encroachment on a traditional pathway, grievance_type is 'நில ஆக்கிரமிப்பு அகற்றுதல் / பொதுப்பாதை ஆக்கிரமிப்பு', NOT patta transfer).
-6. Strict Third-Person Summary:
-   - Summary MUST strictly use third-person phrasing ('மனுதாரர் [பெயர்]... கோரியுள்ளார்'). NEVER write in first-person ('நான்', 'நாங்கள்', 'உத்தரவிட்டேன்').
-
-Respond ONLY with valid JSON.
-
-Document Text:
-{doc_context}
-"""
-
-        fast_timeout = min(getattr(settings, "LLM_FAST_TIMEOUT", 45.0), 60.0)
+        fast_timeout = float(getattr(settings, "LLM_FAST_TIMEOUT", 120.0))
         llm_data: Dict[str, Any] = {}
         raw_response = ""
 
         try:
-            logger.info(f"🤖 Sending full document ({len(doc_context)} chars) to LLM for extraction...")
+            logger.info(f"🤖 Sending document ({len(doc_context)} chars) to LLM for extraction...")
             raw_response = await asyncio.wait_for(
-                self.llm.achat(prompt, system_prompt=SYSTEM_PROMPT_TAMIL, temperature=0.1, max_tokens=768, json_mode=True),
+                self.llm.achat(prompt, system_prompt=SYSTEM_PROMPT_TAMIL, temperature=0.1, max_tokens=320, json_mode=True),
                 timeout=fast_timeout
             )
             parsed = extract_json_object(raw_response)
@@ -326,7 +378,12 @@ Document Text:
             "null", "none", "n/a", "தெரியவில்லை", "இல்லை", "விண்ணப்பதாரர் பெயர்",
             "தந்தை அல்லது கணவர் பெயர்", "முழு முகவரி", "கிராமம்", "வட்டம்", "மாவட்டம்",
             "நான்", "நாங்கள்", "அவர்கள்", "இவர்", "மனுதாரர்", "விண்ணப்பதாரர்", "பொதுமக்கள்",
-            "-", "--", "none", "unknown"
+            "-", "--", "none", "unknown", "[தகவல் இல்லை]",
+            "மாவட்ட ஆட்சியர்", "மாவட்ட ஆட்சியர் அவர்கள்", "மாவட்ட ஆட்சித்தலைவர்", "ஆட்சியர்",
+            "வட்டாட்சியர்", "கோட்டாட்சியர்", "வருவாய் கோட்டாட்சியர்", "வருவாய் அலுவலர்", "முதலமைச்சர்",
+            "அரசு செயலாளர்", "காவல் கண்காணிப்பாளர்", "துணை ஆட்சியர்", "DRO", "தாசில்தார்",
+            "ஆணையர்", "அலுவலர்", "அலுவலர் அவர்கள்", "பெறுநர்", "பெறுநர்:", "பெறநர்", "பெறநர்:",
+            "அனுப்புநர்", "அனுப்புநர்:", "நாள்", "தேதி", "Date", "DATE", "ந.க", "கடித எண்"
         }
 
         def clean_field(val: Any) -> Optional[str]:
@@ -335,86 +392,147 @@ Document Text:
             s = val.strip()
             if s.lower() in INVALID_VALUES or s.startswith("[தகவல்") or "அல்லது null" in s or s in ["-", "--"]:
                 return None
+            if any(auth in s for auth in [
+                "மாவட்ட ஆட்சியர்", "ஆட்சியர் அவர்கள்", "ஆட்சியர்", "வட்டாட்சியர்", "கோட்டாட்சியர்",
+                "வருவாய் கோட்டாட்சியர்", "வருவாய் அலுவலர்", "அலுவலர்", "முதலமைச்சர்", "அரசு செயலாளர்",
+                "காவல் கண்காணிப்பாளர்", "துணை ஆட்சியர்", "DRO", "தாசில்தார்", "பெறுநர்", "பெறநர்", "அவர்களுக்கு"
+            ]):
+                return None
+            if re.match(r'^\d{1,2}[/\.\-]\d{1,2}[/\.\-]\d{2,4}$', s) or s in ["நாள்", "தேதி"]:
+                return None
             return s
 
-        # Extract & prioritize LLM values
+        # Extract & prioritize LLM values, falling back to Stage-C entities
         p_name = clean_field(llm_data.get("petitioner_name")) or clean_field(existing_entity_dict.get("petitioner_name"))
+        if p_name:
+            p_name = re.sub(r'\(\d+\)|\d+', '', p_name).strip(',.-: ')
+            if len(p_name) < 2 or p_name.lower() in INVALID_VALUES:
+                p_name = None
+
         f_name = clean_field(llm_data.get("father_husband_name")) or clean_field(existing_entity_dict.get("father_husband_name"))
-        p_gender = clean_field(llm_data.get("gender")) or "Male"
+        if f_name:
+            f_name = re.sub(r'^(?:s/o|s\.o|த/பெ|த\.பெ|w/o|w\.o|க/பெ|க\.பெ|ம/பெ|மகன்|மனைவி|தந்தை|கணவர்|காலஞ்சென்ற|Late)\s*[:\.\-]?\s*', '', f_name, flags=re.IGNORECASE).strip(',.-: ')
+            f_name = re.sub(r'\(\d+\)|\d+', '', f_name).strip(',.-: ')
+            if len(f_name) < 2 or f_name.lower() in INVALID_VALUES or any(w in f_name for w in ["தொழிலாளி", "கூலி", "விவசாயி", "இறந்து", "இல்லை", "காலமானார்", "உள்ளது"]):
+                f_name = None
+
+        p_gender = clean_field(llm_data.get("gender")) or None
 
         # 1. Disambiguate Petitioner vs Father/Husband relationships:
         cand_wife = None
         cand_hubby = None
-        wo_same = re.search(r'([^\n,:]+?)\s+(?:w/o|w\.o|க/பெ|க\.பெ|மனைவி)\s+([^\n,]+)', doc_context, re.IGNORECASE)
+        wo_same = re.search(r'([^\n,:]+?)[^\S\r\n]+(?:w/o|w\.o|க/பெ|க\.பெ|மனைவி)[^\S\r\n]+([^\n,]+)', doc_context, re.IGNORECASE)
         if wo_same and wo_same.group(1).strip() and not any(wo_same.group(1).strip().startswith(h) for h in ["அனுப்புநர்", "அனுப்புதல்"]):
-            cand_wife = re.sub(r'\(\d+\)|\d+', '', wo_same.group(1)).strip()
-            cand_hubby = re.sub(r'[\(\)0-9]', '', wo_same.group(2)).strip()
+            cand_wife = re.sub(r'\(\d+\)|\d+', '', wo_same.group(1)).strip(',.-: ')
+            cand_hubby = re.sub(r'[\(\)0-9]', '', wo_same.group(2)).strip(',.-: ')
         else:
             wo_multi = re.search(r'(?:^|\n)\s*([^\n:]+?)\s*\n+\s*(?:w/o|w\.o|க/பெ|க\.பெ|மனைவி)\s+([^\n,]+)', doc_context, re.IGNORECASE)
             if wo_multi:
                 cw = wo_multi.group(1).strip()
                 cw = re.sub(r'^(?:அனுப்புநர்|அனுப்புதல்|விண்ணப்பதாரர்|மனுதாரர்)\s*[:\.\-]?\s*', '', cw).strip()
-                cw = re.sub(r'\(\d+\)|\d+', '', cw).strip()
+                cw = re.sub(r'\(\d+\)|\d+', '', cw).strip(',.-: ')
                 if cw:
                     cand_wife = cw
-                    cand_hubby = re.sub(r'[\(\)0-9]', '', wo_multi.group(2)).strip()
+                    cand_hubby = re.sub(r'[\(\)0-9]', '', wo_multi.group(2)).strip(',.-: ')
+
+        if cand_hubby:
+            cand_hubby = re.sub(r'^(?:w/o|w\.o|க/பெ|க\.பெ|மனைவி|கணவர்|காலஞ்சென்ற|Late)\s*[:\.\-]?\s*', '', cand_hubby, flags=re.IGNORECASE).strip(',.-: ')
+            if any(w in cand_hubby for w in ["தொழிலாளி", "கூலி", "விவசாயி", "இறந்து", "இல்லை"]):
+                cand_hubby = None
 
         if cand_wife or cand_hubby:
             p_gender = "Female"
-            if cand_hubby:
+            if cand_hubby and (not f_name or f_name in INVALID_VALUES):
                 f_name = cand_hubby
-            if cand_wife and (not p_name or p_name in INVALID_VALUES or p_name == cand_hubby or cand_hubby in p_name):
+            if cand_wife and (not p_name or p_name in INVALID_VALUES or p_name == cand_hubby or (cand_hubby and cand_hubby in p_name) or any(t in (p_name or "") for t in ["ஆட்சியர்", "அலுவலர்", "கோட்டாட்சியர்", "DRO"])):
                 p_name = cand_wife
             elif not p_name and cand_wife:
                 p_name = cand_wife
 
         cand_son = None
         cand_father = None
-        so_same = re.search(r'([^\n,:]+?)\s+(?:s/o|s\.o|த/பெ|த\.பெ|ம/பெ|மகன்)\s+([^\n,]+)', doc_context, re.IGNORECASE)
+        so_same = re.search(r'([^\n,:]+?)[^\S\r\n]+(?:s/o|s\.o|த/பெ|த\.பெ|ம/பெ|மகன்)[^\S\r\n]+([^\n,]+)', doc_context, re.IGNORECASE)
         if so_same and so_same.group(1).strip() and not so_same.group(1).strip().startswith("அனுப்புநர்"):
-            cand_son = so_same.group(1).strip()
-            cand_father = so_same.group(2).strip()
+            cand_son = re.sub(r'\(\d+\)|\d+', '', so_same.group(1)).strip(',.-: ')
+            cand_father = re.sub(r'\(\d+\)|\d+', '', so_same.group(2)).strip(',.-: ')
         else:
             so_multi = re.search(r'(?:^|\n)\s*([^\n:]+?)\s*\n+\s*(?:s/o|s\.o|த/பெ|த\.பெ|ம/பெ|மகன்)\s+([^\n,]+)', doc_context, re.IGNORECASE)
             if so_multi:
-                cs = so_multi.group(1).replace("அனுப்புநர்", "").replace(":-", "").replace(":", "").strip()
+                cs = so_multi.group(1).strip()
+                cs = re.sub(r'^(?:அனுப்புநர்|அனுப்புதல்|விண்ணப்பதாரர்|மனுதாரர்)\s*[:\.\-]?\s*', '', cs).strip()
+                cs = re.sub(r'\(\d+\)|\d+', '', cs).strip(',.-: ')
                 if cs:
                     cand_son = cs
-                    cand_father = so_multi.group(2).strip()
+                    cand_father = re.sub(r'\(\d+\)|\d+', '', so_multi.group(2)).strip(',.-: ')
+
+        if cand_father:
+            cand_father = re.sub(r'^(?:s/o|s\.o|த/பெ|த\.பெ|ம/பெ|மகன்|தந்தை)\s*[:\.\-]?\s*', '', cand_father, flags=re.IGNORECASE).strip(',.-: ')
+            if any(w in cand_father for w in ["தொழிலாளி", "கூலி", "விவசாயி", "இறந்து", "இல்லை", "காலமானார்", "உள்ளது"]):
+                cand_father = None
 
         if (cand_son or cand_father) and not (cand_wife or cand_hubby):
-            p_gender = "Male"
-            if cand_father:
+            if cand_son and any(w in cand_son for w in ["குடும்ப", "சேர்ந்தவன்", "சேர்ந்தவர்", "வசித்து", "வருகிறேன்"]):
+                cand_son = None
+
+            if cand_father and (not f_name or f_name in INVALID_VALUES):
                 f_name = cand_father
-            if cand_son and (not p_name or p_name == cand_father or cand_father in p_name):
+                p_gender = "Male"
+            if cand_son and (not p_name or p_name in INVALID_VALUES or p_name == cand_father or (cand_father and cand_father in p_name)):
                 p_name = cand_son
+                p_gender = "Male"
             elif not p_name and cand_son:
                 p_name = cand_son
+                p_gender = "Male"
 
-        # Signature fallback if petitioner name is still missing or caught file number artifact (e.g. ந.க.)
-        sig_match = re.search(r'இப்படிக்கு\s*,\s*(?:[^\n]*\n)*?\s*(?:Signature|கையொப்பம்|[A-Za-z\s]+)?\s*\(([A-Za-z\u0B80-\u0BFF\.\s]{2,35})\)', doc_context, re.IGNORECASE)
-        if sig_match:
-            cand_sig = clean_field(sig_match.group(1).strip())
-            if cand_sig and not self.is_noisy_ocr_text(cand_sig):
-                if not p_name or p_name in INVALID_VALUES or p_name.startswith("ந.க") or "கார்னாஜ்" in p_name:
-                    p_name = cand_sig
+        # Signature fallback: Scan closing block (near இப்படிக்கு or last lines)
+        idx_sig = doc_context.find("இப்படிக்கு")
+        if idx_sig == -1:
+            idx_sig = doc_context.find("இவண்")
+        if idx_sig != -1:
+            sig_block = doc_context[idx_sig:]
+            found_sig = None
+            sig_matches = re.finditer(r'\(\s*([A-Za-z\u0B80-\u0BFF\.\s]{2,35})\s*\)', sig_block)
+            for sm in sig_matches:
+                cand_sig = clean_field(sm.group(1).strip("() "))
+                if (
+                    cand_sig and len(cand_sig) >= 3 and not self.is_noisy_ocr_text(cand_sig) and
+                    not any(skip in cand_sig for skip in ["TK", "Dt", "District", "Taluk", "Scholarship", "கணினி", "சான்றிதழ்", "நகல்", "பட்டியல்"])
+                ):
+                    found_sig = cand_sig
+                    break
+            if not found_sig:
+                for sl in [l.strip() for l in sig_block.split("\n")[1:5] if l.strip()]:
+                    cs = re.sub(r'\(\d+\)|\d+', '', sl).strip(',.-:() ')
+                    if (
+                        cs and 2 <= len(cs) <= 35 and cs not in INVALID_VALUES and
+                        not any(cs.startswith(w) for w in ["தங்கள்", "உண்மையுள்ள", "வணக்கம்", "நன்றி", "நாள்", "தேதி", "செல்", "போன்"]) and
+                        not any(skip in cs for skip in ["TK", "Dt", "District", "Taluk", "வட்டம்", "மாவட்டம்"])
+                    ):
+                        found_sig = cs
+                        break
+            if found_sig and (not p_name or p_name in INVALID_VALUES or p_name.startswith("ந.க") or any(auth in p_name for auth in ["மாவட்ட ஆட்சியர்", "ஆட்சியர்", "வட்டாட்சியர்"])):
+                p_name = found_sig
 
-        raw_phone = clean_field(llm_data.get("phone")) or clean_field(existing_entity_dict.get("phone"))
-        phones = re.findall(r'\b[6-9]\d{9}\b', raw_phone or "")
-        p_phone = phones[0] if phones else (raw_phone if raw_phone and len(raw_phone) >= 10 else None)
-        p_alt_phone = phones[1] if len(phones) > 1 else clean_field(llm_data.get("alternate_phone"))
-        if p_alt_phone:
-            alt_match = re.search(r'\b[6-9]\d{9}\b', p_alt_phone)
-            if alt_match:
-                p_alt_phone = alt_match.group(0)
+        # Identifiers MUST come from Stage-C verified entities only; never re-extracted/fabricated by LLM
+        p_phone = verified_entity_dict.get("phone") or clean_field(existing_entity_dict.get("phone"))
+        p_alt_phone = verified_entity_dict.get("alternate_phone") or clean_field(existing_entity_dict.get("alternate_phone"))
+        p_survey = verified_entity_dict.get("survey_no") or clean_field(existing_entity_dict.get("survey_no"))
+        p_ref_no = (
+            verified_entity_dict.get("file_number") or
+            verified_entity_dict.get("petition_no") or
+            clean_field(existing_entity_dict.get("file_number")) or
+            clean_field(existing_entity_dict.get("petition_no"))
+        )
 
-        p_door = clean_field(llm_data.get("door_no"))
-        p_street = clean_field(llm_data.get("street_name"))
-        p_village = clean_field(llm_data.get("village"))
-        p_firka = clean_field(llm_data.get("firka"))
-        p_taluk = clean_field(llm_data.get("taluk"))
-        p_district = (clean_field(llm_data.get("district")) or "ஈரோடு").replace("\u0908", "\u0B88")
-        p_pincode = clean_field(llm_data.get("pincode"))
+        p_door = clean_field(llm_data.get("door_no")) or clean_field(existing_entity_dict.get("door_no"))
+        p_street = clean_field(llm_data.get("street_name")) or clean_field(existing_entity_dict.get("street_name"))
+        p_village = clean_field(llm_data.get("village")) or clean_field(existing_entity_dict.get("village"))
+        p_firka = clean_field(llm_data.get("firka")) or clean_field(existing_entity_dict.get("firka"))
+        p_taluk = clean_field(llm_data.get("taluk")) or clean_field(existing_entity_dict.get("taluk"))
+        p_district = clean_field(llm_data.get("district")) or clean_field(existing_entity_dict.get("district"))
+        if p_district:
+            p_district = p_district.replace("\u0908", "\u0B88")
+        p_pincode = verified_entity_dict.get("pincode") or clean_field(llm_data.get("pincode")) or clean_field(existing_entity_dict.get("pincode"))
         p_addr = clean_field(llm_data.get("full_address"))
         if p_addr:
             p_addr = p_addr.replace("\u0908", "\u0B88")
@@ -426,7 +544,6 @@ Document Text:
         elif not p_addr:
             p_addr = ", ".join(addr_segments) if addr_segments else None
 
-        p_survey = clean_field(llm_data.get("survey_no")) or clean_field(existing_entity_dict.get("survey_no"))
         p_gtype = clean_field(llm_data.get("grievance_type")) or fallback_analysis["grievance_type"]
         p_gsub = clean_field(llm_data.get("grievance_subtype")) or fallback_analysis["grievance_subtype"]
 
@@ -437,6 +554,14 @@ Document Text:
                 p_gsub = "பொதுப்பாதை / வழிப்பாதை ஆக்கிரமிப்பு அகற்றுதல்"
 
         p_dept = taxonomy_matcher.normalize_department(clean_field(llm_data.get("department")) or fallback_analysis["department"])
+
+        # Domain routing: Higher Education Scholarship
+        if any(k in (p_gtype + " " + p_gsub + " " + doc_context).lower() for k in ["scholarship", "கல்வி உதவி", "கல்வி உதவித்தொகை", "கல்லூரி படிப்பு", "பல்கலைக்கழக"]):
+            if "higher education" not in p_dept.lower() and "social justice" not in p_dept.lower() and "minorities" not in p_dept.lower():
+                p_dept = "Higher Education Department (HIGHEDU)"
+                if "scholarship" not in p_gsub.lower():
+                    p_gsub = "Scholarship - High Edu"
+
         p_subdept = clean_field(llm_data.get("sub_department")) or f"{p_dept} / நிர்வாகம்"
         p_priority = clean_field(llm_data.get("priority")) or "MEDIUM"
 
@@ -446,8 +571,6 @@ Document Text:
         # Enforce formal third-person administrative Tamil summary
         if summary_ta:
             summary_ta = summary_ta.replace("\u0908", "\u0B88")
-            if p_name and ("ந. கார்னாஜ்" in summary_ta or "கார்னாஜ்" in summary_ta):
-                summary_ta = summary_ta.replace("ந. கார்னாஜ்", p_name).replace("கார்னாஜ்", p_name)
             summary_ta = re.sub(r'^(?:நான்|நாங்கள்)\s+', f"மனுதாரர் {p_name or ''} ", summary_ta).strip()
             summary_ta = summary_ta.replace(" உத்தரவு பிறப்பித்தேன்", " உத்தரவு பிறப்பித்து நடவடிக்கை எடுக்கக் கோரியுள்ளார்")
             summary_ta = summary_ta.replace(" உத்தரவிட்டேன்", " உத்தரவிட்டு நடவடிக்கை எடுக்கக் கோரியுள்ளார்")
@@ -462,14 +585,10 @@ Document Text:
 
         if tahsildar_match:
             cand_taluk = tahsildar_match.group(1).strip()
-            if cand_taluk.lower() == "kodumudi" or cand_taluk == "கொடுமுடி":
-                p_taluk = "கொடுமுடி"
-                p_resp_off = "வட்டாட்சியர், கொடுமுடி"
-            else:
-                p_taluk = cand_taluk
-                p_resp_off = f"வட்டாட்சியர், {cand_taluk}"
+            p_taluk = cand_taluk
+            p_resp_off = f"வட்டாட்சியர், {cand_taluk}"
         else:
-            p_resp_off = clean_field(llm_data.get("responsible_officer")) or (f"வட்டாட்சியர், {p_taluk}" if p_taluk else "வட்டாட்சியர்")
+            p_resp_off = clean_field(llm_data.get("responsible_officer"))
 
         # Dynamic Alignment with official CM Helpline Grievance Taxonomy
         try:
@@ -493,10 +612,6 @@ Document Text:
                         p_resp_off = raw_off
         except Exception as e:
             logger.warning(f"Taxonomy alignment notice: {e}")
-
-        # If grievance is encroachment but summary erroneously talks about patta transfer, correct summary
-        if ("ஆக்கிரமிப்பு" in p_gtype or "ஆக்கிரமிப்பு" in p_gsub) and ("பட்டா மாறுதல்" in summary_ta or "ந. கார்னாஜ்" in summary_ta):
-            summary_ta = f"மனுதாரர் {p_name or ''}, {p_district or 'ஈரோடு'} மாவட்டம், {p_taluk or 'பெருந்துறை'} பகுதியில் வழிப்பாதையில் பக்கத்து வீட்டார் செய்துள்ள ஆக்கிரமிப்பை அகற்ற உத்தரவு பிறப்பித்தும் இதுவரை அகற்றப்படாததால், உடனடியாக விசாரணை மேற்கொண்டு ஆக்கிரமிப்பை அகற்றிட நடவடிக்கை கோரி மனு அளித்துள்ளார்."
 
         # Master Location verification (if present in master DB)
         if p_taluk or p_village:
@@ -522,7 +637,10 @@ Document Text:
         p_block = f"{p_taluk} ஒன்றியம்" if p_taluk else "-"
         p_rev_div = f"{p_taluk} வருவாய் கோட்டம்" if p_taluk else "-"
         if not p_resp_off or p_resp_off == "வட்டாட்சியர்":
-            p_resp_off = f"வட்டாட்சியர், {p_taluk}" if p_taluk else "வட்டாட்சியர்"
+            if "revenue" in p_dept.lower() or "வருவாய்" in p_dept:
+                p_resp_off = f"வட்டாட்சியர், {p_taluk}" if p_taluk else "வட்டாட்சியர்"
+            else:
+                p_resp_off = tax_match.get("responsible_officer") if (tax_match and tax_match.get("responsible_officer")) else "துறை அலுவலர்"
 
         # Safeguard field lengths against runaway strings
         if p_dept and len(p_dept) > 150:
@@ -575,10 +693,7 @@ Document Text:
             "raw": json.dumps({"prompt": prompt[:400], "response": raw_response[:400]}, ensure_ascii=False)
         })
 
-        # 5. Upsert grievance_drafts table
-        today_tag = datetime_suffix_short()
-        auto_gid = f"TN/REV/DRO/{today_tag}/{str(uuid.uuid4())[:4].upper()}"
-
+        # 5. Upsert grievance_drafts table (ref_number from regex only; dro_grievance_id NULL until push_to_dro)
         existing_draft = await db.execute(
             text("SELECT id FROM grievance_drafts WHERE source_id = CAST(:source_id AS UUID)"),
             {"source_id": source_id}
@@ -620,16 +735,16 @@ Document Text:
                 "phone": p_phone,
                 "alt_phone": p_alt_phone,
                 "addr": p_addr,
-                "door": p_door or "-",
-                "street": p_street or "-",
-                "village": p_village or "-",
-                "firka": p_firka or "-",
-                "taluk": p_taluk or "-",
+                "door": p_door,
+                "street": p_street,
+                "village": p_village,
+                "firka": p_firka,
+                "taluk": p_taluk,
                 "district": p_district,
                 "block": p_block,
                 "rev_div": p_rev_div,
                 "resp_off": p_resp_off,
-                "ref_no": p_survey,
+                "ref_no": p_ref_no,
                 "g_type": p_gtype,
                 "g_sub": p_gsub,
                 "dept": p_dept,
@@ -638,9 +753,10 @@ Document Text:
                 "priority": p_priority
             })
         else:
+            draft_id = str(uuid.uuid4())
             await db.execute(text("""
                 INSERT INTO grievance_drafts (
-                    source_id, petitioner_name, father_husband_name, email, phone,
+                    id, source_id, petitioner_name, father_husband_name, email, phone,
                     is_own_phone, alternate_phone, address, gender, is_differently_abled,
                     community_or_individual, description, grievance_source, ref_number,
                     department, sub_department, local_body_type, grievance_type, grievance_subtype,
@@ -649,43 +765,45 @@ Document Text:
                     status, dro_status, is_whatsapp_appeal, is_whatsapp_tracking, is_whatsapp_receipt,
                     ex_servicemen_relationship, officer_approved
                 ) VALUES (
-                    CAST(:source_id AS UUID), :name, :father, NULL, :phone,
-                    TRUE, :alt_phone, :addr, :gender, 'No',
+                    CAST(:id AS UUID), CAST(:source_id AS UUID), :name, :father, NULL, :phone,
+                    :is_own_phone, :alt_phone, :addr, :gender, NULL,
                     'Individual', :desc, 'DRO Camp / மாவட்ட வருவாய் அலுவலர் முகாம்', :ref_no,
-                    :dept, :sub_dept, 'Village Panchayat', :g_type, :g_sub,
-                    :district, :rev_div, :taluk, :firka, :block, :village, '-None-', '-None-',
-                    :street, :door, :resp_off, :gid, :priority,
-                    'Open', 'draft', FALSE, TRUE, TRUE,
-                    '-None-', FALSE
+                    :dept, :sub_dept, :local_body_type, :g_type, :g_sub,
+                    :district, :rev_div, :taluk, :firka, :block, :village, NULL, NULL,
+                    :street, :door, :resp_off, NULL, :priority,
+                    NULL, 'draft', FALSE, FALSE, FALSE,
+                    NULL, FALSE
                 )
             """), {
+                "id": draft_id,
                 "source_id": source_id,
                 "name": p_name,
                 "father": f_name,
                 "gender": p_gender,
                 "phone": p_phone,
+                "is_own_phone": None,
                 "alt_phone": p_alt_phone,
                 "addr": p_addr,
                 "desc": summary_ta,
-                "ref_no": p_survey,
+                "ref_no": p_ref_no,
                 "dept": p_dept,
                 "sub_dept": p_subdept,
+                "local_body_type": clean_field(llm_data.get("local_body_type")),
                 "g_type": p_gtype,
                 "g_sub": p_gsub,
                 "district": p_district,
                 "rev_div": p_rev_div,
-                "taluk": p_taluk or "-",
-                "firka": p_firka or "-",
+                "taluk": p_taluk,
+                "firka": p_firka,
                 "block": p_block,
-                "village": p_village or "-",
-                "street": p_street or "-",
-                "door": p_door or "-",
+                "village": p_village,
+                "street": p_street,
+                "door": p_door,
                 "resp_off": p_resp_off,
-                "gid": auto_gid,
                 "priority": p_priority
             })
 
-        # 6. Synchronize clean LLM entities back into extracted_entities
+        # 6. Synchronize AI-suggested entities into extracted_entities WITHOUT deleting regex/master_db entities
         sync_items = [
             ("petitioner_name", p_name),
             ("father_husband_name", f_name),
@@ -703,16 +821,14 @@ Document Text:
             ("grievance_type", p_gtype)
         ]
 
-        # Clear old entities before syncing clean LLM entities
-        await db.execute(text("DELETE FROM extracted_entities WHERE source_id = CAST(:source_id AS UUID)"), {"source_id": source_id})
-
+        ai_grounding = analysis_result.get("grounding_score", 0.75)
         for e_type, e_val in sync_items:
             if e_val and e_val != "-":
                 await db.execute(text("""
                     INSERT INTO extracted_entities (source_id, entity_type, entity_value, confidence, validation_status, extracted_by)
-                    VALUES (CAST(:source_id AS UUID), :type, :val, 0.98, 'verified', 'ai_ner')
+                    VALUES (CAST(:source_id AS UUID), :type, :val, :conf, 'pending', 'ai_ner')
                     ON CONFLICT DO NOTHING
-                """), {"source_id": source_id, "type": e_type, "val": e_val})
+                """), {"source_id": source_id, "type": e_type, "val": e_val, "conf": ai_grounding})
 
         # Update source flags
         await db.execute(text("""
@@ -723,8 +839,6 @@ Document Text:
         """), {"source_id": source_id})
 
         await db.commit()
-        logger.info(f"🎉 Grievance Draft completely populated for {source_id}: {p_name} | {p_gtype} | {p_taluk}")
-
         return analysis_result
 
 

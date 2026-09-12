@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from models.database import get_db
 from models.schemas import SearchRequest, SearchResultItem
 from services.vector_store import vector_store
+from app.dependencies import get_current_officer
 
 router = APIRouter(prefix="/search", tags=["Search"])
 
@@ -12,7 +13,8 @@ router = APIRouter(prefix="/search", tags=["Search"])
 @router.post("", response_model=List[SearchResultItem])
 async def search_documents(
     req: SearchRequest,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    officer: dict = Depends(get_current_officer)
 ):
     """
     Search document chunks using pgvector similarity search, GIN full-text search, or RRF hybrid search

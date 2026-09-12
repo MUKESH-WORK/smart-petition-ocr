@@ -1,6 +1,6 @@
 import uuid
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy import (
     Column, Integer, String, Text, Boolean, Float, DateTime, ForeignKey,
     Index, BigInteger, LargeBinary, UniqueConstraint
@@ -162,7 +162,7 @@ class Officer(Base):
     designation = Column(String(100))
     department = Column(String(50))
     taluk_access = Column(SafeArray(String(10)))
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
 class Source(Base):
@@ -178,8 +178,8 @@ class Source(Base):
     status = Column(String(30), default="uploaded")
     content_fingerprint = Column(SafeJSON, nullable=True)
     file_data = Column(LargeBinary, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
 
 class OCRResult(Base):
@@ -197,7 +197,7 @@ class OCRResult(Base):
     avg_confidence = Column(Float)
     ocr_engine = Column(String(50))
     processing_time_ms = Column(Integer)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
 class DocumentChunk(Base):
@@ -210,7 +210,7 @@ class DocumentChunk(Base):
     chunk_text = Column(Text, nullable=False)
     embedding = Column(SafeVector(384))
     metadata_ = Column("metadata", SafeJSON)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
 class ExtractedEntity(Base):
@@ -226,7 +226,7 @@ class ExtractedEntity(Base):
     source_chunk_id = Column(GUID(), ForeignKey("document_chunks.id"), nullable=True)
     extracted_by = Column(String(20), default="regex")
     officer_corrected = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
 class AIAnalysis(Base):
@@ -245,7 +245,7 @@ class AIAnalysis(Base):
     hallucination_score = Column(Float)
     grounding_score = Column(Float)
     raw_ai_response = Column(SafeJSON)
-    generated_at = Column(DateTime, default=datetime.utcnow)
+    generated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
 class GrievanceDraft(Base):
@@ -260,25 +260,25 @@ class GrievanceDraft(Base):
     father_husband_name = Column(String(200))
     email = Column(String(100))
     phone = Column(String(20))
-    is_own_phone = Column(Boolean, default=True)
+    is_own_phone = Column(Boolean, default=False)
     alternate_phone = Column(String(20))
     address = Column(Text)
-    gender = Column(String(20), default="-None-")
-    is_differently_abled = Column(String(10), default="No")
-    community_or_individual = Column(String(50), default="Public")
+    gender = Column(String(20), default=None)
+    is_differently_abled = Column(String(10), default=None)
+    community_or_individual = Column(String(50), default=None)
 
     # 2. Grievance Details
     description = Column(Text)
-    grievance_source = Column(String(100), default="DRO Camp / மாவட்ட வருவாய் அலுவலர் முகாம்")
-    ref_number = Column(String(100))
-    department = Column(String(100), default="Revenue and Disaster Management / வருவாய் மற்றும் பேரிடர் மேலாண்மை")
-    sub_department = Column(String(100), default="Revenue / வருவாய்த்துறை")
-    local_body_type = Column(String(100), default="Village Panchayat")
+    grievance_source = Column(String(100), default=None)
+    ref_number = Column(String(100), default=None)
+    department = Column(String(100), default=None)
+    sub_department = Column(String(100), default=None)
+    local_body_type = Column(String(100), default=None)
     grievance_type = Column(String(100))
     grievance_subtype = Column(String(100))
 
     # 3. Location & Hierarchy
-    district = Column(String(100), default="Erode (ERD)")
+    district = Column(String(100), default=None)
     revenue_division = Column(String(100))
     taluk = Column(String(100))
     firka = Column(String(100))
@@ -295,23 +295,23 @@ class GrievanceDraft(Base):
 
     # 4. Status & Tracking
     due_date = Column(DateTime, nullable=True)
-    status = Column(String(50), default="Open")
+    status = Column(String(50), default=None)
     source_code = Column(String(50))
-    dro_grievance_id = Column(String(100))
-    priority = Column(String(20), default="MEDIUM")
+    dro_grievance_id = Column(String(100), default=None)
+    priority = Column(String(20), default=None)
     call_disposition = Column(String(50))
     is_whatsapp_appeal = Column(Boolean, default=False)
-    is_whatsapp_tracking = Column(Boolean, default=True)
-    is_whatsapp_receipt = Column(Boolean, default=True)
-    ex_servicemen_relationship = Column(String(50), default="-None-")
+    is_whatsapp_tracking = Column(Boolean, default=False)
+    is_whatsapp_receipt = Column(Boolean, default=False)
+    ex_servicemen_relationship = Column(String(50), default=None)
 
     # 5. Workflow Sign-off
     dro_status = Column(String(50), default="draft")
     officer_approved = Column(Boolean, default=False)
     officer_notes = Column(Text)
     approved_at = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
 
 class JobQueue(Base):
@@ -324,7 +324,7 @@ class JobQueue(Base):
     status = Column(String(20), default="pending")
     worker_id = Column(String(50))
     error_message = Column(Text)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     started_at = Column(DateTime, nullable=True)
     completed_at = Column(DateTime, nullable=True)
 
@@ -333,7 +333,7 @@ class AuditLog(Base):
     __tablename__ = "audit_log"
 
     id = Column(BigInteger, primary_key=True, autoincrement=True)
-    timestamp = Column(DateTime, default=datetime.utcnow, index=True)
+    timestamp = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
     source_id = Column(GUID(), nullable=True)
     officer_id = Column(String(50), nullable=True)
     action = Column(String(100), nullable=False)
