@@ -29,6 +29,12 @@ export default function MobileQrModal({ isOpen, onClose, onDocumentUploaded }) {
     setIsReceived(true);
     setReceivedFileMeta(uploadedData);
 
+    const isPdf = Boolean(
+      uploadedData.isPdf ||
+      (uploadedData.fileType && uploadedData.fileType.toLowerCase().includes('pdf')) ||
+      (uploadedData.fileName && uploadedData.fileName.toLowerCase().endsWith('.pdf'))
+    );
+
     const previewUrl = uploadedData.dataUrl || (uploadedData.file ? URL.createObjectURL(uploadedData.file) : null);
     
     let fileObj = uploadedData.file || null;
@@ -36,8 +42,10 @@ export default function MobileQrModal({ isOpen, onClose, onDocumentUploaded }) {
       try {
         const res = await fetch(uploadedData.dataUrl);
         const blob = await res.blob();
-        fileObj = new File([blob], uploadedData.fileName || `mobile_petition_${Date.now()}.jpg`, {
-          type: blob.type || uploadedData.fileType || 'image/jpeg'
+        const fallbackExt = isPdf ? '.pdf' : '.jpg';
+        const fallbackMime = isPdf ? 'application/pdf' : 'image/jpeg';
+        fileObj = new File([blob], uploadedData.fileName || `mobile_petition_${Date.now()}${fallbackExt}`, {
+          type: blob.type || uploadedData.fileType || fallbackMime
         });
       } catch (err) {
         console.warn('Could not convert dataUrl to File:', err);
@@ -47,10 +55,10 @@ export default function MobileQrModal({ isOpen, onClose, onDocumentUploaded }) {
     const uploadedDoc = {
       file: fileObj,
       id: `PET-${uploadedData.sessionId ? uploadedData.sessionId.substring(0, 6).toUpperCase() : Math.floor(100 + Math.random() * 900)}`,
-      fileName: uploadedData.fileName || 'mobile_petition.jpg',
-      fileSize: uploadedData.fileSize || '1.8 MB',
-      fileType: uploadedData.fileType || 'Scanned Image (Mobile)',
-      isPdf: false,
+      fileName: uploadedData.fileName || (isPdf ? 'mobile_petition.pdf' : 'mobile_petition.jpg'),
+      fileSize: uploadedData.fileSize || (isPdf ? '2.4 MB' : '1.8 MB'),
+      fileType: uploadedData.fileType || (isPdf ? 'PDF Document (Mobile)' : 'Scanned Image (Mobile)'),
+      isPdf: isPdf,
       previewUrl: previewUrl,
       uploadedAt: `Today at ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
       totalPages: 1,
@@ -235,7 +243,7 @@ export default function MobileQrModal({ isOpen, onClose, onDocumentUploaded }) {
               </div>
 
               <p className="qr-modal-instruction">
-                Scan this QR code with your phone to upload the petition.
+                Scan this QR code with your phone to upload the petition (PDF document, camera photo, JPG, PNG & any image format).
               </p>
 
               {/* Waiting Status Pill with Pulsing Dot */}

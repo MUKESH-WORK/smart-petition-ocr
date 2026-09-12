@@ -179,8 +179,9 @@
   position: relative;
   display: flex;
   align-items: center;
-  flex: 0 0 165px;
-  min-width: 145px;
+  flex: 0 0 175px;
+  min-width: 165px;
+  cursor: pointer;
 }
 
 .date-field-icon {
@@ -188,25 +189,87 @@
   left: 10px;
   color: var(--text-muted, #64748B);
   pointer-events: none;
+  z-index: 2;
+  transition: color var(--transition-fast, 0.15s ease);
+}
+
+.date-input-wrapper:hover .date-field-icon,
+.date-input-wrapper:focus-within .date-field-icon {
+  color: #102C57;
 }
 
 .date-picker-input {
   width: 100%;
-  padding: 7px 10px 7px 32px;
-  font-size: var(--font-size-body, 1rem);
+  height: 38px;
+  padding: 0 10px 0 32px;
+  font-size: var(--font-size-btn-secondary, 0.88rem);
   font-family: inherit;
+  font-weight: 500;
   color: var(--text-primary);
   background-color: var(--bg-surface, #FFFFFF);
   border: 1.5px solid var(--border-medium);
   border-radius: var(--radius-md, 6px);
   outline: none;
+  cursor: pointer;
   transition: all var(--transition-fast, 0.15s ease);
+  box-sizing: border-box;
+}
+
+.date-picker-input::placeholder {
+  color: var(--text-muted, #64748B);
+  font-weight: 400;
+  font-size: var(--font-size-btn-secondary, 0.88rem);
+}
+
+.date-picker-input:hover {
+  border-color: #102C57;
 }
 
 .date-picker-input:focus {
   background-color: #FFFFFF;
   border-color: #102C57;
-  box-shadow: 0 0 0 2px rgba(16, 44, 87, 0.2);
+  box-shadow: 0 0 0 2px rgba(16, 44, 87, 0.15);
+}
+
+.date-input-wrapper.has-date .date-picker-input {
+  padding-right: 32px;
+}
+
+/* Hide the duplicate native calendar icon so it doesn't collide with text or Lucide icon */
+.date-picker-input::-webkit-calendar-picker-indicator {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  cursor: pointer;
+  opacity: 0;
+  width: 24px;
+  height: 24px;
+}
+
+/* Clear date button */
+.date-clear-btn {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #F1F5F9;
+  border: none;
+  color: var(--text-muted, #64748B);
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  cursor: pointer;
+  z-index: 5;
+  transition: all var(--transition-fast, 0.15s ease);
+}
+
+.date-clear-btn:hover {
+  color: #FFFFFF;
+  background-color: #EF4444;
 }
 
 /* Category Pill Buttons (All, GDP Assistant) */

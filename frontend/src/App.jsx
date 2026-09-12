@@ -11,6 +11,7 @@ import ProfileView from './components/profile/ProfileView';
 import MobileCapturePage from './components/mobile/MobileCapturePage';
 import { ChevronRight, ChevronLeft } from 'lucide-react';
 import { fetchAuditHistory, fetchPetitionBySourceId } from './services/apiService';
+import { FullAppAutoTranslator } from './lib/dynamicTranslate';
 import './styles/index.css';
 
 function getCaptureSessionFromUrl() {
@@ -227,14 +228,21 @@ export default function App() {
   // If user is accessing the mobile capture route on phone/browser
   // -------------------------------------------------------------
   if (mobileSessionId) {
-    return <MobileCapturePage sessionId={mobileSessionId} />;
+    return (
+      <>
+        <FullAppAutoTranslator currentLanguage={currentLanguage} />
+        <MobileCapturePage sessionId={mobileSessionId} />
+      </>
+    );
   }
 
   // -------------------------------------------------------------
   // Otherwise render Desktop Workstation
   // -------------------------------------------------------------
   return (
-    <div className="app-container">
+    <>
+      <FullAppAutoTranslator currentLanguage={currentLanguage} />
+      <div className="app-container">
       
       {/* 1. Slim Top Navigation Header (Stationary, Fixed Height) */}
       <Header
@@ -366,5 +374,6 @@ export default function App() {
       </div>
 
     </div>
+    </>
   );
 }

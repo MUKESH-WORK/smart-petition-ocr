@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import {
   RefreshCw,
   Bot,
@@ -79,9 +79,11 @@ export default function AuditLogsView({
 
   // Date Filter States
   const [selectedDate, setSelectedDate] = useState('');
+  const [isDateFocused, setIsDateFocused] = useState(false);
   const [selectedYear, setSelectedYear] = useState('');
   const [selectedMonth, setSelectedMonth] = useState('');
   const [selectedDay, setSelectedDay] = useState('');
+  const dateInputRef = useRef(null);
 
   // Standardize real audit records passed into component
   const realLogs = useMemo(() => {
@@ -292,16 +294,57 @@ export default function AuditLogsView({
               </select>
             </div>
 
-            {/* 3. Native HTML Date Picker */}
-            <div className="date-input-wrapper">
+            {/* 3. Clean Date Picker */}
+            <div
+              className={`date-input-wrapper ${selectedDate ? 'has-date' : ''}`}
+              onClick={() => {
+                dateInputRef.current?.focus();
+                try {
+                  dateInputRef.current?.showPicker();
+                } catch {}
+              }}
+            >
               <Calendar size={15} className="date-field-icon" />
               <input
-                type="date"
+                ref={dateInputRef}
+                type={isDateFocused || selectedDate ? 'date' : 'text'}
                 className="date-picker-input"
+                placeholder="Select date"
                 value={selectedDate}
+                onClick={() => {
+                  try {
+                    dateInputRef.current?.showPicker();
+                  } catch {}
+                }}
+                onFocus={() => {
+                  setIsDateFocused(true);
+                  try {
+                    dateInputRef.current?.showPicker();
+                  } catch {}
+                }}
+                onBlur={() => {
+                  if (!selectedDate) {
+                    setIsDateFocused(false);
+                  }
+                }}
                 onChange={handleFullDateChange}
-                title="Select full date"
+                title="Select date"
               />
+              {selectedDate && (
+                <button
+                  type="button"
+                  className="date-clear-btn"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleFullDateChange({ target: { value: '' } });
+                    setIsDateFocused(false);
+                  }}
+                  aria-label="Clear date filter"
+                  title="Clear date"
+                >
+                  <X size={13} />
+                </button>
+              )}
             </div>
 
             {/* 4. Year Dropdown */}

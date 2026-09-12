@@ -50,7 +50,7 @@ async def upload_petition(
         source_id = str(uuid.uuid4())
         content = await file.read()
         ext = os.path.splitext(file.filename)[1].lower().replace(".", "")
-        if ext not in ["pdf", "png", "jpg", "jpeg", "tiff", "docx"]:
+        if ext not in ["pdf", "png", "jpg", "jpeg", "tiff", "tif", "webp", "bmp", "docx", "heic"]:
             ext = "png"
 
         # Save to disk and calculate SHA256

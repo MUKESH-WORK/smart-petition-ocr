@@ -60,7 +60,7 @@ export async function createUploadSession() {
 }
 
 /**
- * Upload captured petition image from mobile phone
+ * Upload captured petition (PDF document or image) from mobile phone
  * @param {string} sessionId
  * @param {File|Blob} file
  * @param {string} [customFileName]
@@ -70,7 +70,14 @@ export async function uploadPetitionImage(sessionId, file, customFileName) {
     throw new Error('Session ID and file are required.');
   }
 
-  const effectiveFileName = customFileName || file.name || `petition_${sessionId}.jpg`;
+  const isPdf = Boolean(
+    (file.type && file.type === 'application/pdf') ||
+    (file.name && file.name.toLowerCase().endsWith('.pdf')) ||
+    (customFileName && customFileName.toLowerCase().endsWith('.pdf'))
+  );
+
+  const defaultExt = isPdf ? '.pdf' : '.jpg';
+  const effectiveFileName = customFileName || file.name || `petition_${sessionId}${defaultExt}`;
 
   const sizeFormatted = file.size > 1024 * 1024 
     ? `${(file.size / (1024 * 1024)).toFixed(1)} MB` 
@@ -83,11 +90,14 @@ export async function uploadPetitionImage(sessionId, file, customFileName) {
     reader.readAsDataURL(file);
   });
 
+  const resolvedFileType = file.type || (isPdf ? 'application/pdf' : 'image/jpeg');
+
   const payload = {
     sessionId,
     fileName: effectiveFileName,
     fileSize: sizeFormatted,
-    fileType: file.type || 'image/jpeg',
+    fileType: resolvedFileType,
+    isPdf,
     dataUrl: dataUrl,
     uploadedAt: new Date().toISOString()
   };

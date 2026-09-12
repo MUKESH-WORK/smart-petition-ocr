@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+  import React, { useState, useRef, useEffect } from 'react';
 import { UserCheck, ChevronDown, User, LogOut } from 'lucide-react';
 import './Header.css';
 
@@ -80,7 +80,7 @@ export default function Header({
       <div className="header-right">
 
         {/* Language Toggle: EN / தமிழ் */}
-        <div className="header-lang-toggle" title="Select Interface Language / மொழி">
+        <div className="header-lang-toggle notranslate" translate="no" title="Select Interface Language / மொழி">
           <button
             type="button"
             className={`lang-option-btn ${currentLanguage === 'en' ? 'active' : ''}`}

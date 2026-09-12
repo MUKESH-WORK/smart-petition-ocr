@@ -20,7 +20,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy import text
 
 from app.config import settings
-from app.routers import grievance, search, admin
+from app.routers import grievance, search, admin, translate
 from models.database import engine, AsyncSessionLocal, init_db_schema, is_sqlite
 from services.job_queue import job_queue
 
@@ -128,6 +128,7 @@ app.mount("/static/media", StaticFiles(directory=settings.STATIC_MEDIA_DIR), nam
 app.include_router(grievance.router, prefix=settings.API_V1_STR)
 app.include_router(search.router, prefix=settings.API_V1_STR)
 app.include_router(admin.router, prefix=settings.API_V1_STR)
+app.include_router(translate.router, prefix=settings.API_V1_STR)
 
 # Locate pre-built frontend distribution
 frontend_dist = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "frontend", "dist"))

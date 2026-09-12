@@ -75,7 +75,7 @@ class FileStore:
                         image_paths.append(out_path)
                 except Exception as e2:
                     raise RuntimeError(f"Error converting PDF to images: {e} | {e2}")
-        elif file_type in ["png", "jpg", "jpeg", "tiff", "webp"]:
+        elif file_type in ["png", "jpg", "jpeg", "tiff", "tif", "webp", "bmp"]:
             try:
                 img = Image.open(file_path)
                 # Validation: check image dimensions

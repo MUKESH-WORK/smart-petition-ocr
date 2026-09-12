@@ -199,7 +199,7 @@ function qrUploadApiPlugin() {
                 fileName = parsed.fileName || fileName
                 fileType = parsed.fileType || fileType
                 if (parsed.dataUrl) {
-                  const base64Data = parsed.dataUrl.replace(/^data:image\/\w+;base64,/, '')
+                  const base64Data = parsed.dataUrl.replace(/^data:[^;]+;base64,/, '')
                   fileBuffer = Buffer.from(base64Data, 'base64')
                 }
               }
@@ -221,6 +221,11 @@ function qrUploadApiPlugin() {
                 sessions.set(sessionId, session)
               }
 
+              const isPdf = fileType === 'application/pdf' || (fileName && fileName.toLowerCase().endsWith('.pdf'))
+              if (isPdf) {
+                fileType = 'application/pdf'
+              }
+
               const dataUrl = fileBuffer 
                 ? `data:${fileType};base64,${fileBuffer.toString('base64')}` 
                 : null
@@ -233,9 +238,9 @@ function qrUploadApiPlugin() {
 
               session.uploaded = true
               session.file = {
-                fileName: fileName || `petition_${sessionId}.jpg`,
+                fileName: fileName || (isPdf ? `petition_${sessionId}.pdf` : `petition_${sessionId}.jpg`),
                 fileSize: sizeFormatted,
-                fileType: fileType || 'image/jpeg',
+                fileType: fileType || (isPdf ? 'application/pdf' : 'image/jpeg'),
                 dataUrl: dataUrl,
                 buffer: fileBuffer
               }

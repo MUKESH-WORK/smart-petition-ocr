@@ -47,6 +47,7 @@ export default function MobileCapturePage({ sessionId: propSessionId }) {
   const [fileDetails, setFileDetails] = useState(null);
 
   const cameraInputRef = useRef(null);
+  const docInputRef = useRef(null);
   const galleryInputRef = useRef(null);
 
   // Clean up object URLs on unmount or file change
@@ -62,8 +63,18 @@ export default function MobileCapturePage({ sessionId: propSessionId }) {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (!file.type.startsWith('image/') && !file.name.match(/\.(jpg|jpeg|png|webp|heic)$/i)) {
-      setErrorMessage('Please capture or select a valid image file (JPG, PNG, WEBP).');
+    const isPdf = Boolean(
+      (file.type && file.type === 'application/pdf') ||
+      (file.name && file.name.toLowerCase().endsWith('.pdf'))
+    );
+
+    const isImage = Boolean(
+      (file.type && file.type.startsWith('image/')) ||
+      (file.name && file.name.match(/\.(jpg|jpeg|png|webp|heic|bmp|tiff|tif|svg)$/i))
+    );
+
+    if (!isPdf && !isImage) {
+      setErrorMessage('Please select a valid document (PDF) or image (JPG, PNG, WEBP, etc.).');
       return;
     }
 
@@ -77,16 +88,20 @@ export default function MobileCapturePage({ sessionId: propSessionId }) {
       ? `${(file.size / (1024 * 1024)).toFixed(1)} MB` 
       : `${Math.max(1, Math.round(file.size / 1024))} KB`;
 
-    // Default clean filename e.g. petition_01.jpg
+    // Detect extension from file name or default
+    const existingExtMatch = file.name ? file.name.match(/\.[0-9a-z]+$/i) : null;
+    const defaultExt = isPdf ? '.pdf' : (existingExtMatch ? existingExtMatch[0] : '.jpg');
+
     const initialName = file.name && !file.name.match(/^\d{10,}/) 
       ? file.name 
-      : `petition_${new Date().toISOString().slice(0, 10)}.jpg`;
+      : `petition_${new Date().toISOString().slice(0, 10)}${defaultExt}`;
 
     setCustomFileName(initialName);
     setFileDetails({
       name: initialName,
       size: sizeFormatted,
-      type: file.type || 'image/jpeg',
+      type: file.type || (isPdf ? 'application/pdf' : 'image/jpeg'),
+      isPdf: isPdf,
       lastModified: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     });
   };
@@ -101,22 +116,33 @@ export default function MobileCapturePage({ sessionId: propSessionId }) {
     setCustomFileName('');
     setErrorMessage('');
     if (cameraInputRef.current) cameraInputRef.current.value = '';
+    if (docInputRef.current) docInputRef.current.value = '';
     if (galleryInputRef.current) galleryInputRef.current.value = '';
   };
 
   const handleUpload = async () => {
     if (!selectedFile || !sessionId) {
-      setErrorMessage('Missing image or session ID.');
+      setErrorMessage('Missing file or session ID.');
       return;
     }
 
     setIsUploading(true);
     setErrorMessage('');
 
-    // Ensure filename ends with proper image extension
-    let finalFileName = customFileName.trim() || 'petition.jpg';
-    if (!finalFileName.match(/\.(jpg|jpeg|png|webp)$/i)) {
-      finalFileName += '.jpg';
+    const isPdf = Boolean(
+      (selectedFile.type && selectedFile.type === 'application/pdf') ||
+      (selectedFile.name && selectedFile.name.toLowerCase().endsWith('.pdf'))
+    );
+
+    let finalFileName = customFileName.trim() || (isPdf ? 'petition.pdf' : 'petition.jpg');
+    if (isPdf) {
+      if (!finalFileName.toLowerCase().endsWith('.pdf')) {
+        finalFileName += '.pdf';
+      }
+    } else {
+      if (!finalFileName.match(/\.(jpg|jpeg|png|webp|bmp|tiff|tif|heic|svg)$/i)) {
+        finalFileName += '.jpg';
+      }
     }
 
     try {
@@ -206,13 +232,26 @@ export default function MobileCapturePage({ sessionId: propSessionId }) {
               <span className="preview-subtitle">Verify that the document is sharp and legible</span>
             </div>
 
-            {/* Photo Container */}
-            <div className="preview-photo-frame">
-              <img 
-                src={previewUrl} 
-                alt="Captured Petition Preview" 
-                className="preview-image-element"
-              />
+            {/* Photo / Document Container */}
+            <div className={`preview-photo-frame ${fileDetails?.isPdf ? 'preview-pdf-mode' : ''}`}>
+              {fileDetails?.isPdf ? (
+                <div className="preview-pdf-container">
+                  <div className="preview-pdf-icon-wrap">
+                    <FileText size={48} className="preview-pdf-icon" />
+                  </div>
+                  <div className="preview-pdf-info">
+                    <span className="preview-pdf-badge">PDF Document</span>
+                    <span className="preview-pdf-filename font-mono">{fileDetails?.name || 'document.pdf'}</span>
+                    <span className="preview-pdf-hint">Multi-page or single-page PDF document ready for upload</span>
+                  </div>
+                </div>
+              ) : (
+                <img 
+                  src={previewUrl} 
+                  alt="Captured Petition Preview" 
+                  className="preview-image-element"
+                />
+              )}
               <div className="preview-overlay-tag">
                 <FileText size={13} />
                 <span>{fileDetails?.size || 'Ready'}</span>
@@ -231,7 +270,7 @@ export default function MobileCapturePage({ sessionId: propSessionId }) {
                   type="text" 
                   value={customFileName}
                   onChange={(e) => setCustomFileName(e.target.value)}
-                  placeholder="e.g. road_repair_petition.jpg"
+                  placeholder={fileDetails?.isPdf ? "e.g. petition_road_repair.pdf" : "e.g. road_repair_petition.jpg"}
                   className="filename-custom-input"
                   disabled={isUploading}
                 />
@@ -301,7 +340,7 @@ export default function MobileCapturePage({ sessionId: propSessionId }) {
                 </div>
                 <div className="viewfinder-prompt-title">Place Petition in Frame</div>
                 <p className="viewfinder-prompt-sub">
-                  Align the document borders within the frame. Avoid glare and shadows.
+                  Align document borders within frame, or select a PDF / image file directly.
                 </p>
               </div>
             </div>
@@ -328,6 +367,16 @@ export default function MobileCapturePage({ sessionId: propSessionId }) {
                 <ChevronRight size={18} className="btn-chevron" />
               </button>
 
+              {/* Upload PDF Document */}
+              <button 
+                type="button" 
+                className="mobile-btn-secondary mobile-btn-pdf"
+                onClick={() => docInputRef.current?.click()}
+              >
+                <FileText size={18} className="btn-icon pdf-btn-icon" />
+                <span className="btn-text">Upload PDF Document</span>
+              </button>
+
               {/* Secondary: Choose from Photo Gallery */}
               <button 
                 type="button" 
@@ -335,7 +384,7 @@ export default function MobileCapturePage({ sessionId: propSessionId }) {
                 onClick={() => galleryInputRef.current?.click()}
               >
                 <ImageIcon size={18} className="btn-icon" />
-                <span className="btn-text">Choose from Gallery</span>
+                <span className="btn-text">Choose from Gallery (Images)</span>
               </button>
 
             </div>
@@ -353,11 +402,20 @@ export default function MobileCapturePage({ sessionId: propSessionId }) {
 
             <input 
               type="file" 
+              ref={docInputRef}
+              onChange={handleFileChange}
+              accept="application/pdf,.pdf"
+              style={{ display: 'none' }}
+              aria-label="Upload PDF petition document"
+            />
+
+            <input 
+              type="file" 
               ref={galleryInputRef}
               onChange={handleFileChange}
-              accept="image/*"
+              accept="image/*,application/pdf,.pdf,.jpg,.jpeg,.png,.webp,.bmp,.tiff,.tif,.heic"
               style={{ display: 'none' }}
-              aria-label="Choose petition photo from gallery"
+              aria-label="Choose petition photo or document from gallery"
             />
 
             {/* Quality Tips */}
@@ -367,9 +425,9 @@ export default function MobileCapturePage({ sessionId: propSessionId }) {
                 <span>Tips for Best Accuracy</span>
               </div>
               <ul className="tips-list">
-                <li>Flatten any folded petition pages before taking photo.</li>
-                <li>Hold your phone directly above the paper.</li>
-                <li>Ensure good daylight or ambient room lighting.</li>
+                <li>PDF documents (scanned or digital) are fully supported.</li>
+                <li>Supports JPG, PNG, WEBP & high-resolution camera scans.</li>
+                <li>Ensure good lighting and avoid shadows on paper petitions.</li>
               </ul>
             </div>
 

@@ -271,6 +271,20 @@
   transform: scale(0.98);
 }
 
+.mobile-btn-secondary.mobile-btn-pdf {
+  border-color: #FCA5A5;
+  background: #FFF5F5;
+  color: #991B1B;
+}
+
+.mobile-btn-secondary.mobile-btn-pdf:active {
+  background: #FEE2E2;
+}
+
+.pdf-btn-icon {
+  color: #DC2626;
+}
+
 /* Quality Tips Card */
 .mobile-tips-card {
   width: 100%;
@@ -362,6 +376,75 @@
   max-height: 320px;
   object-fit: contain;
   display: block;
+}
+
+/* PDF Preview Frame Styles */
+.preview-photo-frame.preview-pdf-mode {
+  background: #F8FAFC;
+  border-color: #CBD5E1;
+  min-height: 220px;
+  padding: 28px 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.preview-pdf-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+
+.preview-pdf-icon-wrap {
+  width: 80px;
+  height: 80px;
+  border-radius: 20px;
+  background: #FEF2F2;
+  border: 1.5px solid #FCA5A5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.12);
+}
+
+.preview-pdf-icon {
+  color: #DC2626;
+}
+
+.preview-pdf-info {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  max-width: 90%;
+}
+
+.preview-pdf-badge {
+  display: inline-block;
+  background: #DC2626;
+  color: #FFFFFF;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 3px 10px;
+  border-radius: 9999px;
+}
+
+.preview-pdf-filename {
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: #1E293B;
+  word-break: break-all;
+}
+
+.preview-pdf-hint {
+  font-size: 0.76rem;
+  color: #64748B;
+  text-align: center;
 }
 
 .preview-overlay-tag {
