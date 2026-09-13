@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Header from './components/layout/Header';
 import Sidebar from './components/layout/Sidebar';
 import UploadLanding from './components/upload/UploadLanding';
@@ -132,41 +132,40 @@ export default function App() {
   }, []);
 
   // Upload / Petition Selection handler
-  const handleSelectPetition = (petition) => {
-    if (activePetition?.previewUrl && activePetition.previewUrl !== petition.previewUrl) {
-      URL.revokeObjectURL(activePetition.previewUrl);
-    }
-    setActivePetition(petition);
+  const handleSelectPetition = useCallback((petition) => {
+    setActivePetition((prev) => {
+      if (prev?.previewUrl && prev.previewUrl !== petition.previewUrl) {
+        URL.revokeObjectURL(prev.previewUrl);
+      }
+      return petition;
+    });
     setActiveModule('gdp');
     setViewState('processing');
-  };
+  }, []);
 
-  // Processing Completed handler
-  const handleProcessingComplete = (analyzedPetition) => {
-    const finalPetition = analyzedPetition || activePetition;
-    if (analyzedPetition) {
-      setActivePetition(analyzedPetition);
-    }
+  // Processing Completed handler — stable reference required by ProcessingOverlay useEffect
+  const handleProcessingComplete = useCallback((analyzedPetition) => {
+    setActivePetition((prev) => {
+      const finalPetition = analyzedPetition || prev;
+      if (finalPetition) {
+        const auditEntry = {
+          id: `AUD-${Date.now()}`,
+          timestamp: new Date().toISOString(),
+          category: 'GDP Assistant',
+          categoryLabel: 'GDP Assistant',
+          officer: 'USER',
+          source_id: finalPetition.source_id || finalPetition.id || 'SESSION-001',
+          details: `Processed: ${finalPetition.fileName} (${finalPetition.portalDetails?.grievanceType || 'Grievance Analysis Complete'})`,
+          rawPetition: finalPetition
+        };
+        setAuditRecords((records) => [auditEntry, ...records]);
+        showToast(`Analysis complete for ${finalPetition.fileName || 'Petition'}`);
+      }
+      return analyzedPetition || prev;
+    });
     setViewState('workspace');
     setIsDrawerOpen(false);
-
-    // Record petition processed into audit trail
-    if (finalPetition) {
-      const auditEntry = {
-        id: `AUD-${Date.now()}`,
-        timestamp: new Date().toISOString(),
-        category: 'GDP Assistant',
-        categoryLabel: 'GDP Assistant',
-        officer: 'USER',
-        source_id: finalPetition.source_id || finalPetition.id || 'SESSION-001',
-        details: `Processed: ${finalPetition.fileName} (${finalPetition.portalDetails?.grievanceType || 'Grievance Analysis Complete'})`,
-        rawPetition: finalPetition
-      };
-      setAuditRecords((prev) => [auditEntry, ...prev]);
-    }
-
-    showToast(`Analysis complete for ${finalPetition?.fileName || 'Petition'}`);
-  };
+  }, []);
 
   // Log user-submitted prompts in GDP Assistant to Audit Trail
   const handleLogUserMessage = (promptText, petition) => {

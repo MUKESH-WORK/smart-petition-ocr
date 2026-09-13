@@ -51,8 +51,34 @@ def upgrade() -> None:
     ON audit_log (source_id, timestamp DESC);
     """)
 
+    # 6. Update sources status check constraint to include intermediate pipeline states
+    op.execute("ALTER TABLE sources DROP CONSTRAINT IF EXISTS sources_status_check;")
+    op.execute("""
+    ALTER TABLE sources ADD CONSTRAINT sources_status_check 
+    CHECK (status IN (
+        'uploaded',
+        'pending',
+        'processing',
+        'ocr_processing',
+        'ocr_complete',
+        'ocr_review',
+        'vector_indexing',
+        'vector_indexed',
+        'entity_extracting',
+        'entity_extracted',
+        'ai_analyzing',
+        'draft_ready',
+        'officer_approved',
+        'pushed_to_dro',
+        'rejected',
+        'completed',
+        'failed'
+    ));
+    """)
+
 
 def downgrade() -> None:
+    op.execute("ALTER TABLE sources DROP CONSTRAINT IF EXISTS sources_status_check;")
     op.execute("DROP INDEX IF EXISTS idx_job_queue_poll;")
     op.execute("DROP INDEX IF EXISTS idx_sources_file_hash;")
     op.execute("DROP INDEX IF EXISTS idx_extracted_entities_status;")

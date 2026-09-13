@@ -145,38 +145,45 @@ export async function uploadAndAnalyzePetition(file, onProgress) {
 
   let attempts = 0;
   const maxAttempts = 90; // ~135 seconds max for heavy OCR + Ollama inference
-  while (attempts < maxAttempts) {
+  let pollBreak = false;
+  while (attempts < maxAttempts && !pollBreak) {
     attempts++;
     await new Promise((resolve) => setTimeout(resolve, 1500));
 
+    let sData = null;
     try {
       const statusRes = await fetch(`${API_BASE}/grievance/${sourceId}/status`);
       if (statusRes.ok) {
-        const sData = await statusRes.json();
-        
-        if (sData.status === 'failed') {
-          throw new Error('Petition processing failed in background worker.');
-        }
+        sData = await statusRes.json();
+      }
+    } catch (_netErr) {
+      // transient network glitch — keep polling
+      continue;
+    }
 
-        // Progress stage mapping:
-        if (sData.draft_ready) {
-          if (onProgress) onProgress(5);
-          break;
-        } else if (sData.ai_analysis_ready) {
-          if (onProgress) onProgress(4);
-        } else if (sData.chunk_count > 0 || sData.entity_count > 0) {
-          if (onProgress) onProgress(3);
-        } else if (sData.page_count > 0 || sData.status === 'ocr_complete') {
-          if (onProgress) onProgress(2);
-        } else {
-          if (onProgress) onProgress(1);
-        }
-      }
-    } catch (err) {
-      if (err.message && err.message.includes('failed')) {
-        throw err;
-      }
-      // transient network poll glitch, keep trying
+    if (!sData) continue;
+
+    // Permanent failure: backend worker exhausted all retries
+    if (sData.status === 'failed') {
+      throw new Error('Petition processing failed in the background worker. The document may be unreadable or the AI service is unavailable. Please try again.');
+    }
+
+    // Success: draft is ready — advance UI and exit loop
+    if (sData.draft_ready || sData.status === 'draft_ready') {
+      if (onProgress) onProgress(5);
+      pollBreak = true;
+      break;
+    }
+
+    // Intermediate progress stage mapping
+    if (sData.ai_analysis_ready) {
+      if (onProgress) onProgress(4);
+    } else if (sData.chunk_count > 0 || sData.entity_count > 0) {
+      if (onProgress) onProgress(3);
+    } else if (sData.page_count > 0 || sData.status === 'ocr_complete') {
+      if (onProgress) onProgress(2);
+    } else {
+      if (onProgress) onProgress(1);
     }
   }
 

@@ -1,7 +1,28 @@
-from typing import List, Optional, Any, Dict
+from enum import Enum
+from typing import List, Optional, Any, Dict, Union
 from uuid import UUID
 from datetime import datetime
 from pydantic import BaseModel, Field
+
+
+class SourceStatus(str, Enum):
+    UPLOADED = "uploaded"
+    PENDING = "pending"
+    PROCESSING = "processing"
+    OCR_PROCESSING = "ocr_processing"
+    OCR_COMPLETE = "ocr_complete"
+    OCR_REVIEW = "ocr_review"
+    VECTOR_INDEXING = "vector_indexing"
+    VECTOR_INDEXED = "vector_indexed"
+    ENTITY_EXTRACTING = "entity_extracting"
+    ENTITY_EXTRACTED = "entity_extracted"
+    AI_ANALYZING = "ai_analyzing"
+    DRAFT_READY = "draft_ready"
+    OFFICER_APPROVED = "officer_approved"
+    PUSHED_TO_DRO = "pushed_to_dro"
+    REJECTED = "rejected"
+    COMPLETED = "completed"
+    FAILED = "failed"
 
 
 # --- Common & Auth ---
@@ -20,14 +41,14 @@ class SourceUploadResponse(BaseModel):
     file_name: str
     file_size_bytes: int
     page_count: int
-    status: str
+    status: Union[SourceStatus, str]
     created_at: datetime
 
 
 class SourceStatusResponse(BaseModel):
     source_id: UUID
     file_name: str
-    status: str
+    status: Union[SourceStatus, str]
     ocr_confidence: Optional[float] = None
     page_count: int
     chunk_count: int

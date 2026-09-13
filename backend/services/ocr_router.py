@@ -481,7 +481,34 @@ class HybridOCRRouter:
         """
         start_time = time.time()
 
-        # 1. SHA256 Document Fingerprint Cache Hit Check
+        # 0. Instant reuse if this source_id already has completed OCR results
+        existing_ocr = await db.execute(
+            text("SELECT COUNT(*) FROM ocr_results WHERE source_id = CAST(:sid AS UUID)"),
+            {"sid": source_id}
+        )
+        if existing_ocr.scalar_one() > 0:
+            count_res = await db.execute(
+                text("SELECT page_count FROM sources WHERE source_id = CAST(:sid AS UUID)"),
+                {"sid": source_id}
+            )
+            page_count = count_res.scalar() or 1
+            logger.info(f"⚡ OCR results already exist for source {source_id} ({page_count} pages), reusing existing OCR instantly.")
+            await db.execute(text("""
+                UPDATE sources
+                SET page_count = :page_count, status = 'ocr_complete', updated_at = NOW()
+                WHERE source_id = CAST(:source_id AS UUID)
+            """), {"source_id": source_id, "page_count": page_count})
+            await db.commit()
+            return {
+                "source_id": source_id,
+                "pages": page_count,
+                "total_blocks": 0,
+                "cached": True,
+                "total_time_ms": int((time.time() - start_time) * 1000),
+                "ocr_engine": "cached_existing"
+            }
+
+        # 1. SHA256 Document Fingerprint Cache Hit Check (Identical file previously uploaded)
         cached_source_id = await self._check_ocr_cache(db, source_id)
         if cached_source_id:
             logger.info(f"⚡ Cache HIT for source {source_id}: copying OCR results from {cached_source_id}")

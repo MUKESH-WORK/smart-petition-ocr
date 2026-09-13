@@ -413,7 +413,14 @@ class AIAnalyzer:
         if f_name:
             f_name = re.sub(r'^(?:s/o|s\.o|த/பெ|த\.பெ|w/o|w\.o|க/பெ|க\.பெ|ம/பெ|மகன்|மனைவி|தந்தை|கணவர்|காலஞ்சென்ற|Late)\s*[:\.\-]?\s*', '', f_name, flags=re.IGNORECASE).strip(',.-: ')
             f_name = re.sub(r'\(\d+\)|\d+', '', f_name).strip(',.-: ')
-            if len(f_name) < 2 or f_name.lower() in INVALID_VALUES or any(w in f_name for w in ["தொழிலாளி", "கூலி", "விவசாயி", "இறந்து", "இல்லை", "காலமானார்", "உள்ளது"]):
+            if (
+                len(f_name) < 2 or f_name.lower() in INVALID_VALUES or
+                any(w in f_name for w in [
+                    "தொழிலாளி", "கூலி", "விவசாயி", "இறந்து", "இல்லை", "காலமானார்", "உள்ளது",
+                    "தெரு", "நகர்", "ரோடு", "வட்டம்", "மாவட்டம்", "கிராமம்", "காலனி", "ஊராட்சி",
+                    "பகுதி", "Street", "Road", "Nagar", "Village", "Taluk", "District"
+                ])
+            ):
                 f_name = None
 
         p_gender = clean_field(llm_data.get("gender")) or None
@@ -634,15 +641,42 @@ class AIAnalyzer:
             except Exception as e:
                 logger.warning(f"Master location query notice: {e}")
 
-        p_block = f"{p_taluk} ஒன்றியம்" if p_taluk else "-"
-        p_rev_div = f"{p_taluk} வருவாய் கோட்டம்" if p_taluk else "-"
+        def sanitize_short_field(val: Any, max_len: int = 50) -> Optional[str]:
+            if not val or val == "-":
+                return None
+            s = str(val).strip()
+            for marker in ["பகுதி ", "வட்டம் ", "வட்டத்திற்குட்பட்ட ", "வசிக்கும் "]:
+                if marker in s:
+                    s = s.split(marker)[-1].strip()
+            s = s.strip(" .,-()[]{}:;")
+            return s[:max_len].strip() if len(s) > max_len else (s if s else None)
+
+        p_taluk = sanitize_short_field(p_taluk, 50)
+        p_district = sanitize_short_field(p_district, 50)
+        p_village = sanitize_short_field(p_village, 50)
+        p_firka = sanitize_short_field(p_firka, 50)
+        p_door = sanitize_short_field(p_door, 50)
+        p_street = sanitize_short_field(p_street, 150)
+        p_block = sanitize_short_field(f"{p_taluk} ஒன்றியம்" if p_taluk else "-", 50)
+        p_rev_div = sanitize_short_field(f"{p_taluk} வருவாய் கோட்டம்" if p_taluk else "-", 50)
+
         if not p_resp_off or p_resp_off == "வட்டாட்சியர்":
             if "revenue" in p_dept.lower() or "வருவாய்" in p_dept:
                 p_resp_off = f"வட்டாட்சியர், {p_taluk}" if p_taluk else "வட்டாட்சியர்"
             else:
                 p_resp_off = tax_match.get("responsible_officer") if (tax_match and tax_match.get("responsible_officer")) else "துறை அலுவலர்"
+        p_resp_off = sanitize_short_field(p_resp_off, 150)
 
         # Safeguard field lengths against runaway strings
+        p_name = (p_name or "")[:150].strip() or None
+        f_name = (f_name or "")[:150].strip() or None
+        p_father = f_name
+        p_phone = (p_phone or "")[:20].strip() or None
+        p_alt_phone = (p_alt_phone or "")[:20].strip() or None
+        p_gender = (p_gender or "")[:20].strip() or None
+        p_ref_no = (p_ref_no or "")[:100].strip() or None
+        p_priority = (p_priority or "MEDIUM")[:20].strip()
+        p_lbody = sanitize_short_field(clean_field(llm_data.get("local_body_type")), 50)
         if p_dept and len(p_dept) > 150:
             p_dept = p_dept[:150].strip()
         if p_gtype and len(p_gtype) > 150:
@@ -651,8 +685,6 @@ class AIAnalyzer:
             p_gsub = p_gsub[:150].strip()
         if p_subdept and len(p_subdept) > 150:
             p_subdept = p_subdept[:150].strip()
-        if p_resp_off and len(p_resp_off) > 150:
-            p_resp_off = p_resp_off[:150].strip()
 
         analysis_result = {
             "grievance_type": p_gtype,
@@ -788,7 +820,7 @@ class AIAnalyzer:
                 "ref_no": p_ref_no,
                 "dept": p_dept,
                 "sub_dept": p_subdept,
-                "local_body_type": clean_field(llm_data.get("local_body_type")),
+                "local_body_type": p_lbody,
                 "g_type": p_gtype,
                 "g_sub": p_gsub,
                 "district": p_district,

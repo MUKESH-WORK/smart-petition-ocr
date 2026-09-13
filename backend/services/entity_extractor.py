@@ -223,7 +223,7 @@ class EntityExtractor:
                     if so_m:
                         rel_val = re.sub(r'^(?:S/o|D/o|W/o|Wo|த/பெ|க/பெ|த/\s*ப|தந்தை|கணவர்|Father|Husband|காலஞ்சென்ற|Late)\s*[:\.\-]?\s*', '', so_m.group(1), flags=re.IGNORECASE)
                         rel_val = re.sub(r'[0-9]', '', rel_val).strip(' ,.-:')
-                        if rel_val and not any(w in rel_val for w in ["தொழிலாளி", "கூலி", "விவசாயி", "இறந்து", "இல்லை", "காலமானார்", "உள்ளது"]):
+                        if rel_val and not any(w in rel_val for w in ["தொழிலாளி", "கூலி", "விவசாயி", "இறந்து", "இல்லை", "காலமானார்", "உள்ளது", "தெரு", "நகர்", "ரோடு", "வட்டம்", "மாவட்டம்", "கிராமம்", "காலனி", "ஊராட்சி", "Street", "Road", "Nagar"]):
                             if 2 <= len(rel_val) <= 40 and not self._is_invalid_value(rel_val) and not any(e["entity_type"] == "father_husband_name" for e in entities):
                                 entities.append({
                                     "entity_type": "father_husband_name",
@@ -273,8 +273,8 @@ class EntityExtractor:
                 cand_p = re.sub(r'^(?:அனுப்புநர்|அனுப்புதல்|விண்ணப்பதாரர்|மனுதாரர்)\s*[:\.\-]?\s*', '', cand_p).strip()
                 cand_p = re.sub(r'[0-9]', '', cand_p).strip()
                 cand_rel = re.sub(r'[0-9]', '', cand_rel).strip()
-                # Ensure cand_rel is not an occupation or verb
-                if cand_rel and not any(w in cand_rel for w in ["தொழிலாளி", "கூலி", "விவசாயி", "இறந்து", "இல்லை", "காலமானார்", "உள்ளது"]):
+                # Ensure cand_rel is not an occupation, verb, or address
+                if cand_rel and not any(w in cand_rel for w in ["தொழிலாளி", "கூலி", "விவசாயி", "இறந்து", "இல்லை", "காலமானார்", "உள்ளது", "தெரு", "நகர்", "ரோடு", "வட்டம்", "மாவட்டம்", "கிராமம்", "காலனி", "ஊராட்சி", "Street", "Road", "Nagar"]):
                     if cand_p and 3 <= len(cand_p) <= 40 and not self._is_invalid_value(cand_p) and not any(e["entity_type"] == "petitioner_name" for e in entities):
                         entities.append({
                             "entity_type": "petitioner_name",
@@ -303,7 +303,7 @@ class EntityExtractor:
                     '', clean_l, flags=re.IGNORECASE
                 ).strip()
                 clean_f = re.sub(r'[0-9]', '', clean_f).strip().split(',')[0].strip()
-                if clean_f and not any(w in clean_f for w in ["தொழிலாளி", "கூலி", "விவசாயி", "இறந்து", "இல்லை", "காலமானார்", "உள்ளது"]):
+                if clean_f and not any(w in clean_f for w in ["தொழிலாளி", "கூலி", "விவசாயி", "இறந்து", "இல்லை", "காலமானார்", "உள்ளது", "தெரு", "நகர்", "ரோடு", "வட்டம்", "மாவட்டம்", "கிராமம்", "காலனி", "ஊராட்சி", "Street", "Road", "Nagar"]):
                     if clean_f and 3 <= len(clean_f) <= 40 and not self._is_invalid_value(clean_f) and not any(e["entity_type"] == "father_husband_name" for e in entities):
                         entities.append({
                             "entity_type": "father_husband_name",

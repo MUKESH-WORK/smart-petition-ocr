@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { FileText, CheckCircle2, Loader2, Circle, ShieldCheck, AlertTriangle, RotateCcw, X } from 'lucide-react';
 import { uploadAndAnalyzePetition } from '../../services/apiService';
 import './Upload.css';
@@ -16,19 +16,27 @@ export default function ProcessingOverlay({ petition, onComplete, onCancel }) {
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
   const [pipelineError, setPipelineError] = useState(null);
   const [retryNonce, setRetryNonce] = useState(0);
+  const runningRef = useRef(false);
 
   const handleRetry = useCallback(() => {
+    runningRef.current = false;
     setPipelineError(null);
     setCurrentStepIndex(0);
     setRetryNonce((n) => n + 1);
   }, []);
 
   useEffect(() => {
+    if (runningRef.current) return;
+    runningRef.current = true;
     let isMounted = true;
 
-    // Minimum pacing so early steps animate smoothly
-    const earlyTimer1 = setTimeout(() => { if (isMounted) setCurrentStepIndex((p) => Math.max(p, 1)); }, 500);
-    const earlyTimer2 = setTimeout(() => { if (isMounted) setCurrentStepIndex((p) => Math.max(p, 2)); }, 1200);
+    // Smooth early-step animation (only advances if backend hasn't already moved ahead)
+    const earlyTimer1 = setTimeout(() => {
+      if (isMounted) setCurrentStepIndex((p) => Math.max(p, 1));
+    }, 600);
+    const earlyTimer2 = setTimeout(() => {
+      if (isMounted) setCurrentStepIndex((p) => Math.max(p, 2));
+    }, 1400);
 
     const onProgressCallback = (stepIdx) => {
       if (isMounted) {
@@ -44,8 +52,8 @@ export default function ProcessingOverlay({ petition, onComplete, onCancel }) {
     pipelinePromise
       .then((realAnalyzedDoc) => {
         if (!isMounted) return;
-        // Backend finished! Advance to final step (Ready for understanding - 100%)
-        setCurrentStepIndex(5);
+        // Backend finished — advance to final step (Ready for understanding — 100%)
+        setCurrentStepIndex(PROCESSING_STEPS.length - 1);
         setTimeout(() => {
           if (isMounted) {
             onComplete(realAnalyzedDoc || petition);
@@ -53,9 +61,9 @@ export default function ProcessingOverlay({ petition, onComplete, onCancel }) {
         }, 800);
       })
       .catch((err) => {
-        console.error('Real official pipeline error:', err);
+        console.error('Official pipeline error:', err);
         if (!isMounted) return;
-        setPipelineError(err.message || 'An error occurred during official pipeline processing');
+        setPipelineError(err.message || 'An error occurred during processing');
       });
 
     return () => {
@@ -63,7 +71,8 @@ export default function ProcessingOverlay({ petition, onComplete, onCancel }) {
       clearTimeout(earlyTimer1);
       clearTimeout(earlyTimer2);
     };
-  }, [petition, onComplete, retryNonce]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [petition, retryNonce]); // onComplete excluded — stable useCallback ref, avoids re-trigger
 
   // Overall progress percentage
   const progressPercent = Math.min(100, Math.round(((currentStepIndex + 1) / PROCESSING_STEPS.length) * 100));

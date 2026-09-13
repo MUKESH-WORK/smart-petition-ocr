@@ -88,7 +88,53 @@ async def init_db_schema():
             try:
                 await conn.execute(text("ALTER TABLE extracted_entities DROP CONSTRAINT IF EXISTS extracted_entities_extracted_by_check;"))
             except Exception as e:
-                logger.debug(f"Could not drop check constraint: {e}")
+                logger.debug(f"Could not drop extracted_entities_extracted_by_check: {e}")
+            try:
+                await conn.execute(text("ALTER TABLE sources DROP CONSTRAINT IF EXISTS sources_status_check;"))
+                await conn.execute(text("""
+                    ALTER TABLE sources ADD CONSTRAINT sources_status_check 
+                    CHECK (status IN (
+                        'uploaded',
+                        'pending',
+                        'processing',
+                        'ocr_processing',
+                        'ocr_complete',
+                        'ocr_review',
+                        'vector_indexing',
+                        'vector_indexed',
+                        'entity_extracting',
+                        'entity_extracted',
+                        'ai_analyzing',
+                        'draft_ready',
+                        'officer_approved',
+                        'pushed_to_dro',
+                        'rejected',
+                        'completed',
+                        'failed'
+                    ));
+                """))
+            except Exception as e:
+                logger.debug(f"Could not update sources_status_check constraint: {e}")
+            try:
+                await conn.execute(text("""
+                    ALTER TABLE grievance_drafts 
+                        ALTER COLUMN district TYPE VARCHAR(255),
+                        ALTER COLUMN revenue_division TYPE VARCHAR(255),
+                        ALTER COLUMN taluk TYPE VARCHAR(255),
+                        ALTER COLUMN firka TYPE VARCHAR(255),
+                        ALTER COLUMN block TYPE VARCHAR(255),
+                        ALTER COLUMN village TYPE VARCHAR(255),
+                        ALTER COLUMN street_name TYPE VARCHAR(255),
+                        ALTER COLUMN door_no TYPE VARCHAR(100),
+                        ALTER COLUMN responsible_officer TYPE VARCHAR(255),
+                        ALTER COLUMN department TYPE VARCHAR(255),
+                        ALTER COLUMN sub_department TYPE VARCHAR(255),
+                        ALTER COLUMN local_body_type TYPE VARCHAR(255),
+                        ALTER COLUMN grievance_type TYPE VARCHAR(255),
+                        ALTER COLUMN grievance_subtype TYPE VARCHAR(255);
+                """))
+            except Exception as e:
+                logger.debug(f"Could not widen grievance_drafts columns: {e}")
     logger.info(f"Database schema initialized successfully ({'SQLite' if is_sqlite else 'PostgreSQL'}).")
 
 
