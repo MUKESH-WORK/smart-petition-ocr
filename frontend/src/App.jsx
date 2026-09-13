@@ -11,6 +11,7 @@ import ProfileView from './components/profile/ProfileView';
 import MobileCapturePage from './components/mobile/MobileCapturePage';
 import { ChevronRight, ChevronLeft } from 'lucide-react';
 import { fetchAuditHistory, fetchPetitionBySourceId } from './services/apiService';
+import ErrorBoundary from './components/common/ErrorBoundary';
 import { FullAppAutoTranslator } from './lib/dynamicTranslate';
 import './styles/index.css';
 
@@ -299,10 +300,12 @@ export default function App() {
                     
                     {/* 1. Left AI Workspace Panel (Summary & Chat in Scrollable Area + Stationary Input) */}
                     <section className="left-ai-panel" aria-label="AI Document Assistant">
-                      <SummaryChatView
-                        petition={activePetition}
-                        onLogUserMessage={handleLogUserMessage}
-                      />
+                      <ErrorBoundary onReset={() => setViewState('landing')}>
+                        <SummaryChatView
+                          petition={activePetition}
+                          onLogUserMessage={handleLogUserMessage}
+                        />
+                      </ErrorBoundary>
                     </section>
 
                     {/* 2. Vertically-Centered Toggle Handle (Anchored to Right Panel Left Edge) */}

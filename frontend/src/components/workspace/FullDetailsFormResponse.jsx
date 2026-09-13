@@ -90,6 +90,7 @@ export default function FullDetailsFormResponse({ initialDetails }) {
 
         <div className="full-details-form-grid">
           <FieldDisplayBox label="Petitioner Name" value={data.petitionerName} />
+          <FieldDisplayBox label="Father / Husband Name" value={data.fatherHusbandName} />
           <FieldDisplayBox label="Email" value={data.email} />
           
           <FieldDisplayBox label="Phone Number" value={data.phoneNumber} />

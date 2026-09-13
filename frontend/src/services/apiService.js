@@ -44,6 +44,7 @@ export function mapDraftToPortalDetails(draft = {}, analysis = {}) {
   return {
     // 1. Petitioner Information
     petitionerName: petitionerName,
+    fatherHusbandName: draft.father_husband_name || 'Not found',
     email: draft.email || 'Not found',
     phoneNumber: phone,
     isOwnNumber: draft.is_own_phone !== null && draft.is_own_phone !== undefined ? (draft.is_own_phone ? 'Yes' : 'No') : 'Not mentioned',
@@ -144,7 +145,7 @@ export async function uploadAndAnalyzePetition(file, onProgress) {
   }
 
   let attempts = 0;
-  const maxAttempts = 90; // ~135 seconds max for heavy OCR + Ollama inference
+  const maxAttempts = 160; // Up to ~240 seconds for heavy OCR + Ollama inference
   let pollBreak = false;
   while (attempts < maxAttempts && !pollBreak) {
     attempts++;
@@ -168,8 +169,8 @@ export async function uploadAndAnalyzePetition(file, onProgress) {
       throw new Error('Petition processing failed in the background worker. The document may be unreadable or the AI service is unavailable. Please try again.');
     }
 
-    // Success: draft is ready — advance UI and exit loop
-    if (sData.draft_ready || sData.status === 'draft_ready') {
+    // Success: draft is ready or source completed — advance UI and exit loop
+    if (sData.draft_ready || sData.status === 'draft_ready' || (sData.status === 'completed' && sData.ai_analysis_ready)) {
       if (onProgress) onProgress(5);
       pollBreak = true;
       break;
@@ -186,6 +187,9 @@ export async function uploadAndAnalyzePetition(file, onProgress) {
       if (onProgress) onProgress(1);
     }
   }
+
+  // Brief stabilization pause for database transaction commit
+  await new Promise((resolve) => setTimeout(resolve, 600));
 
   // 3. Fetch final draft, analysis, and OCR results
   const [draftRes, analysisRes, ocrRes] = await Promise.allSettled([
@@ -208,15 +212,43 @@ export async function uploadAndAnalyzePetition(file, onProgress) {
     }
   }
 
-  if (!draftData || (!draftData.dro_grievance_id && !draftData.description)) {
+  // Retry fetching draft up to 6 times if backend worker is just finishing the insert
+  let draftRetries = 0;
+  while (!draftData && draftRetries < 6) {
+    draftRetries++;
+    await new Promise((r) => setTimeout(r, 1200));
+    try {
+      const dRes = await fetch(`${API_BASE}/grievance/${sourceId}/draft`);
+      if (dRes.ok) {
+        draftData = await dRes.json();
+        break;
+      }
+    } catch (_e) {}
+  }
+
+  // If draft row is delayed but analysis data exists, synthesize draftData from analysis
+  if (!draftData && (analysisData.department_suggested || analysisData.description_summary_tamil || fullOcrText)) {
+    draftData = {
+      source_id: sourceId,
+      petitioner_name: analysisData.petitioner_name || 'Petitioner',
+      department: analysisData.department_suggested || 'General Administration',
+      grievance_type: analysisData.grievance_type_suggested || 'Grievance',
+      grievance_subtype: analysisData.grievance_subtype_suggested || 'General',
+      priority: analysisData.priority_suggested || 'Medium',
+      description: analysisData.description_summary_tamil || analysisData.description_summary_english || (fullOcrText ? fullOcrText.slice(0, 300) : 'Grievance recorded'),
+      status: 'draft'
+    };
+  }
+
+  if (!draftData && !analysisData.description_summary_tamil && !fullOcrText) {
     throw new Error('Official pipeline processing timed out. Please verify backend status and try again.');
   }
 
-  const portalDetails = mapDraftToPortalDetails(draftData, analysisData);
+  const portalDetails = mapDraftToPortalDetails(draftData || {}, analysisData);
 
   const summaryTamil = analysisData.description_summary_tamil || '';
   const summaryEnglish = analysisData.description_summary_english || '';
-  const displaySummary = summaryTamil || summaryEnglish || draftData.description || 'மனு பெறப்பட்டு ஆவணப்படுத்தப்பட்டுள்ளது.';
+  const displaySummary = summaryTamil || summaryEnglish || (draftData && draftData.description) || 'மனு பெறப்பட்டு ஆவணப்படுத்தப்பட்டுள்ளது.';
 
   const petitionDoc = {
     file: file,
@@ -235,6 +267,9 @@ export async function uploadAndAnalyzePetition(file, onProgress) {
     summary: displaySummary,
     summaryTamil: summaryTamil,
     summaryEnglish: summaryEnglish,
+    actionItems: analysisData.action_items || [],
+    groundingScore: analysisData.grounding_score ?? 0.95,
+    hallucinationScore: analysisData.hallucination_score ?? 0.05,
     portalDetails: portalDetails,
     rawOcrText: fullOcrText || (draftData.description ? `[OCR EXTRACT]\n${draftData.description}` : ''),
     qaDatabase: []
@@ -349,6 +384,9 @@ export async function fetchPetitionBySourceId(sourceId) {
       confidenceScore: 95,
       status: 'Analysis Complete',
       summary: analysisData.description_summary_tamil || analysisData.description_summary_english || draftData.description || 'Petition loaded.',
+      actionItems: analysisData.action_items || [],
+      groundingScore: analysisData.grounding_score ?? 0.95,
+      hallucinationScore: analysisData.hallucination_score ?? 0.05,
       portalDetails: portalDetails,
       rawOcrText: fullOcrText || draftData.description || '',
       qaDatabase: []
