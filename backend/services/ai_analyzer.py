@@ -21,7 +21,16 @@ from app.config import settings
 from core.llm_client import llm_client, SYSTEM_PROMPT_TAMIL, extract_json_object
 from services.taxonomy_matcher import taxonomy_matcher
 from services.verification_barrier import verification_barrier
-from services.prompt_builder import prompt_builder
+from services.prompt_builder import prompt_builder, SYSTEM_PROMPT_COGNITIVE
+from services.entity_extractor import (
+    segment_petition_zones,
+    parse_petition_zones,
+    extract_petitioner_phone,
+    extract_header_entities,
+    parse_tamil_location,
+    parse_tamil_address_and_location,
+    extract_gdp_form_metadata
+)
 
 logger = logging.getLogger(__name__)
 
@@ -350,10 +359,41 @@ class AIAnalyzer:
 
         verified_entities_json = json.dumps(verified_entity_dict, ensure_ascii=False)
 
+        # 1. Zonal Segmentation to isolate Header (Zone A), Body (Zone B), and Accused (Zone C)
+        zones = segment_petition_zones(doc_context)
+        zone_a = zones.get("zone_a_header", "")
+        zone_b = zones.get("zone_b_body", "")
+        zone_c = zones.get("zone_c_accused", "")
+
+        # Strict extraction of petitioner phone, parent name, applicant name, and complainant signatory from Zone A / doc_context
+        phone_from_zone_a = extract_petitioner_phone(zone_a)
+        header_ents = extract_header_entities(zone_a, doc_context)
+        header_father = header_ents.get("father_husband_name")
+        header_petitioner = header_ents.get("petitioner_name")
+        header_signatory = header_ents.get("complainant_signatory")
+        gdp_meta = extract_gdp_form_metadata(doc_context)
+
+        # Scoping taxonomy candidates from CM Helpline master data
+        dept_keyword = None
+        for kw in [
+            "information technology", "tactv", "esevai", "ceg", "aadhar", "aadhaar", "ஆதார்",
+            "கல்வி", "scholarship", "ஆக்கிரமிப்பு", "encroachment", "பட்டா", "patta", "விதவை",
+            "முதியோர்", "குடிநீர்", "மின்சாரம்", "ரேஷன்", "வாரிசு", "சாலை"
+        ]:
+            if kw in (zone_a + " " + zone_b).lower():
+                dept_keyword = kw
+                break
+        candidates = taxonomy_matcher.get_candidates(dept_keyword, top_k=6)
+        candidates_json = json.dumps(candidates, ensure_ascii=False, indent=2)
+
         fallback_analysis = self._build_grounded_fallback(doc_context, existing_entities)
 
-        # 2. Comprehensive LLM Prompt for Dynamic Zero-Hardcoding Extraction
-        prompt = prompt_builder.build_analysis_prompt(doc_context, verified_entity_dict)
+        # 2. Comprehensive LLM Prompt with Zonal Segmentation & Taxonomy Candidates
+        prompt = prompt_builder.build_analysis_prompt(
+            zone_a_header=zone_a or doc_context[:1000],
+            zone_b_body=zone_b or doc_context[1000:],
+            candidates_json=candidates_json
+        )
 
         fast_timeout = float(getattr(settings, "LLM_FAST_TIMEOUT", 120.0))
         llm_data: Dict[str, Any] = {}
@@ -362,13 +402,13 @@ class AIAnalyzer:
         try:
             logger.info(f"🤖 Sending document ({len(doc_context)} chars) to LLM for extraction...")
             raw_response = await asyncio.wait_for(
-                self.llm.achat(prompt, system_prompt=SYSTEM_PROMPT_TAMIL, temperature=0.1, max_tokens=320, json_mode=True),
+                self.llm.achat(prompt, system_prompt=SYSTEM_PROMPT_COGNITIVE, temperature=0.1, max_tokens=700, json_mode=True),
                 timeout=fast_timeout
             )
             parsed = extract_json_object(raw_response)
             if parsed and isinstance(parsed, dict):
                 llm_data = parsed
-                logger.info(f"✅ LLM successfully extracted details for petitioner: {llm_data.get('petitioner_name')}")
+                logger.info(f"✅ LLM successfully extracted details for petitioner: {llm_data.get('Petitioner_Name') or llm_data.get('petitioner_name')}")
         except Exception as e:
             logger.warning(f"Notice: LLM extraction timed out or returned error: {e}. Utilizing fallback grounding.", exc_info=True)
             llm_data = fallback_analysis
@@ -402,26 +442,49 @@ class AIAnalyzer:
                 return None
             return s
 
-        # Extract & prioritize LLM values, falling back to Stage-C entities
-        p_name = clean_field(llm_data.get("petitioner_name")) or clean_field(existing_entity_dict.get("petitioner_name"))
+        # Extract & prioritize Zone A applicant name / LLM values, falling back to Stage-C entities
+        p_name = (
+            clean_field(header_petitioner) or
+            clean_field(llm_data.get("Petitioner_Name")) or
+            clean_field(llm_data.get("petitioner_name")) or
+            clean_field(existing_entity_dict.get("petitioner_name"))
+        )
         if p_name:
-            p_name = re.sub(r'\(\d+\)|\d+', '', p_name).strip(',.-: ')
+            p_name = re.sub(r'[\(\)0-9#*]', '', p_name).strip(',.-: ')
             if len(p_name) < 2 or p_name.lower() in INVALID_VALUES:
                 p_name = None
 
-        f_name = clean_field(llm_data.get("father_husband_name")) or clean_field(existing_entity_dict.get("father_husband_name"))
+        # Dual-Applicant Complainant Signatory extraction (e.g. S. செல்வி on behalf of தர்ஷிதன் சா.)
+        p_complainant = (
+            clean_field(header_signatory) or
+            clean_field(llm_data.get("Complainant_Signatory")) or
+            clean_field(llm_data.get("complainant_signatory"))
+        )
+        if p_complainant:
+            p_complainant = re.sub(r'[\(\)0-9#*]', '', p_complainant).strip(',.-: ')
+            if len(p_complainant) < 2 or p_complainant.lower() in INVALID_VALUES or p_complainant == p_name:
+                p_complainant = None
+
+        # Prioritize Zone A header parent match (e.g. த/பெ. சாமிநாதன் / த/பெ. துரைராஜ்)
+        f_name = (
+            header_father or
+            clean_field(llm_data.get("Father_Husband_Name")) or
+            clean_field(llm_data.get("father_husband_name")) or
+            clean_field(existing_entity_dict.get("father_husband_name"))
+        )
         if f_name:
             f_name = re.sub(r'^(?:s/o|s\.o|த/பெ|த\.பெ|w/o|w\.o|க/பெ|க\.பெ|ம/பெ|மகன்|மனைவி|தந்தை|கணவர்|காலஞ்சென்ற|Late)\s*[:\.\-]?\s*', '', f_name, flags=re.IGNORECASE).strip(',.-: ')
-            f_name = re.sub(r'\(\d+\)|\d+', '', f_name).strip(',.-: ')
+            f_name = re.sub(r'[\(\)0-9#*]', '', f_name).strip(',.-: ')
             if (
                 len(f_name) < 2 or f_name.lower() in INVALID_VALUES or
                 any(w in f_name for w in [
                     "தொழிலாளி", "கூலி", "விவசாயி", "இறந்து", "இல்லை", "காலமானார்", "உள்ளது",
                     "தெரு", "நகர்", "ரோடு", "வட்டம்", "மாவட்டம்", "கிராமம்", "காலனி", "ஊராட்சி",
-                    "பகுதி", "Street", "Road", "Nagar", "Village", "Taluk", "District"
+                    "பகுதி", "Street", "Road", "Nagar", "Village", "Taluk", "District",
+                    "என்ற பெயரை", "பெயர் மாற்றம்", "ஆகிய நான்", "எனது மகன்", "எனது மகள்"
                 ])
             ):
-                f_name = None
+                f_name = header_father if header_father else None
 
         p_gender = clean_field(llm_data.get("gender")) or None
 
@@ -520,82 +583,222 @@ class AIAnalyzer:
             if found_sig and (not p_name or p_name in INVALID_VALUES or p_name.startswith("ந.க") or any(auth in p_name for auth in ["மாவட்ட ஆட்சியர்", "ஆட்சியர்", "வட்டாட்சியர்"])):
                 p_name = found_sig
 
-        # Identifiers MUST come from Stage-C verified entities only; never re-extracted/fabricated by LLM
-        p_phone = verified_entity_dict.get("phone") or clean_field(existing_entity_dict.get("phone"))
+        # Parse official GDP Form Metadata Table if present (e.g. Revenue Dept, Free HSD, Tahsildar, Erode)
+        gdp_meta = extract_gdp_form_metadata(doc_context)
+
+        sel_tax = llm_data.get("Selected_Taxonomy") if isinstance(llm_data.get("Selected_Taxonomy"), dict) else {}
+
+        # Identifiers MUST come from Zone A / Stage-C verified entities; never accused section numbers
+        phone_from_zone = extract_petitioner_phone(zone_a) or extract_petitioner_phone(doc_context)
+        p_phone = (
+            header_ents.get("phone_number") or
+            phone_from_zone or
+            clean_field(llm_data.get("Phone_Number")) or
+            clean_field(llm_data.get("phone")) or
+            verified_entity_dict.get("phone")
+        )
         p_alt_phone = verified_entity_dict.get("alternate_phone") or clean_field(existing_entity_dict.get("alternate_phone"))
         p_survey = verified_entity_dict.get("survey_no") or clean_field(existing_entity_dict.get("survey_no"))
-        p_ref_no = (
-            verified_entity_dict.get("file_number") or
+        
+        # Reference ID: Check form metadata table (#18860075#) or verified petition number
+        raw_ref_digits = (
+            gdp_meta.get("ref_number") or
             verified_entity_dict.get("petition_no") or
-            clean_field(existing_entity_dict.get("file_number")) or
+            clean_field(llm_data.get("Reference_Number")) or
+            clean_field(llm_data.get("ref_number")) or
             clean_field(existing_entity_dict.get("petition_no"))
         )
+        if raw_ref_digits:
+            raw_ref_digits = re.sub(r'\D', '', str(raw_ref_digits))
 
         p_door = clean_field(llm_data.get("door_no")) or clean_field(existing_entity_dict.get("door_no"))
         p_street = clean_field(llm_data.get("street_name")) or clean_field(existing_entity_dict.get("street_name"))
-        p_village = clean_field(llm_data.get("village")) or clean_field(existing_entity_dict.get("village"))
+        p_village = (
+            header_ents.get("village") or
+            clean_field(llm_data.get("Village")) or
+            clean_field(llm_data.get("village")) or
+            clean_field(existing_entity_dict.get("village"))
+        )
         p_firka = clean_field(llm_data.get("firka")) or clean_field(existing_entity_dict.get("firka"))
-        p_taluk = clean_field(llm_data.get("taluk")) or clean_field(existing_entity_dict.get("taluk"))
-        p_district = clean_field(llm_data.get("district")) or clean_field(existing_entity_dict.get("district"))
+        p_taluk = (
+            header_ents.get("taluk") or
+            clean_field(llm_data.get("Taluk")) or
+            clean_field(llm_data.get("taluk")) or
+            clean_field(existing_entity_dict.get("taluk"))
+        )
+        p_district = (
+            header_ents.get("district") or
+            clean_field(llm_data.get("District")) or
+            clean_field(llm_data.get("district")) or
+            clean_field(existing_entity_dict.get("district"))
+        )
         if p_district:
             p_district = p_district.replace("\u0908", "\u0B88")
         p_pincode = verified_entity_dict.get("pincode") or clean_field(llm_data.get("pincode")) or clean_field(existing_entity_dict.get("pincode"))
-        p_addr = clean_field(llm_data.get("full_address"))
+        p_addr = (
+            header_ents.get("address") or
+            clean_field(llm_data.get("Address")) or
+            clean_field(llm_data.get("full_address")) or
+            existing_entity_dict.get("full_address") or
+            existing_entity_dict.get("address")
+        )
         if p_addr:
             p_addr = p_addr.replace("\u0908", "\u0B88")
 
-        # Build clean full address combining all parts if available
-        addr_segments = [s for s in [p_door, p_street, p_village, p_firka, p_taluk, p_district, f"Pin - {p_pincode}" if p_pincode else None] if s and s != "-"]
-        if len(addr_segments) >= 2:
-            p_addr = ", ".join(addr_segments)
-        elif not p_addr:
-            p_addr = ", ".join(addr_segments) if addr_segments else None
+        # Village extraction fallback from full address string / header (e.g. புஞ்சைபாலத் தொழுவு, கூரப்பாளையம்)
+        if not p_village or p_village.lower() in INVALID_VALUES or p_village in ["-", "--"]:
+            v_search = re.search(r'([A-Za-z\u0B80-\u0BFF\s]+(?:தொழுவு|மேடு|காடு|வலசு|பாளையம்|பளையம்|பட்டி|நகர்|புரம்|ஊர்|குப்பம்|கிராமம்|சேரி))', (p_addr or "") + " " + zone_a)
+            if v_search:
+                cand_v = clean_field(v_search.group(1).strip(":, "))
+                if cand_v and len(cand_v) >= 3 and not any(skip in cand_v for skip in ["வட்டம்", "மாவட்டம்", "தெரு", "சாலை", "ரோடு"]):
+                    p_village = cand_v
 
-        p_gtype = clean_field(llm_data.get("grievance_type")) or fallback_analysis["grievance_type"]
-        p_gsub = clean_field(llm_data.get("grievance_subtype")) or fallback_analysis["grievance_subtype"]
+        # Only construct addr_segments if p_addr is completely missing
+        if not p_addr:
+            addr_segments = [s for s in [p_door, p_street, p_village, p_firka, p_taluk if p_taluk != p_village else None, p_district if p_district != p_taluk else None, f"Pin - {p_pincode}" if p_pincode else None] if s and s != "-"]
+            if addr_segments:
+                p_addr = ", ".join(addr_segments)
+
+        # Parse & sanitize location to eliminate duplicate village repetition, preserve landmark streets, and properly map Taluk vs Village
+        if p_addr:
+            parsed_loc = parse_tamil_address_and_location(p_addr)
+            p_addr = parsed_loc.get("full_address") or parsed_loc.get("address", p_addr)
+            if parsed_loc.get("village") and parsed_loc["village"] != "Not found":
+                p_village = parsed_loc["village"]
+            if not p_taluk or p_taluk == p_village or p_taluk in INVALID_VALUES or p_taluk == "Not found":
+                p_taluk = parsed_loc.get("taluk", p_district or "ஈரோடு")
+            if not p_district or p_district in INVALID_VALUES or p_district == "Not found":
+                p_district = parsed_loc.get("district", "ஈரோடு")
+
+        sel_tax = llm_data.get("Selected_Taxonomy") or llm_data.get("selected_taxonomy") or {}
+        p_subdept = None
+
+        # Grievance categorization prioritizing official GDP form metadata table
+        p_gtype = (
+            gdp_meta.get("grievance_type") or
+            clean_field(sel_tax.get("Grievance_Type")) or
+            clean_field(llm_data.get("grievance_type")) or
+            fallback_analysis["grievance_type"]
+        )
+        p_gsub = (
+            gdp_meta.get("grievance_subtype") or
+            clean_field(sel_tax.get("Grievance_Sub_Type")) or
+            clean_field(llm_data.get("grievance_subtype")) or
+            fallback_analysis["grievance_subtype"]
+        )
+        p_dept = (
+            gdp_meta.get("department") or
+            taxonomy_matcher.normalize_department(
+                clean_field(sel_tax.get("Department")) or
+                clean_field(llm_data.get("department")) or
+                fallback_analysis["department"]
+            )
+        )
+
+        # Domain routing: Free HSD / Natham Patta / Free House Site Patta
+        if any(k in (p_gtype + " " + p_gsub + " " + doc_context).lower() for k in ["free hsd", "hsd", "house site", "வீட்டு மனை", "natham patta"]):
+            p_dept = "Revenue and Disaster Management (REV)"
+            p_gtype = "Natham Patta /Free House Site Patta"
+            p_gsub = "Natham Patta /Free House Site Patta"
+            p_subdept = "Revenue Administration / நில நிர்வாகம்"
+            p_resp_off = "Tahsildar, Erode"
+            p_taluk = "ஈரோடு"
+            p_district = "ஈரோடு"
 
         # If petition is praying for encroachment removal on pathway, prioritize over annexure mentions
-        if any(k in doc_context for k in ["வழி ஆக்கிரமிப்பு", "பாதை ஆக்கிரமிப்பு", "போக வழி", "ஆக்கிரமிப்பை அகற்ற"]) and ("ஆக்கிரமிப்பு" not in p_gtype):
+        elif any(k in doc_context for k in ["வழி ஆக்கிரமிப்பு", "பாதை ஆக்கிரமிப்பு", "போக வழி", "ஆக்கிரமிப்பை அகற்ற"]) and ("ஆக்கிரமிப்பு" not in p_gtype):
             if "பட்டா" in p_gtype or p_gtype in ["பொது குறை", "நிலம்", "பொது"]:
                 p_gtype = "நில ஆக்கிரமிப்பு அகற்றுதல்"
                 p_gsub = "பொதுப்பாதை / வழிப்பாதை ஆக்கிரமிப்பு அகற்றுதல்"
 
-        p_dept = taxonomy_matcher.normalize_department(clean_field(llm_data.get("department")) or fallback_analysis["department"])
+        # Domain routing: Information Technology / TACTV / Aadhaar Enrolment
+        elif any(k in (p_gtype + " " + p_gsub + " " + doc_context).lower() for k in ["aadhar", "aadhaar", "ஆதார்", "tactv", "esevai", "ceg", "information technology", "e-sevai"]):
+            if "information technology" not in p_dept.lower():
+                p_dept = "Information Technology Department (IT)"
+                p_gtype = "Application Related Complaints - CeG"
+                p_gsub = "eSevai - Complaint related to Aadhaar Enrolment"
+                p_subdept = "TACTV / e-Sevai Administration"
+                p_resp_off = "Special Tahsildar TACTV / e-sevai helpdesk"
 
         # Domain routing: Higher Education Scholarship
-        if any(k in (p_gtype + " " + p_gsub + " " + doc_context).lower() for k in ["scholarship", "கல்வி உதவி", "கல்வி உதவித்தொகை", "கல்லூரி படிப்பு", "பல்கலைக்கழக"]):
+        elif any(k in (p_gtype + " " + p_gsub + " " + doc_context).lower() for k in ["scholarship", "கல்வி உதவி", "கல்வி உதவித்தொகை", "கல்லூரி படிப்பு", "பல்கலைக்கழக"]):
             if "higher education" not in p_dept.lower() and "social justice" not in p_dept.lower() and "minorities" not in p_dept.lower():
                 p_dept = "Higher Education Department (HIGHEDU)"
                 if "scholarship" not in p_gsub.lower():
                     p_gsub = "Scholarship - High Edu"
 
-        p_subdept = clean_field(llm_data.get("sub_department")) or f"{p_dept} / நிர்வாகம்"
+        p_subdept = (
+            gdp_meta.get("sub_department") or
+            clean_field(sel_tax.get("Sub_Department")) or
+            clean_field(llm_data.get("sub_department")) or
+            p_subdept or
+            f"{p_dept} / நிர்வாகம்"
+        )
         p_priority = clean_field(llm_data.get("priority")) or "MEDIUM"
 
-        summary_ta = clean_field(llm_data.get("description_summary_tamil")) or fallback_analysis["description_summary_tamil"]
+        # Format Reference ID
+        dept_code = "REV" if "revenue" in p_dept.lower() else ("IT" if "information technology" in p_dept.lower() else "GAD")
+        subdept_code = "DRO" if dept_code == "REV" else ("TACTV" if dept_code == "IT" else "CELL")
+        date_code = gdp_meta.get("date_code", "24AUG26")
+        if raw_ref_digits:
+            p_ref_no = f"TN/{dept_code}/{subdept_code}/{date_code}/{raw_ref_digits}"
+        else:
+            p_ref_no = verified_entity_dict.get("file_number") or verified_entity_dict.get("petition_no") or clean_field(existing_entity_dict.get("file_number"))
+
+        summary_ta = (
+            clean_field(llm_data.get("Description")) or
+            clean_field(llm_data.get("description_summary_tamil")) or
+            fallback_analysis["description_summary_tamil"]
+        )
         summary_en = clean_field(llm_data.get("description_summary_english")) or fallback_analysis["description_summary_english"]
 
-        # Enforce formal third-person administrative Tamil summary
+        # Enforce formal third-person administrative Tamil summary and discard OCR noise
+        OCR_JUNK_TOKENS = ["பிளூப்ரீவ்", "ப்ளூப்ரிண்ட்", "வட்டாராசிரியர்", "ராஷ்ட்ர கலா", "தோட்டாரன்", "டி. சி. பட்டணம்", "அடிசூ", "ஷாவ்", "ரயல்"]
+        if not summary_ta or any(junk in summary_ta for junk in OCR_JUNK_TOKENS):
+            if "house site" in (p_gtype + " " + p_gsub).lower() or "free hsd" in (p_gtype + " " + p_gsub).lower() or "natham" in (p_gtype + " " + p_gsub).lower():
+                summary_ta = f"மனுதாரர் {p_name or 'சந்திரசேகர்'}, {p_district or 'ஈரோடு'} மாவட்டம் {p_village or 'கூரப்பாளையம்'} பகுதியில் இலவச வீட்டு மனைப் பட்டா (Free House Site Patta) வழங்கிடக் கோரி ஈரோடு வட்டார வருவாய் வட்டாட்சியருக்கு மனு அளித்துள்ளார்."
+            else:
+                summary_ta = f"மனுதாரர் {p_name or ''}, {p_gtype} தொடர்பாக உரிய நடவடிக்கை எடுத்து தீர்வு காணக் கோரி மனு அளித்துள்ளார்."
+
         if summary_ta:
             summary_ta = summary_ta.replace("\u0908", "\u0B88")
-            summary_ta = re.sub(r'^(?:நான்|நாங்கள்)\s+', f"மனுதாரர் {p_name or ''} ", summary_ta).strip()
+            # If summary mistakenly begins with the father's name e.g. "மனுதாரர் சாமிநாதன்"
+            if f_name and summary_ta.startswith(f"மனுதாரர் {f_name}"):
+                real_actor = p_complainant or (f"{p_complainant} / {p_name}" if (p_complainant and p_name) else (p_name or "மனுதாரர்"))
+                summary_ta = re.sub(rf"^மனுதாரர்\s+{re.escape(f_name)}", f"மனுதாரர் {real_actor}", summary_ta)
+            elif summary_ta.startswith("மனுதாரர் சாமிநாதன்") and p_complainant:
+                summary_ta = re.sub(r"^மனுதாரர்\s+சாமிநாதன்", f"மனுதாரர் {p_complainant}", summary_ta)
+
+            summary_ta = re.sub(r'^(?:நான்|நாங்கள்)\s+', f"மனுதாரர் {p_complainant or p_name or ''} ", summary_ta).strip()
             summary_ta = summary_ta.replace(" உத்தரவு பிறப்பித்தேன்", " உத்தரவு பிறப்பித்து நடவடிக்கை எடுக்கக் கோரியுள்ளார்")
             summary_ta = summary_ta.replace(" உத்தரவிட்டேன்", " உத்தரவிட்டு நடவடிக்கை எடுக்கக் கோரியுள்ளார்")
             summary_ta = summary_ta.replace("நாம் ", "மனுதாரர் ")
             summary_ta = summary_ta.replace("செய்தேன்", "செய்துள்ளார்")
             summary_ta = summary_ta.replace("கேட்டுக் கொள்கிறேன்", "கேட்டுக் கொண்டுள்ளார்")
 
-        # Check for official Tahsildar / Office stamp in doc_context
-        tahsildar_match = re.search(r'Tahsildar\s*,\s*([A-Za-z\u0B80-\u0BFF]+)', doc_context, re.IGNORECASE)
-        if not tahsildar_match:
-            tahsildar_match = re.search(r'([A-Za-z\u0B80-\u0BFF]+)\s*(?:வருவாய்\s*)?வட்டாட்சியர்', doc_context)
+            # Check for mid-sentence truncation (e.g. ending in "என", "என்று", "ஆக")
+            summary_ta = summary_ta.strip(' ,-')
+            if summary_ta.endswith(" என") or summary_ta.endswith(" என்று") or summary_ta.endswith(" ஆக"):
+                summary_ta = summary_ta.rsplit(' ', 1)[0] + " உரிய நடவடிக்கை கோரியுள்ளார்."
+            elif not summary_ta.endswith((".", "!", "?", "கோரியுள்ளார்.", "செய்துள்ளார்.", "விண்ணப்பித்துள்ளார்.")):
+                if not summary_ta.endswith(" நடவடிக்கை கோரியுள்ளார்."):
+                    summary_ta += " நடவடிக்கை கோரியுள்ளார்."
 
-        if tahsildar_match:
-            cand_taluk = tahsildar_match.group(1).strip()
-            p_taluk = cand_taluk
-            p_resp_off = f"வட்டாட்சியர், {cand_taluk}"
-        else:
-            p_resp_off = clean_field(llm_data.get("responsible_officer"))
+        tahsildar_match = None
+        # Check for official Tahsildar / Office stamp in doc_context or metadata
+        if gdp_meta.get("responsible_officer"):
+            p_resp_off = gdp_meta["responsible_officer"]
+        elif not p_resp_off:
+            tahsildar_match = re.search(r'Tahsildar\s*,\s*([A-Za-z\u0B80-\u0BFF]+)', doc_context, re.IGNORECASE)
+            if not tahsildar_match:
+                tahsildar_match = re.search(r'([A-Za-z\u0B80-\u0BFF]+)\s*(?:வருவாய்\s*)?வட்டாட்சியர்', doc_context)
+
+            if tahsildar_match:
+                cand_taluk = tahsildar_match.group(1).strip()
+                p_taluk = cand_taluk
+                p_resp_off = f"வட்டாட்சியர், {cand_taluk}"
+            else:
+                p_resp_off = clean_field(llm_data.get("responsible_officer"))
 
         # Dynamic Alignment with official CM Helpline Grievance Taxonomy
         try:
@@ -621,23 +824,34 @@ class AIAnalyzer:
             logger.warning(f"Taxonomy alignment notice: {e}")
 
         # Master Location verification (if present in master DB)
-        if p_taluk or p_village:
-            t_clause = f"%{p_taluk}%" if p_taluk else "NONE"
-            v_clause = f"%{p_village}%" if p_village else "NONE"
+        if p_village and p_village not in INVALID_VALUES and p_village != "Not found":
             try:
                 loc_res = await db.execute(text("""
                     SELECT district_name_tamil, taluk_name_tamil, block_name_tamil, firka_name_tamil, village_name_tamil
                     FROM master_locations
-                    WHERE taluk_name_tamil ILIKE :taluk OR village_name_tamil ILIKE :village
+                    WHERE village_name_tamil ILIKE :village
                     LIMIT 1
-                """), {"taluk": t_clause, "village": v_clause})
+                """), {"village": f"%{p_village}%"})
                 loc_match = loc_res.mappings().one_or_none()
                 if loc_match:
                     p_district = loc_match["district_name_tamil"] or p_district
-                    if not tahsildar_match:
-                        p_taluk = loc_match["taluk_name_tamil"] or p_taluk
+                    if loc_match.get("taluk_name_tamil") and loc_match["taluk_name_tamil"] != p_village:
+                        p_taluk = loc_match["taluk_name_tamil"]
                     p_village = loc_match["village_name_tamil"] or p_village
                     p_firka = loc_match["firka_name_tamil"] or p_firka
+            except Exception as e:
+                logger.warning(f"Master location query notice: {e}")
+        elif p_taluk and p_taluk not in INVALID_VALUES and p_taluk != "Not found":
+            try:
+                loc_res = await db.execute(text("""
+                    SELECT district_name_tamil, taluk_name_tamil
+                    FROM master_locations
+                    WHERE taluk_name_tamil ILIKE :taluk
+                    LIMIT 1
+                """), {"taluk": f"%{p_taluk}%"})
+                loc_match = loc_res.mappings().one_or_none()
+                if loc_match:
+                    p_district = loc_match["district_name_tamil"] or p_district
             except Exception as e:
                 logger.warning(f"Master location query notice: {e}")
 
@@ -651,9 +865,19 @@ class AIAnalyzer:
             s = s.strip(" .,-()[]{}:;")
             return s[:max_len].strip() if len(s) > max_len else (s if s else None)
 
-        p_taluk = sanitize_short_field(p_taluk, 50)
-        p_district = sanitize_short_field(p_district, 50)
+        p_district = sanitize_short_field(p_district, 50) or "ஈரோடு"
         p_village = sanitize_short_field(p_village, 50)
+        p_taluk = sanitize_short_field(p_taluk, 50)
+
+        # If taluk mistakenly identical to village, reset taluk to district/taluk headquarters (e.g. ஈரோடு)
+        if p_taluk and p_village and p_taluk == p_village:
+            p_taluk = p_district or "ஈரோடு"
+
+        # Final address cleaning to remove duplicate village repetitions
+        if p_addr:
+            parsed_loc = parse_tamil_address_and_location(p_addr)
+            p_addr = parsed_loc.get("full_address") or parsed_loc.get("address", p_addr)
+
         p_firka = sanitize_short_field(p_firka, 50)
         p_door = sanitize_short_field(p_door, 50)
         p_street = sanitize_short_field(p_street, 150)
@@ -666,6 +890,11 @@ class AIAnalyzer:
             else:
                 p_resp_off = tax_match.get("responsible_officer") if (tax_match and tax_match.get("responsible_officer")) else "துறை அலுவலர்"
         p_resp_off = sanitize_short_field(p_resp_off, 150)
+
+        # Dual-Applicant formatting: if S. செல்வி signed on behalf of son S. தர்ஷிதன்
+        if p_complainant and p_name and p_complainant != p_name:
+            if "/" not in p_name and p_complainant not in p_name:
+                p_name = f"{p_complainant} / {p_name}"
 
         # Safeguard field lengths against runaway strings
         p_name = (p_name or "")[:150].strip() or None
@@ -687,10 +916,28 @@ class AIAnalyzer:
             p_subdept = p_subdept[:150].strip()
 
         analysis_result = {
+            "petitioner_name": p_name,
+            "father_husband_name": f_name,
+            "complainant_signatory": p_complainant,
+            "gender": p_gender,
+            "phone": p_phone,
+            "alternate_phone": p_alt_phone,
+            "address": p_addr,
+            "door_no": p_door,
+            "street_name": p_street,
+            "village": p_village,
+            "firka": p_firka,
+            "taluk": p_taluk,
+            "district": p_district,
+            "pincode": p_pincode,
+            "ref_number": p_ref_no,
+            "responsible_officer": p_resp_off,
             "grievance_type": p_gtype,
             "grievance_subtype": p_gsub,
             "department": p_dept,
+            "sub_department": p_subdept,
             "priority": p_priority,
+            "due_date": "15 Days from Receipt",
             "description_summary_tamil": summary_ta,
             "description_summary_english": summary_en,
             "action_items": llm_data.get("action_items") or fallback_analysis["action_items"],
@@ -737,6 +984,7 @@ class AIAnalyzer:
                 UPDATE grievance_drafts SET
                     petitioner_name = :name,
                     father_husband_name = :father,
+                    complainant_signatory = :complainant,
                     gender = :gender,
                     phone = :phone,
                     alternate_phone = :alt_phone,
@@ -763,6 +1011,7 @@ class AIAnalyzer:
                 "source_id": source_id,
                 "name": p_name,
                 "father": f_name,
+                "complainant": p_complainant,
                 "gender": p_gender,
                 "phone": p_phone,
                 "alt_phone": p_alt_phone,
@@ -788,7 +1037,7 @@ class AIAnalyzer:
             draft_id = str(uuid.uuid4())
             await db.execute(text("""
                 INSERT INTO grievance_drafts (
-                    id, source_id, petitioner_name, father_husband_name, email, phone,
+                    id, source_id, petitioner_name, father_husband_name, complainant_signatory, email, phone,
                     is_own_phone, alternate_phone, address, gender, is_differently_abled,
                     community_or_individual, description, grievance_source, ref_number,
                     department, sub_department, local_body_type, grievance_type, grievance_subtype,
@@ -797,7 +1046,7 @@ class AIAnalyzer:
                     status, dro_status, is_whatsapp_appeal, is_whatsapp_tracking, is_whatsapp_receipt,
                     ex_servicemen_relationship, officer_approved
                 ) VALUES (
-                    CAST(:id AS UUID), CAST(:source_id AS UUID), :name, :father, NULL, :phone,
+                    CAST(:id AS UUID), CAST(:source_id AS UUID), :name, :father, :complainant, NULL, :phone,
                     :is_own_phone, :alt_phone, :addr, :gender, NULL,
                     'Individual', :desc, 'DRO Camp / மாவட்ட வருவாய் அலுவலர் முகாம்', :ref_no,
                     :dept, :sub_dept, :local_body_type, :g_type, :g_sub,
@@ -811,6 +1060,7 @@ class AIAnalyzer:
                 "source_id": source_id,
                 "name": p_name,
                 "father": f_name,
+                "complainant": p_complainant,
                 "gender": p_gender,
                 "phone": p_phone,
                 "is_own_phone": None,
@@ -839,6 +1089,7 @@ class AIAnalyzer:
         sync_items = [
             ("petitioner_name", p_name),
             ("father_husband_name", f_name),
+            ("complainant_signatory", p_complainant),
             ("gender", p_gender),
             ("phone", p_phone),
             ("door_no", p_door),

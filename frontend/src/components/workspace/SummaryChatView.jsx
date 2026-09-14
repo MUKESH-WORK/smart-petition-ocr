@@ -9,16 +9,13 @@ import {
   MessageSquare,
   FileCheck2,
   CheckCircle2,
-  Sparkles,
   Copy,
   Check,
-  ShieldCheck,
   Building2,
   Phone,
   MapPin,
   Clock,
-  Layers,
-  ListOrdered
+  Layers
 } from 'lucide-react';
 import CopyButton from '../common/CopyButton';
 import FullDetailsFormResponse from './FullDetailsFormResponse';
@@ -273,38 +270,11 @@ export default function SummaryChatView({ petition, onLogUserMessage }) {
       {activeTab === 'details' && (
         <div className="tab-pane-container scrollable-tab-pane">
           
-          {/* Executive Highlights Ribbon */}
-          <div className="executive-highlights-ribbon">
-            <div className="highlight-cell">
-              <span className="highlight-label">PETITIONER</span>
-              <span className="highlight-val font-semibold">{details.petitionerName || 'Not found'}</span>
-            </div>
-            <div className="highlight-cell">
-              <span className="highlight-label">DEPARTMENT</span>
-              <span className="highlight-val">{details.governmentDepartment || 'Not found'}</span>
-            </div>
-            <div className="highlight-cell">
-              <span className="highlight-label">GRIEVANCE TYPE</span>
-              <span className="highlight-val">{details.grievanceType || 'Not found'}</span>
-            </div>
-            <div className="highlight-cell">
-              <span className="highlight-label">TALUK / JURISDICTION</span>
-              <span className="highlight-val">{details.taluk || details.district || 'Not found'}</span>
-            </div>
-            <div className="highlight-cell">
-              <span className="highlight-label">PRIORITY</span>
-              <span className={`priority-tag-pill priority-${(details.priority || 'medium').toLowerCase()}`}>
-                {details.priority || 'Medium'}
-              </span>
-            </div>
-          </div>
-
-          {/* Executive Summary & AI Insights Card */}
+          {/* Executive Summary Card */}
           <div className="executive-summary-card">
             <div className="summary-card-header">
               <div className="summary-card-title-group">
-                <Sparkles size={16} className="summary-sparkle-icon" />
-                <span className="summary-title-heading">EXECUTIVE SUMMARY & ACTION ITEMS</span>
+                <span className="summary-title-heading">EXECUTIVE SUMMARY</span>
               </div>
               
               <div className="summary-header-actions">
@@ -327,12 +297,6 @@ export default function SummaryChatView({ petition, onLogUserMessage }) {
                     </button>
                   </div>
                 )}
-                
-                {/* Verification Score Badge */}
-                <div className="verification-grounding-badge" title="Verified against optical character scan">
-                  <ShieldCheck size={13} className="grounding-shield-icon" />
-                  <span>{petition?.confidenceScore ? `${petition.confidenceScore}% Confident` : 'Verified Grounded'}</span>
-                </div>
               </div>
             </div>
 
@@ -340,40 +304,6 @@ export default function SummaryChatView({ petition, onLogUserMessage }) {
             <p className="summary-main-paragraph">
               {displaySummary}
             </p>
-
-            {/* Action Items Checklist */}
-            {hasActionItems && (
-              <div className="summary-action-items-section">
-                <div className="action-items-title">
-                  <ListOrdered size={14} />
-                  <span>RECOMMENDED ACTION ITEMS / நடவடிக்கை பரிந்துரைகள்</span>
-                </div>
-                <ul className="action-items-list">
-                  {petition.actionItems.map((item, idx) => {
-                    const actionText = typeof item === 'string'
-                      ? item
-                      : (item?.action || item?.text || (typeof item === 'object' ? JSON.stringify(item) : String(item)));
-                    const dept = typeof item === 'object' ? item?.department : null;
-                    const deadline = typeof item === 'object' ? item?.deadline_hint : null;
-
-                    return (
-                      <li key={idx} className="action-item-row">
-                        <CheckCircle2 size={14} className="action-check-icon" />
-                        <div className="action-item-content">
-                          <span className="action-text">{actionText}</span>
-                          {(dept || deadline) && (
-                            <div className="action-meta-tags" style={{ display: 'flex', gap: '6px', marginTop: '2px', fontSize: '0.78rem', color: '#64748B' }}>
-                              {dept && <span className="action-dept-tag" style={{ background: '#F1F5F9', padding: '1px 6px', borderRadius: '4px' }}>{dept}</span>}
-                              {deadline && <span className="action-deadline-tag" style={{ color: '#D97706' }}>⏱ {deadline}</span>}
-                            </div>
-                          )}
-                        </div>
-                      </li>
-                    );
-                  })}
-                </ul>
-              </div>
-            )}
           </div>
 
           {/* Structured Official Form Details */}

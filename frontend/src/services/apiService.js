@@ -45,6 +45,7 @@ export function mapDraftToPortalDetails(draft = {}, analysis = {}) {
     // 1. Petitioner Information
     petitionerName: petitionerName,
     fatherHusbandName: draft.father_husband_name || 'Not found',
+    complainantSignatory: draft.complainant_signatory || analysis.complainant_signatory || null,
     email: draft.email || 'Not found',
     phoneNumber: phone,
     isOwnNumber: draft.is_own_phone !== null && draft.is_own_phone !== undefined ? (draft.is_own_phone ? 'Yes' : 'No') : 'Not mentioned',
@@ -63,11 +64,12 @@ export function mapDraftToPortalDetails(draft = {}, analysis = {}) {
     grievanceType: draft.grievance_type || analysis.grievance_type_suggested || 'Not found',
     grievanceSubType: draft.grievance_subtype || analysis.grievance_subtype_suggested || 'Not found',
     district: draft.district || 'Not found',
+    taluk: draft.taluk || 'Not found',
+    village: draft.village || analysis.village || 'Not found',
     subDepartment: draft.sub_department || 'Not found',
     ward: draft.ward || 'Not found',
     municipalityWard: draft.municipality_ward || 'Not found',
     block: draft.block || 'Not found',
-    taluk: draft.taluk || 'Not found',
     revenueDivision: draft.revenue_division || 'Not found',
     firka: draft.firka || 'Not found',
     streetName: draft.street_name || 'Not found',
@@ -102,7 +104,7 @@ export function mapDraftToPortalDetails(draft = {}, analysis = {}) {
 /**
  * Upload a petition document and run official OCR, Vector Indexing, Entity Extraction, and AI Analysis
  */
-export async function uploadAndAnalyzePetition(file, onProgress) {
+export async function uploadAndAnalyzePetition(file, onProgress, signal) {
   if (!file) throw new Error('File is required');
 
   const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
@@ -113,63 +115,80 @@ export async function uploadAndAnalyzePetition(file, onProgress) {
   const formData = new FormData();
   formData.append('file', file, file.name);
   formData.append('officer_id', activeOfficerId);
-  formData.append('process_now', 'false'); // Asynchronous queue processing for reliable production pipeline
+  formData.append('process_now', 'false');
 
-  // 1. Upload & trigger backend pipeline
+  // 1. Upload & trigger backend pipeline with automatic restart recovery
   if (onProgress) onProgress(0); // Document uploaded
-  const uploadRes = await fetch(`${API_BASE}/grievance/upload`, {
-    method: 'POST',
-    headers: {
-      'X-Officer-Id': activeOfficerId
-    },
-    body: formData
-  });
+  let uploadRes = null;
+  let uploadAttempts = 0;
+  while (uploadAttempts < 3) {
+    uploadAttempts++;
+    try {
+      uploadRes = await fetch(`${API_BASE}/grievance/upload`, {
+        method: 'POST',
+        headers: {
+          'X-Officer-Id': activeOfficerId
+        },
+        body: formData,
+        signal
+      });
+      if (uploadRes.ok || (uploadRes.status !== 503 && uploadRes.status !== 502)) {
+        break;
+      }
+    } catch (fetchErr) {
+      if (signal && signal.aborted) throw new Error('Processing cancelled');
+      if (uploadAttempts >= 3) throw fetchErr;
+    }
+    // Backend is restarting — wait 1.2s and retry
+    await new Promise((r) => setTimeout(r, 1200));
+  }
 
-  if (!uploadRes.ok) {
-    const errText = await uploadRes.text();
-    throw new Error(`Upload failed with HTTP ${uploadRes.status}: ${errText}`);
+  if (!uploadRes || !uploadRes.ok) {
+    const errText = uploadRes ? await uploadRes.text() : 'Server unavailable';
+    throw new Error(`Upload failed with HTTP ${uploadRes ? uploadRes.status : 503}: ${errText}`);
   }
 
   const uploadData = await uploadRes.json();
   const sourceId = uploadData.source_id;
 
-  // 2. Poll for draft and AI analysis completion (up to 120 seconds)
+  // 2. Poll for draft and AI analysis completion
   let draftData = null;
   let analysisData = {};
   let fullOcrText = '';
   let avgConfidence = 96;
 
   // If already recognized and draft loaded from database
-  if (uploadData.status === 'draft_ready') {
+  if (uploadData.status === 'draft_ready' || uploadData.status === 'officer_approved') {
     if (onProgress) onProgress(4);
   }
 
   let attempts = 0;
-  const maxAttempts = 160; // Up to ~240 seconds for heavy OCR + Ollama inference
+  const maxAttempts = 100; // ~60 seconds total polling budget with 600ms intervals
   let pollBreak = false;
   while (attempts < maxAttempts && !pollBreak) {
+    if (signal && signal.aborted) throw new Error('Processing cancelled');
     attempts++;
-    await new Promise((resolve) => setTimeout(resolve, 1500));
+    await new Promise((resolve) => setTimeout(resolve, 600));
 
     let sData = null;
     try {
-      const statusRes = await fetch(`${API_BASE}/grievance/${sourceId}/status`);
+      const statusRes = await fetch(`${API_BASE}/grievance/${sourceId}/status`, { signal });
       if (statusRes.ok) {
         sData = await statusRes.json();
       }
     } catch (_netErr) {
-      // transient network glitch — keep polling
+      if (signal && signal.aborted) throw new Error('Processing cancelled');
       continue;
     }
 
     if (!sData) continue;
 
-    // Permanent failure: backend worker exhausted all retries
+    // Permanent failure
     if (sData.status === 'failed') {
-      throw new Error('Petition processing failed in the background worker. The document may be unreadable or the AI service is unavailable. Please try again.');
+      throw new Error('Petition processing failed in the background worker. Please try again.');
     }
 
-    // Success: draft is ready or source completed — advance UI and exit loop
+    // Success: draft is ready or source completed or analysis is ready
     if (sData.draft_ready || sData.status === 'draft_ready' || (sData.status === 'completed' && sData.ai_analysis_ready)) {
       if (onProgress) onProgress(5);
       pollBreak = true;
@@ -181,21 +200,21 @@ export async function uploadAndAnalyzePetition(file, onProgress) {
       if (onProgress) onProgress(4);
     } else if (sData.chunk_count > 0 || sData.entity_count > 0) {
       if (onProgress) onProgress(3);
-    } else if (sData.page_count > 0 || sData.status === 'ocr_complete') {
+    } else if (sData.page_count > 0 || sData.status === 'ocr_complete' || sData.status === 'ocr_review') {
       if (onProgress) onProgress(2);
     } else {
       if (onProgress) onProgress(1);
     }
   }
 
-  // Brief stabilization pause for database transaction commit
-  await new Promise((resolve) => setTimeout(resolve, 600));
+  // Brief stabilization pause for database commit
+  await new Promise((resolve) => setTimeout(resolve, 300));
 
-  // 3. Fetch final draft, analysis, and OCR results
+  // 3. Fetch final draft, analysis, and OCR results in parallel
   const [draftRes, analysisRes, ocrRes] = await Promise.allSettled([
-    fetch(`${API_BASE}/grievance/${sourceId}/draft`),
-    fetch(`${API_BASE}/grievance/${sourceId}/analysis`),
-    fetch(`${API_BASE}/grievance/${sourceId}/ocr`)
+    fetch(`${API_BASE}/grievance/${sourceId}/draft`, { signal }),
+    fetch(`${API_BASE}/grievance/${sourceId}/analysis`, { signal }),
+    fetch(`${API_BASE}/grievance/${sourceId}/ocr`, { signal })
   ]);
 
   if (draftRes.status === 'fulfilled' && draftRes.value.ok) {
@@ -212,13 +231,14 @@ export async function uploadAndAnalyzePetition(file, onProgress) {
     }
   }
 
-  // Retry fetching draft up to 6 times if backend worker is just finishing the insert
+  // Retry fetching draft if backend is finalizing insert
   let draftRetries = 0;
-  while (!draftData && draftRetries < 6) {
+  while (!draftData && draftRetries < 4) {
+    if (signal && signal.aborted) throw new Error('Processing cancelled');
     draftRetries++;
-    await new Promise((r) => setTimeout(r, 1200));
+    await new Promise((r) => setTimeout(r, 600));
     try {
-      const dRes = await fetch(`${API_BASE}/grievance/${sourceId}/draft`);
+      const dRes = await fetch(`${API_BASE}/grievance/${sourceId}/draft`, { signal });
       if (dRes.ok) {
         draftData = await dRes.json();
         break;
@@ -226,7 +246,7 @@ export async function uploadAndAnalyzePetition(file, onProgress) {
     } catch (_e) {}
   }
 
-  // If draft row is delayed but analysis data exists, synthesize draftData from analysis
+  // Fallback synthesis if draft row is delayed but analysis/OCR data exists
   if (!draftData && (analysisData.department_suggested || analysisData.description_summary_tamil || fullOcrText)) {
     draftData = {
       source_id: sourceId,
@@ -241,7 +261,7 @@ export async function uploadAndAnalyzePetition(file, onProgress) {
   }
 
   if (!draftData && !analysisData.description_summary_tamil && !fullOcrText) {
-    throw new Error('Official pipeline processing timed out. Please verify backend status and try again.');
+    throw new Error('Petition document processing timed out. Please try again or re-upload the document.');
   }
 
   const portalDetails = mapDraftToPortalDetails(draftData || {}, analysisData);

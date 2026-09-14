@@ -91,6 +91,9 @@ export default function FullDetailsFormResponse({ initialDetails }) {
         <div className="full-details-form-grid">
           <FieldDisplayBox label="Petitioner Name" value={data.petitionerName} />
           <FieldDisplayBox label="Father / Husband Name" value={data.fatherHusbandName} />
+          {data.complainantSignatory && data.complainantSignatory !== 'Not found' && (
+            <FieldDisplayBox label="Complainant / Signatory" value={data.complainantSignatory} />
+          )}
           <FieldDisplayBox label="Email" value={data.email} />
           
           <FieldDisplayBox label="Phone Number" value={data.phoneNumber} />
@@ -133,8 +136,8 @@ export default function FullDetailsFormResponse({ initialDetails }) {
           <FieldDisplayBox label="Ward" value={data.ward} />
           <FieldDisplayBox label="Municipality Ward" value={data.municipalityWard} />
 
-          <FieldDisplayBox label="Block" value={data.block} />
           <FieldDisplayBox label="Taluk" value={data.taluk} />
+          <FieldDisplayBox label="Revenue Village / Village" value={data.village} />
 
           <FieldDisplayBox label="Revenue Division" value={data.revenueDivision} />
           <FieldDisplayBox label="Firka" value={data.firka} />

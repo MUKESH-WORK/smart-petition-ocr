@@ -132,6 +132,80 @@ class CMHelplineTaxonomyValidator:
         except Exception as e:
             logger.error(f"Error loading taxonomy from {self.taxonomy_path}: {e}")
 
+    def get_candidates(self, header_dept_keyword: Optional[str] = None, top_k: int = 5) -> List[Dict[str, str]]:
+        """
+        Filters candidates by header metadata / keywords if present, else returns top-K rows.
+        Returns exact format:
+        [{'Department': ..., 'Grievance Type': ..., 'Grievance Sub Type': ..., 'Sub Department': ..., 'Responsible officer': ...}]
+        """
+        source_items = self.taxonomy
+        if header_dept_keyword:
+            kw = str(header_dept_keyword).strip().lower()
+            scoped = []
+            for item in self.taxonomy:
+                dept_val = str(item.get("department", "")).lower()
+                gtype_val = str(item.get("grievance_type", "")).lower()
+                gsub_val = str(item.get("grievance_sub_type", "")).lower()
+                if kw in dept_val or kw in gtype_val or kw in gsub_val:
+                    scoped.append(item)
+            if scoped:
+                source_items = scoped
+
+        candidates = []
+        for item in source_items[:top_k]:
+            candidates.append({
+                "Department": item.get("department", ""),
+                "Grievance Type": item.get("grievance_type", ""),
+                "Grievance Sub Type": item.get("grievance_sub_type", ""),
+                "Sub Department": item.get("sub_department", ""),
+                "Responsible officer": item.get("responsible_officer", "")
+            })
+        return candidates
+
+    def match_taxonomy(self, header_dept: str = "", grievance_keyword: str = "") -> Dict[str, str]:
+        """
+        Prioritizes exact Department match from header metadata over default taxonomy.
+        """
+        scoped = self.taxonomy
+        if header_dept:
+            h_clean = header_dept.strip().lower()
+            dept_filtered = [
+                item for item in self.taxonomy
+                if h_clean in item.get("department", "").lower()
+            ]
+            if dept_filtered:
+                scoped = dept_filtered
+
+        if grievance_keyword:
+            g_clean = grievance_keyword.strip().lower()
+            matched = [
+                item for item in scoped
+                if g_clean in item.get("grievance_sub_type", "").lower()
+                or g_clean in item.get("grievance_type", "").lower()
+                or g_clean in item.get("sub_department", "").lower()
+            ]
+            if matched:
+                best = matched[0]
+                return {
+                    "Department": best.get("department", ""),
+                    "Grievance_Type": best.get("grievance_type", ""),
+                    "Grievance_Sub_Type": best.get("grievance_sub_type", ""),
+                    "Sub_Department": best.get("sub_department", ""),
+                    "Responsible_Officer": best.get("responsible_officer", "")
+                }
+
+        if scoped:
+            best = scoped[0]
+            return {
+                "Department": best.get("department", ""),
+                "Grievance_Type": best.get("grievance_type", ""),
+                "Grievance_Sub_Type": best.get("grievance_sub_type", ""),
+                "Sub_Department": best.get("sub_department", ""),
+                "Responsible_Officer": best.get("responsible_officer", "")
+            }
+
+        return {}
+
     def get_official_departments(self) -> List[str]:
         """Returns the complete list of departments derived directly from cm_helpline_taxonomy.json."""
         return list(self.departments)
@@ -201,16 +275,17 @@ class CMHelplineTaxonomyValidator:
         3. Fills official sub_department and responsible_officer.
         4. Gracefully passes through if novel.
         """
-        dept_norm = self.normalize_department(detected_dept)
+        dept_norm = self.normalize_department(detected_dept) or "General Administration / பொது நிர்வாகம்"
         gtype_in = (detected_type or "").strip()
         gsub_in = (detected_subtype or "").strip()
 
         if not self.taxonomy:
+            dept_prefix = str(dept_norm).split('(')[0].strip()
             return {
                 "department": dept_norm,
                 "grievance_type": gtype_in or "General Grievance",
                 "grievance_subtype": gsub_in or "Public Grievance Redressal",
-                "sub_department": f"{dept_norm.split('(')[0].strip()} Administration",
+                "sub_department": f"{dept_prefix} Administration",
                 "responsible_officer": "Competent Authority",
                 "validated": False,
                 "match_score": 0
@@ -311,6 +386,13 @@ class CMHelplineTaxonomyValidator:
                 elif len(g_sub_lower) >= 4 and g_sub_lower in t_gsub:
                     score += 18.0
 
+            # Aadhaar / Information Technology / eSevai / TACTV affinity
+            if any(a in query_text for a in ["aadhaar", "aadhar", "ஆதார்", "tactv", "esevai", "ceg", "information technology", "e-sevai"]):
+                if "information technology" in t_dept:
+                    score += 40.0
+                if "aadhaar" in t_gsub or "esevai" in t_gsub or "ceg" in t_gtype:
+                    score += 35.0
+
             # Grievance type overlap (prevent empty string match)
             if gtype_in and t_gtype:
                 g_type_lower = gtype_in.lower()
@@ -379,3 +461,6 @@ class CMHelplineTaxonomyValidator:
 
 # Singleton instance loaded dynamically from cm_helpline_taxonomy.json alone
 taxonomy_matcher = CMHelplineTaxonomyValidator()
+TaxonomyMatcher = CMHelplineTaxonomyValidator
+CMHelplineTaxonomyMatcher = CMHelplineTaxonomyValidator
+

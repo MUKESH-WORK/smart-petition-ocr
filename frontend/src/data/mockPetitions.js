@@ -15,6 +15,8 @@ export function extractPetitionDetails(petition) {
   // Pure data-driven fallback if portalDetails has not finished loading
   return {
     petitionerName: petition.details?.petitionerName || 'Not found',
+    fatherHusbandName: petition.details?.fatherHusbandName || 'Not found',
+    complainantSignatory: petition.details?.complainantSignatory || null,
     email: 'Not found',
     phoneNumber: petition.details?.phoneNumber || 'Not found',
     isOwnNumber: 'Not mentioned',

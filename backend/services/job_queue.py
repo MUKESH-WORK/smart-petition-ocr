@@ -222,9 +222,6 @@ class PostgresJobQueue:
             file_path = payload.get("file_path")
             file_type = payload.get("file_type", "pdf")
             ocr_res = await ocr_router.process_source(db, source_id, file_path, file_type)
-            if ocr_res and ocr_res.get("status") == "ocr_review":
-                logger.warning(f"OCR gating halted downstream pipeline for source {source_id}: {ocr_res.get('error')}")
-                return
             # Parallel dispatch: vector indexing and entity extraction run independently
             await self.enqueue(db, "vector_indexing", source_id)
             await self.enqueue(db, "entity_extraction", source_id)

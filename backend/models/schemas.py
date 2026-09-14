@@ -121,6 +121,9 @@ class ClaimItem(BaseModel):
 
 class AIAnalysisResponse(BaseModel):
     source_id: UUID
+    petitioner_name: Optional[str] = None
+    father_husband_name: Optional[str] = None
+    complainant_signatory: Optional[str] = None
     grievance_type_suggested: Optional[str] = None
     grievance_subtype_suggested: Optional[str] = None
     department_suggested: Optional[str] = None
@@ -162,6 +165,7 @@ class GrievanceDraftResponse(BaseModel):
     # Petitioner
     petitioner_name: Optional[str] = None
     father_husband_name: Optional[str] = None
+    complainant_signatory: Optional[str] = None
     email: Optional[str] = None
     phone: Optional[str] = None
     is_own_phone: Optional[bool] = True
@@ -221,6 +225,7 @@ class GrievanceDraftResponse(BaseModel):
 class DraftUpdate(BaseModel):
     petitioner_name: Optional[str] = None
     father_husband_name: Optional[str] = None
+    complainant_signatory: Optional[str] = None
     email: Optional[str] = None
     phone: Optional[str] = None
     is_own_phone: Optional[bool] = None

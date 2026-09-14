@@ -15,7 +15,7 @@ export default function WorkspaceHeader({
   return (
     <div className="workspace-header-bar">
       
-      {/* Left: Identity, File Name, Key Attributes & Status */}
+      {/* Left: Identity & File Name */}
       <div className="workspace-header-left">
         {/* Petition Reference ID */}
         <div className="petition-id-chip" title="Official Petition Reference">
@@ -27,28 +27,6 @@ export default function WorkspaceHeader({
         <div className="petition-file-name" title={petition?.fileName}>
           <FileText size={15} className="file-icon" />
           <span className="file-name-text">{petition?.fileName}</span>
-        </div>
-
-        {/* Extracted Petitioner Name Tag */}
-        {hasPetitionerName && (
-          <div className="header-meta-badge petitioner-badge" title={`Petitioner: ${petitionerName}`}>
-            <User size={13} />
-            <span className="meta-badge-text">{petitionerName}</span>
-          </div>
-        )}
-
-        {/* Extracted Department Tag */}
-        {hasDepartment && (
-          <div className="header-meta-badge department-badge" title={`Routing Department: ${department}`}>
-            <Building2 size={13} />
-            <span className="meta-badge-text">{department}</span>
-          </div>
-        )}
-
-        {/* Verification Status Pill */}
-        <div className="petition-status-pill" title="Processing and Verification Status">
-          <span className="status-dot"></span>
-          <span>{petition?.status || 'Analysis Complete'}</span>
         </div>
       </div>
 

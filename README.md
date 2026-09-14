@@ -10,12 +10,11 @@
 [![React: 19](https://img.shields.io/badge/React-19.0-61DAFB.svg?style=for-the-badge&logo=react&logoColor=black)](https://react.dev)
 [![PostgreSQL: 16 + pgvector](https://img.shields.io/badge/PostgreSQL-16_%7C_pgvector-4169E1.svg?style=for-the-badge&logo=postgresql&logoColor=white)](https://github.com/pgvector/pgvector)
 [![Ollama: Local LLM](https://img.shields.io/badge/Ollama-Qwen_2.5-black.svg?style=for-the-badge&logo=ollama&logoColor=white)](https://ollama.ai)
-[![PRs Welcome](https://img.shields.io/badge/PRs-Welcome-brightgreen.svg?style=for-the-badge)](CONTRIBUTING.md)
 
 </div>
 
 <p align="center">
-  <strong>An enterprise-grade, offline-capable civic intelligence system engineered for District Revenue Officers (DRO) to digitize, verify, classify, and route handwritten and printed Tamil grievance petitions in seconds on consumer hardware across any operating system.</strong>
+  <strong>An enterprise-grade, offline-capable civic intelligence system engineered for District Revenue Officers (DRO) to digitize, verify, classify, and route handwritten and printed Tamil grievance petitions in seconds on consumer hardware.</strong>
 </p>
 
 ---
@@ -23,41 +22,53 @@
 ## 📋 Table of Contents
 
 - [Overview](#-overview)
-- [System Architecture & The Postgres-First Law](#-system-architecture--the-postgres-first-law)
 - [Key Features](#-key-features)
-- [Processing Pipeline](#-processing-pipeline)
+- [System Architecture](#%EF%B8%8F-system-architecture)
 - [Tech Stack](#%EF%B8%8F-tech-stack)
 - [Project Structure](#-project-structure)
-- [Prerequisites & Models Setup](#-prerequisites--models-setup)
-- [Cross-Platform Quickstart](#-cross-platform-quickstart)
-  - [Option A: Docker Compose (Universal - Linux / macOS / Windows)](#option-a-docker-compose-universal)
-  - [Option B: Native One-Click Launch (Windows)](#option-b-native-one-click-launch-windows)
-  - [Option C: Native Launch (Linux & macOS)](#option-c-native-launch-linux--macos)
-  - [Manual Step-by-Step Installation](#manual-step-by-step-installation)
-- [API Reference & Endpoints](#-api-reference--endpoints)
-- [Security, Anti-Hallucination & Governance](#-security-anti-hallucination--governance)
-- [Contributing](#-contributing)
+- [Prerequisites](#-prerequisites)
+- [Quickstart: Clone & Run](#-quickstart-clone--run)
+  - [Step 1: Clone the Repository](#step-1-clone-the-repository)
+  - [Step 2: Setup Environment Configuration](#step-2-setup-environment-configuration)
+  - [Step 3: Launch Application](#step-3-launch-application)
+    - [Method 1: One-Click Native Launch (Recommended)](#method-1-one-click-native-launch-recommended)
+    - [Method 2: Docker Compose (All-in-One)](#method-2-docker-compose-all-in-one)
+    - [Method 3: Manual Developer Setup](#method-3-manual-developer-setup)
+- [Configuration Reference](#%EF%B8%8F-configuration-reference)
+- [Verification & Testing](#-verification--testing)
+- [Security & Governance](#-security--governance)
 - [License](#-license)
 
 ---
 
 ## 💡 Overview
 
-In district administration across Tamil Nadu, thousands of citizens submit handwritten and printed petitions during weekly **Grievance Day Petition (GDP)** collectorate sessions. Revenue officers previously faced manual data entry bottlenecks, lost tracking metadata, and delays in routing grievances to responsible taluk and firka officers.
+During weekly **Grievance Day Petition (GDP)** sessions at district collectorates across Tamil Nadu, thousands of citizens submit handwritten and printed petitions. Revenue officers typically face data entry bottlenecks, lost tracking metadata, and delays in routing grievances to the appropriate taluks, firkas, and departments.
 
-**GDP Assistant** modernizes this civic workflow into an automated, fault-tolerant, and zero-cloud-dependency pipeline:
-1. **Wireless Mobile Intake**: Officers or intake staff scan petitions directly via phone cameras using local Wi-Fi QR pairing.
-2. **Deep Optical Recognition (Chandra OCRv2 + PaddleOCR)**: Datalab Chandra OCRv2 extracts complex handwritten Tamil typography; local PaddleOCR and OpenCV adaptive filters serve as an offline fallback.
-3. **Deterministic Entity Extraction & PII Redaction**: Automatically extracts petitioner names, mobile numbers, door numbers, revenue taluks, and survey numbers while masking Aadhaar numbers (`XXXX-XXXX-1234`).
-4. **Cognitive Analysis with Multi-Page Budgeting**: Analyzes multi-page petitions (applicant header, narrative body, and final prayer / signatory page) without dropping critical details.
-5. **Dynamic CM Helpline Taxonomy Alignment**: Matches grievances dynamically against 40 official departments and 1,862 sub-types from `cm_helpline_taxonomy.json` with zero hardcoding.
-6. **Direct DRO Portal Bridge**: Once verified by an officer, petitions are formatted and dispatched directly into the state grievance redressal system.
+**GDP Assistant** transforms this process into an automated, fault-tolerant workflow:
+1. **Wireless Mobile Intake**: Scan multi-page petitions directly using a mobile phone camera paired via local Wi-Fi QR bridge.
+2. **Deep Optical Character Recognition (OCR)**: Extracts complex handwritten Tamil typography using Datalab Chandra OCRv2 with local PaddleOCR and OpenCV adaptive filters as offline fallback.
+3. **Deterministic Entity Extraction & PII Redaction**: Extracts petitioner names, phone numbers, door numbers, revenue villages, and survey numbers while automatically redacting Aadhaar numbers (`XXXX-XXXX-1234`).
+4. **Cognitive Multi-Page Analysis**: Analyzes multi-page petitions (header, body narrative, prayer, and signatures) without dropping critical details.
+5. **CM Helpline Taxonomy Alignment**: Matches grievances dynamically against 40 official departments and 1,862 sub-types from the Tamil Nadu CM Helpline taxonomy.
+6. **Direct DRO Portal Bridge**: Enables revenue officers to review, edit, approve, and dispatch petitions directly to the state grievance redressal system.
 
 ---
 
-## 🏗️ System Architecture & The Postgres-First Law
+## ✨ Key Features
 
-GDP Assistant is architected under the **Postgres-First Law**: **Zero Redis, Zero RabbitMQ, Zero Kafka, Zero Pinecone, Zero Chroma, and Zero MongoDB**. A single, hardened PostgreSQL 16 instance satisfies the entire platform's persistence, vector indexing, full-text search, and task orchestration needs.
+- **Split Dual-Panel Workspace**: View the high-resolution scanned petition on the left alongside the AI-assisted draft form, metadata editor, and interactive chat on the right.
+- **Cognitive Document Chat**: Ask questions in Tamil or English grounded strictly in petition text with instant answer verification.
+- **Mobile QR Capture**: Intake staff scan a QR code on their smartphone to upload multi-page petitions directly to the desktop workspace.
+- **Editable Officer Profile**: Revenue officers can manage their identity, designation, department, and taluk jurisdictions directly from the navigation bar.
+- **Anti-Hallucination Barrier**: Automatically cross-references extracted claims against raw OCR text chunks and flags unverified information.
+- **Formal Administrative Tamil Summaries**: Enforces standard third-person administrative Tamil summaries (`மனுதாரர் [பெயர்] ... கோரியுள்ளார்`) adhering to official collectorate conventions.
+
+---
+
+## 🏗️ System Architecture
+
+GDP Assistant is architected under the **Postgres-First Principle**: A single, hardened PostgreSQL 16 instance satisfies all persistence, vector indexing, full-text search, and queue management requirements.
 
 ```mermaid
 flowchart TB
@@ -68,20 +79,20 @@ flowchart TB
 
     subgraph APILayer ["FastAPI Async Gateway (Port 8000)"]
         Auth["JWT & Officer Session Guard"]
-        Upload["/api/v1/grievance/upload"]
-        RAGChat["/api/v1/grievance/{id}/chat"]
-        AdminAPI["/api/v1/admin & /history"]
+        Upload["Grievance Ingestion API"]
+        RAGChat["Cognitive RAG Document Chat"]
+        AdminAPI["Admin & Audit Services"]
     end
 
-    subgraph ProcessingPipeline ["Processing Engine (CPU Hardware)"]
+    subgraph ProcessingPipeline ["Processing Engine"]
         OCR["Hybrid OCR Router\nChandra OCRv2 / PaddleOCR"]
         Chunker["Tamil Semantic Chunker\nSentence Boundaries"]
         Embedder["SentenceTransformer\nparaphrase-multilingual-MiniLM-L12-v2"]
         NER["Hybrid Entity Extractor\nRegex + Revenue Master Validator"]
-        LLM["Local Qwen 2.5 (Ollama)\nSummarization & Claim Verification"]
+        LLM["Cognitive LLM Engine (Ollama / Gemini)\nSummarization & Claim Verification"]
     end
 
-    subgraph PostgresStore ["PostgreSQL 16 Enterprise Core (Single Source of Truth)"]
+    subgraph PostgresStore ["PostgreSQL 16 Enterprise Core"]
         Relational["Relational Tables\nsources, officers, master_locations"]
         Vector["pgvector (HNSW Index)\ndocument_chunks (384-dim cosine)"]
         FTS["tsvector + GIN Index\nTamil & English Full-Text Search"]
@@ -103,116 +114,101 @@ flowchart TB
 
 ---
 
-## ✨ Key Features
-
-- **Split Workspace**: Dual-panel view with high-resolution petition viewer on the left and dynamic AI assistant chat, draft editor, and metadata on the right.
-- **Cognitive Document Chat**: Ask questions in Tamil or English grounded strictly in petition text with instant answer verification.
-- **Mobile QR Capture**: Intake staff scan a QR code on their smartphone to upload multi-page petitions directly into the officer's desktop workspace.
-- **Editable Officer Profile**: Revenue officers can manage their identity, designation, department, and taluk jurisdictions directly from the top navigation bar.
-- **Anti-Hallucination Barrier**: Automatically cross-references all extracted claims against raw OCR chunks and flags unverified information.
-- **Formal Administrative Tamil**: Enforces 3rd-person administrative Tamil summaries (`மனுதாரர் [பெயர்] ... கோரியுள்ளார்`) adhering to official collectorate conventions.
-
----
-
 ## 🛠️ Tech Stack
 
-| Layer | Technology | Purpose |
+| Component | Technology | Description |
 | :--- | :--- | :--- |
-| **Frontend** | React 19, Vite 8, Lucide React | Modern, responsive officer interface |
-| **Backend API** | FastAPI 0.111+, Pydantic v2, Python 3.11+ | Asynchronous REST gateway & queue orchestration |
-| **Database** | PostgreSQL 16 + pgvector | Relational, vector, full-text, and queue storage |
-| **Primary OCR** | Datalab Chandra OCRv2 API | State-of-the-art Tamil handwriting recognition |
-| **Offline OCR** | PaddleOCR (PP-OCRv5) + OpenCV | Offline text detection and recognition fallback |
-| **Embeddings** | `paraphrase-multilingual-MiniLM-L12-v2` | 384-dimensional multilingual dense vectors |
-| **Cognitive LLM** | Qwen 2.5 (3B / 7B) via Ollama | Local offline summarization & classification |
+| **Frontend** | React 19, Vite, Lucide Icons, Vanilla CSS | Officer workspace with live OCR preview and draft editor |
+| **Backend** | FastAPI, Pydantic v2, Python 3.11+ | Asynchronous REST gateway and queue orchestration |
+| **Database** | PostgreSQL 16 + pgvector *(or Embedded SQLite)* | Relational storage, vector search, and queue tables |
+| **Primary OCR** | Datalab Chandra OCRv2 | High-accuracy Tamil handwriting transcription |
+| **Offline OCR** | PaddleOCR (PP-OCRv5) + OpenCV | Offline local fallback for printed & scanned text |
+| **Embeddings** | `paraphrase-multilingual-MiniLM-L12-v2` | 384-dimensional dense multilingual embeddings |
+| **Cognitive LLM** | Qwen 2.5 (via Ollama) or Gemini API | Local or cloud-assisted administrative reasoning |
 
 ---
 
 ## 📂 Project Structure
 
 ```
-GDP_Assistant/
-├── backend/
+smart-petition-ocr/
+├── backend/                    # FastAPI backend service
 │   ├── alembic/                # Database migrations
-│   ├── app/                    # FastAPI routers, dependencies, config
-│   ├── core/                   # Security, LLM client
-│   ├── data/
-│   │   └── cm_helpline_taxonomy.json # 40 departments & 1,862 sub-types
-│   ├── models/                 # SQLAlchemy 2.0 ORM & Pydantic schemas
-│   ├── services/               # OCR, Chunker, NER, Vector Store, AI Analyzer
-│   ├── tests/                  # Automated pytest test suites
-│   ├── Dockerfile              # Backend container definition
-│   └── requirements.txt        # Pinned Python dependencies
-├── frontend/
-│   ├── src/                    # React 19 UI components, styles, services
-│   ├── Dockerfile              # Frontend container definition
-│   └── package.json            # Node.js dependencies
-├── docker-compose.yml          # Unified multi-container stack
-├── run_all.bat                 # One-click Windows launch script
-├── run_backend.bat             # Windows backend launcher
-├── run_frontend.bat            # Windows frontend launcher
-├── run_all.sh                  # Linux / macOS launch script
-├── run_backend.sh              # Linux / macOS backend launcher
-├── run_frontend.sh             # Linux / macOS frontend launcher
-├── .env.example                # Unified configuration template
-├── CONTRIBUTING.md             # Contribution guidelines
-└── LICENSE                     # Apache License, Version 2.0
+│   ├── app/                    # Application factories, routers, config
+│   ├── core/                   # Security, LLM client interfaces
+│   ├── data/                   # CM Helpline taxonomy & reference data
+│   ├── models/                 # SQLAlchemy ORM models & Pydantic schemas
+│   ├── services/               # OCR, NER, chunking, vector store, AI analysis
+│   ├── tests/                  # Pytest automated test suites
+│   ├── requirements.txt        # Python package dependencies
+│   └── Dockerfile              # Backend container definition
+├── frontend/                   # React 19 single-page application
+│   ├── src/                    # Components, state management, styles
+│   ├── package.json            # Node.js dependencies
+│   └── Dockerfile              # Frontend container definition
+├── assets/                     # Platform banners and UI assets
+├── docker-compose.yml          # Unified container configuration
+├── run_all.bat                 # Windows one-click start script
+├── run_all.sh                  # Linux / macOS start script
+├── .env.example                # Unified environment configuration template
+└── README.md                   # Project documentation
 ```
 
 ---
 
-## 📦 Prerequisites & Models Setup
+## 📦 Prerequisites
 
-1. **Python 3.11+** and **Node.js 18+ LTS**.
-2. **Ollama**:
+Ensure you have the following installed on your system:
+
+1. **Python 3.11+** ([Download Python](https://python.org))
+2. **Node.js 18+ LTS** ([Download Node.js](https://nodejs.org))
+3. **Local LLM via Ollama** *(Optional if using Gemini API)*:
    ```bash
-   # Install Ollama from https://ollama.ai, then pull the recommended model:
    ollama pull qwen2.5:3b
    ```
-3. **Docker** (optional, for containerized execution).
+4. **Docker Desktop** *(Optional, for containerized execution)*
 
 ---
 
-## 🚀 Cross-Platform Quickstart
+## 🚀 Quickstart: Clone & Run
 
-### Option A: Docker Compose (Universal)
-
-Works identically on **Linux**, **macOS**, and **Windows**:
+### Step 1: Clone the Repository
 
 ```bash
-# 1. Clone the repository
-git clone https://github.com/MUKESH-WORK/smart-petition-ocr.git GDP_Assistant
-cd GDP_Assistant
-
-# 2. Configure environment
-cp .env.example .env
-
-# 3. Start the entire platform (Postgres + pgvector, Backend, Frontend)
-docker compose up --build -d
+git clone https://github.com/MUKESH-WORK/smart-petition-ocr.git
+cd smart-petition-ocr
 ```
 
-- **Frontend Portal**: `http://localhost:5174`
-- **FastAPI Backend**: `http://localhost:8000`
-- **API Documentation**: `http://localhost:8000/api/v1/docs`
+### Step 2: Setup Environment Configuration
+
+Copy the example environment file:
+
+```bash
+# Windows (PowerShell / Command Prompt)
+copy .env.example .env
+
+# Linux / macOS
+cp .env.example .env
+```
+
+Edit `.env` to configure your preferred settings:
+- Set `CHANDRA_API_KEY` if using Datalab Chandra OCR API.
+- Set `GEMINI_API_KEY` or configure local `OLLAMA_BASE_URL` (default: `http://localhost:11434`).
 
 ---
 
-### Option B: Native One-Click Launch (Windows)
+### Step 3: Launch Application
 
-Double-click or run from PowerShell / Command Prompt:
+Choose any of the following methods to run the platform:
 
+#### Method 1: One-Click Native Launch (Recommended)
+
+**On Windows:**
 ```bat
 run_all.bat
 ```
 
-This starts both the FastAPI backend (`http://localhost:8000`) and the Vite frontend (`http://localhost:5174`).
-
----
-
-### Option C: Native Launch (Linux & macOS)
-
-Make scripts executable and launch:
-
+**On Linux / macOS:**
 ```bash
 chmod +x run_all.sh run_backend.sh run_frontend.sh
 ./run_all.sh
@@ -220,64 +216,106 @@ chmod +x run_all.sh run_backend.sh run_frontend.sh
 
 ---
 
-### Manual Step-by-Step Installation
+#### Method 2: Docker Compose (All-in-One)
 
-#### 1. Database Setup
+Start all services (PostgreSQL with pgvector, FastAPI Backend, and React Frontend) with a single command:
+
 ```bash
-# Start PostgreSQL 16 + pgvector container
-docker compose up -d postgres
+docker compose up --build -d
 ```
 
-#### 2. Backend Setup
+---
+
+#### Method 3: Manual Developer Setup
+
+If you prefer to run backend and frontend in separate terminals:
+
+**Terminal 1 — Backend:**
 ```bash
 cd backend
+
+# Create and activate virtual environment
 python -m venv .venv
 
-# Activate virtual environment:
-# Windows: .venv\Scripts\activate
-# Linux / macOS: source .venv/bin/activate
+# Windows activation:
+.venv\Scripts\activate
+# Linux/macOS activation:
+source .venv/bin/activate
 
+# Install dependencies and initialize database
 pip install -r requirements.txt
-alembic upgrade head
 python init_db.py
+
+# Start FastAPI server
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-#### 3. Frontend Setup
+**Terminal 2 — Frontend:**
 ```bash
 cd frontend
+
+# Install Node.js dependencies
 npm install
+
+# Start Vite development server
 npm run dev
 ```
 
 ---
 
-## 📡 API Reference & Endpoints
+### 🌐 Accessing the Platform
 
-| Method | Endpoint | Description |
-| :--- | :--- | :--- |
-| `POST` | `/api/v1/grievance/upload` | Uploads PDF/image petition; enqueues OCR and processing pipeline |
-| `GET` | `/api/v1/grievance/{id}/status` | Checks real-time processing status of all pipeline stages |
-| `GET` | `/api/v1/grievance/{id}/ocr` | Retrieves OCR extracted text, bounding boxes, and tables |
-| `GET` | `/api/v1/grievance/{id}/analysis` | Retrieves AI summaries, suggested departments, and grounding scores |
-| `GET` | `/api/v1/grievance/{id}/draft` | Retrieves pre-populated DRO portal draft record |
-| `PUT` | `/api/v1/grievance/draft/{id}` | Updates draft fields following officer review |
-| `POST` | `/api/v1/grievance/draft/{id}/approve` | Digitally signs and approves draft with officer credentials |
-| `POST` | `/api/v1/grievance/draft/{id}/push-to-dro`| Dispatches approved grievance to external state DRO portal |
-| `GET` | `/api/v1/admin/health` | Comprehensive health check across DB, Vector Store, and Queue |
+Once launched, open your web browser:
+- **Frontend Portal**: `http://localhost:5174` (or `http://localhost:3000` via Docker)
+- **Backend Service**: `http://localhost:8000`
+- **Interactive Documentation**: `http://localhost:8000/docs`
 
 ---
 
-## 🛡️ Security, Anti-Hallucination & Governance
+## ⚙️ Configuration Reference
 
-1. **Aadhaar Masking**: All 12-digit UIDAI numbers are automatically redacted to `XXXX-XXXX-1234` prior to persistence.
-2. **Claim Grounding Verification**: Every factual statement generated by AI is verified against raw OCR text chunks. If ungrounded or `hallucination_score > 0.20`, officer verification is required.
-3. **Master DB Validation**: Locations are matched against official Tamil Nadu master records (`master_locations`).
-4. **Mandatory Officer Approval**: Submissions to the state DRO system require explicit officer sign-off (`officer_approved == True`).
-5. **Partitioned Audit Log**: Every system event is immutably recorded in monthly partitioned audit tables.
+Key environment variables available in `.env`:
+
+| Variable | Default Value | Description |
+| :--- | :--- | :--- |
+| `DATABASE_URL` | `postgresql+asyncpg://postgres:postgres@localhost:5432/dro_grievance` | PostgreSQL database connection string |
+| `CHANDRA_API_KEY` | `""` | Datalab Chandra OCR API key for Tamil handwriting recognition |
+| `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama service endpoint for local LLM inference |
+| `OLLAMA_MODEL` | `qwen2.5:3b` | Default Ollama model name |
+| `GEMINI_API_KEY` | `""` | Optional Google Gemini API key |
+| `JWT_SECRET` | *(Auto-generated)* | Secret key for officer session tokens |
+| `UPLOAD_DIR` | `uploads` | Directory for temporary petition image storage |
+
+---
+
+## 🧪 Verification & Testing
+
+Execute the backend automated test suite:
+
+```bash
+cd backend
+pytest tests/test_production_pipeline.py -v
+```
+
+Validate frontend production build:
+
+```bash
+cd frontend
+npm run build
+```
+
+---
+
+## 🛡️ Security & Governance
+
+- **Automatic PII Redaction**: All 12-digit Aadhaar numbers are masked to `XXXX-XXXX-1234` prior to database persistence.
+- **Anti-Hallucination Claim Grounding**: All LLM claims are verified against raw OCR text chunks. Unverified items are highlighted for officer review.
+- **Master Location Validation**: Geographic entities (Village, Firka, Taluk, District) are validated against official revenue administration records.
+- **Officer-in-the-Loop Redressal**: Petitions cannot be pushed to the state DRO system without digital officer approval (`officer_approved == True`).
+- **Immutable Audit Logging**: Every transaction, edit, and dispatch event is logged in partitioned audit tables.
 
 ---
 
 ## 📄 License
 
-Licensed under the **Apache License, Version 2.0**. See the [LICENSE](LICENSE) file for complete details.
+This project is licensed under the **Apache License, Version 2.0**. See the [LICENSE](LICENSE) file for complete details.

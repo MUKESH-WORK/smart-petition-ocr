@@ -33,7 +33,7 @@ router = APIRouter(prefix="/grievance", tags=["Grievance Processing"])
 ALLOWED_EXTENSIONS = {"pdf", "png", "jpg", "jpeg", "tiff", "tif", "bmp", "webp", "docx"}
 
 ALLOWED_UPDATE_FIELDS = {
-    "petitioner_name", "father_husband_name", "phone", "alternate_phone",
+    "petitioner_name", "father_husband_name", "complainant_signatory", "phone", "alternate_phone",
     "gender", "address", "door_no", "street_name", "village", "firka",
     "taluk", "district", "pincode", "grievance_type", "grievance_subtype",
     "department", "sub_department", "description", "priority", "officer_notes"
@@ -124,13 +124,13 @@ async def upload_petition(
         source_id = str(row["source_id"])
         await db.commit()
 
-        # Clear any obsolete unapproved draft for this source to guarantee fresh processing
-        await db.execute(text("""
-            DELETE FROM grievance_drafts 
-            WHERE source_id = CAST(:source_id AS UUID) 
-              AND (officer_approved = FALSE OR officer_approved IS NULL)
+        # Check if an existing approved draft exists for this source
+        existing_draft = await db.execute(text("""
+            SELECT id FROM grievance_drafts 
+            WHERE source_id = CAST(:source_id AS UUID)
+            LIMIT 1
         """), {"source_id": source_id})
-        await db.commit()
+        has_draft = existing_draft.mappings().one_or_none() is not None
 
         # If processing is already underway in job queue, return processing status immediately
         active_job = await db.execute(text("""
@@ -151,9 +151,9 @@ async def upload_petition(
                 message="Petition processing already underway."
             )
 
-        # If this source document has already been fully processed and draft is ready, return immediately
-        if row.get("status") in ('draft_ready', 'officer_approved', 'pushed_to_dro'):
-            logger.info(f"Source {source_id} already has status '{row['status']}', returning without re-enqueuing.")
+        # If this source document has already been fully processed and draft actually exists in DB, return immediately
+        if row.get("status") in ('draft_ready', 'officer_approved', 'pushed_to_dro') and has_draft:
+            logger.info(f"Source {source_id} already has status '{row['status']}' and valid draft in DB, returning immediately.")
             return SourceUploadResponse(
                 source_id=row["source_id"],
                 file_name=row["file_name"],
@@ -393,6 +393,9 @@ async def trigger_ai_analysis(
 
     return AIAnalysisResponse(
         source_id=uuid.UUID(source_id),
+        petitioner_name=analysis.get("petitioner_name"),
+        father_husband_name=analysis.get("father_husband_name"),
+        complainant_signatory=analysis.get("complainant_signatory"),
         grievance_type_suggested=analysis.get("grievance_type"),
         grievance_subtype_suggested=analysis.get("grievance_subtype"),
         department_suggested=analysis.get("department"),
@@ -414,8 +417,13 @@ async def get_ai_analysis(source_id: str, db: AsyncSession = Depends(get_db)):
     res = await db.execute(text("SELECT * FROM ai_analysis WHERE source_id = CAST(:source_id AS UUID) ORDER BY id DESC LIMIT 1"), {"source_id": source_id})
     row = res.mappings().one_or_none()
     if row:
+        draft_res = await db.execute(text("SELECT petitioner_name, father_husband_name, complainant_signatory FROM grievance_drafts WHERE source_id = CAST(:source_id AS UUID)"), {"source_id": source_id})
+        d_row = draft_res.mappings().one_or_none()
         return AIAnalysisResponse(
             source_id=row["source_id"],
+            petitioner_name=d_row["petitioner_name"] if d_row else None,
+            father_husband_name=d_row["father_husband_name"] if d_row else None,
+            complainant_signatory=d_row["complainant_signatory"] if d_row else None,
             grievance_type_suggested=row["grievance_type_suggested"],
             grievance_subtype_suggested=row["grievance_subtype_suggested"],
             department_suggested=row["department_suggested"],
@@ -432,7 +440,7 @@ async def get_ai_analysis(source_id: str, db: AsyncSession = Depends(get_db)):
     active_job = await db.execute(text("""
         SELECT id, job_type FROM job_queue 
         WHERE source_id = CAST(:source_id AS UUID) 
-          AND status IN ('pending', 'processing')
+        AND status IN ('pending', 'processing')
         LIMIT 1
     """), {"source_id": source_id})
     if active_job.mappings().one_or_none():
@@ -442,6 +450,9 @@ async def get_ai_analysis(source_id: str, db: AsyncSession = Depends(get_db)):
     analysis = await ai_analyzer.analyze(db, source_id)
     return AIAnalysisResponse(
         source_id=uuid.UUID(source_id),
+        petitioner_name=analysis.get("petitioner_name"),
+        father_husband_name=analysis.get("father_husband_name"),
+        complainant_signatory=analysis.get("complainant_signatory"),
         grievance_type_suggested=analysis.get("grievance_type"),
         grievance_subtype_suggested=analysis.get("grievance_subtype"),
         department_suggested=analysis.get("department"),

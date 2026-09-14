@@ -16,27 +16,22 @@ export default function ProcessingOverlay({ petition, onComplete, onCancel }) {
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
   const [pipelineError, setPipelineError] = useState(null);
   const [retryNonce, setRetryNonce] = useState(0);
-  const runningRef = useRef(false);
 
   const handleRetry = useCallback(() => {
-    runningRef.current = false;
     setPipelineError(null);
     setCurrentStepIndex(0);
     setRetryNonce((n) => n + 1);
   }, []);
 
   useEffect(() => {
-    if (runningRef.current) return;
-    runningRef.current = true;
     let isMounted = true;
+    const abortController = new AbortController();
 
-    // Smooth early-step animation (only advances if backend hasn't already moved ahead)
-    const earlyTimer1 = setTimeout(() => {
-      if (isMounted) setCurrentStepIndex((p) => Math.max(p, 1));
-    }, 600);
-    const earlyTimer2 = setTimeout(() => {
-      if (isMounted) setCurrentStepIndex((p) => Math.max(p, 2));
-    }, 1400);
+    // Visual progression ticker so UI smoothly shows active steps
+    const t1 = setTimeout(() => { if (isMounted) setCurrentStepIndex((p) => Math.max(p, 1)); }, 400);
+    const t2 = setTimeout(() => { if (isMounted) setCurrentStepIndex((p) => Math.max(p, 2)); }, 1200);
+    const t3 = setTimeout(() => { if (isMounted) setCurrentStepIndex((p) => Math.max(p, 3)); }, 2200);
+    const t4 = setTimeout(() => { if (isMounted) setCurrentStepIndex((p) => Math.max(p, 4)); }, 3500);
 
     const onProgressCallback = (stepIdx) => {
       if (isMounted) {
@@ -46,7 +41,7 @@ export default function ProcessingOverlay({ petition, onComplete, onCancel }) {
 
     // Official backend upload & analysis pipeline
     const pipelinePromise = petition?.file
-      ? uploadAndAnalyzePetition(petition.file, onProgressCallback)
+      ? uploadAndAnalyzePetition(petition.file, onProgressCallback, abortController.signal)
       : Promise.resolve(petition);
 
     pipelinePromise
@@ -58,21 +53,24 @@ export default function ProcessingOverlay({ petition, onComplete, onCancel }) {
           if (isMounted) {
             onComplete(realAnalyzedDoc || petition);
           }
-        }, 800);
+        }, 600);
       })
       .catch((err) => {
+        if (!isMounted || abortController.signal.aborted) return;
         console.error('Official pipeline error:', err);
-        if (!isMounted) return;
         setPipelineError(err.message || 'An error occurred during processing');
       });
 
     return () => {
       isMounted = false;
-      clearTimeout(earlyTimer1);
-      clearTimeout(earlyTimer2);
+      abortController.abort();
+      clearTimeout(t1);
+      clearTimeout(t2);
+      clearTimeout(t3);
+      clearTimeout(t4);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [petition, retryNonce]); // onComplete excluded — stable useCallback ref, avoids re-trigger
+  }, [petition, retryNonce]);
 
   // Overall progress percentage
   const progressPercent = Math.min(100, Math.round(((currentStepIndex + 1) / PROCESSING_STEPS.length) * 100));

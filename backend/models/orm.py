@@ -258,6 +258,7 @@ class GrievanceDraft(Base):
     # 1. Petitioner Details
     petitioner_name = Column(String(200))
     father_husband_name = Column(String(200))
+    complainant_signatory = Column(String(200), nullable=True)
     email = Column(String(100))
     phone = Column(String(20))
     is_own_phone = Column(Boolean, default=False)

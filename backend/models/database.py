@@ -116,6 +116,10 @@ async def init_db_schema():
             except Exception as e:
                 logger.debug(f"Could not update sources_status_check constraint: {e}")
             try:
+                await conn.execute(text("ALTER TABLE grievance_drafts ADD COLUMN IF NOT EXISTS complainant_signatory VARCHAR(200);"))
+            except Exception as e:
+                logger.debug(f"Could not add complainant_signatory column: {e}")
+            try:
                 await conn.execute(text("""
                     ALTER TABLE grievance_drafts 
                         ALTER COLUMN district TYPE VARCHAR(255),
