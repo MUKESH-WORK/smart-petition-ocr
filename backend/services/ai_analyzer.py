@@ -442,12 +442,21 @@ class AIAnalyzer:
                 return None
             return s
 
-        # Extract & prioritize Zone A applicant name / LLM values, falling back to Stage-C entities
+        # Extract & prioritize Zone A applicant name / verified Stage-C entities, falling back to LLM values
+        cand_llm_name = clean_field(llm_data.get("Petitioner_Name")) or clean_field(llm_data.get("petitioner_name"))
+        if cand_llm_name:
+            norm_doc = re.sub(r'[\s\.\,\(\)\-\:\'\"]', '', doc_context).lower()
+            norm_cand = re.sub(r'[\s\.\,\(\)\-\:\'\"]', '', cand_llm_name).lower()
+            # If cand_llm_name does not appear in doc_context, reject hallucination!
+            if norm_cand not in norm_doc and not any(t in norm_doc for t in re.split(r'[\s\.]', cand_llm_name) if len(t) >= 3):
+                logger.warning(f"Rejecting ungrounded LLM petitioner name hallucination: '{cand_llm_name}'")
+                cand_llm_name = None
+
         p_name = (
             clean_field(header_petitioner) or
-            clean_field(llm_data.get("Petitioner_Name")) or
-            clean_field(llm_data.get("petitioner_name")) or
-            clean_field(existing_entity_dict.get("petitioner_name"))
+            clean_field(verified_entity_dict.get("petitioner_name")) or
+            clean_field(existing_entity_dict.get("petitioner_name")) or
+            cand_llm_name
         )
         if p_name:
             p_name = re.sub(r'[\(\)0-9#*]', '', p_name).strip(',.-: ')
@@ -670,8 +679,25 @@ class AIAnalyzer:
             if not p_district or p_district in INVALID_VALUES or p_district == "Not found":
                 p_district = parsed_loc.get("district", "ஈரோடு")
 
+        def sanitize_loc(val: Optional[str]) -> Optional[str]:
+            if not val or not isinstance(val, str):
+                return val
+            s = re.sub(r'[\(\[\{]?(?:TK|Tk|T\.K|வட்டம்|Po|PO|P\.O|அஞ்சல்|Dt|DT|D\.T|மாவட்டம்)[\)\]\}]?', '', val, flags=re.IGNORECASE).strip(' :,.-')
+            return s if s else val
+
+        p_village = sanitize_loc(p_village)
+        p_taluk = sanitize_loc(p_taluk)
+        p_district = sanitize_loc(p_district)
+
         sel_tax = llm_data.get("Selected_Taxonomy") or llm_data.get("selected_taxonomy") or {}
         p_subdept = None
+        p_resp_off = (
+            clean_field(sel_tax.get("Responsible_officer")) or
+            clean_field(sel_tax.get("responsible_officer")) or
+            clean_field(llm_data.get("Responsible_officer")) or
+            clean_field(llm_data.get("responsible_officer")) or
+            None
+        )
 
         # Grievance categorization prioritizing official GDP form metadata table
         p_gtype = (
@@ -727,6 +753,21 @@ class AIAnalyzer:
                 if "scholarship" not in p_gsub.lower():
                     p_gsub = "Scholarship - High Edu"
 
+        # Domain routing: Drinking Water / குடிநீர் விநியோகம் / குடிநீர் தட்டுப்பாடு
+        elif any(k in (p_gtype + " " + p_gsub + " " + doc_context).lower() for k in ["குடிநீர்", "drinking water", "water supply", "டேங்கர் லாரி", "குடிநீர் விநியோகம்", "குடிநீர் தட்டுப்பாடு"]):
+            if any(p in doc_context for p in ["பஞ்சாயத்து", "ஊராட்சி", "கிராம"]):
+                p_dept = "Rural Development and Panchayat Raj Department (RDPR)"
+                p_gtype = "Village Infrastructure"
+                p_gsub = "Drinking Water Supply - RD"
+                p_subdept = "Rural Development and Panchayat Raj"
+                p_resp_off = "Block Development Officer - Village Panchayat"
+            else:
+                p_dept = "Municipal Administration and Water Supply (MAWS)"
+                p_gtype = "TWAD Water Supply Projects"
+                p_gsub = "TWAD Water Supply Projects"
+                p_subdept = "Commissionerate of Municipal Administration (CMA)"
+                p_resp_off = "Commissioner Municipality / Executive Officer"
+
         p_subdept = (
             gdp_meta.get("sub_department") or
             clean_field(sel_tax.get("Sub_Department")) or
@@ -737,8 +778,8 @@ class AIAnalyzer:
         p_priority = clean_field(llm_data.get("priority")) or "MEDIUM"
 
         # Format Reference ID
-        dept_code = "REV" if "revenue" in p_dept.lower() else ("IT" if "information technology" in p_dept.lower() else "GAD")
-        subdept_code = "DRO" if dept_code == "REV" else ("TACTV" if dept_code == "IT" else "CELL")
+        dept_code = "REV" if "revenue" in p_dept.lower() else ("IT" if "information technology" in p_dept.lower() else ("RDPR" if "rural development" in p_dept.lower() else "GAD"))
+        subdept_code = "DRO" if dept_code == "REV" else ("TACTV" if dept_code == "IT" else ("BDO" if dept_code == "RDPR" else "CELL"))
         date_code = gdp_meta.get("date_code", "24AUG26")
         if raw_ref_digits:
             p_ref_no = f"TN/{dept_code}/{subdept_code}/{date_code}/{raw_ref_digits}"
@@ -754,14 +795,38 @@ class AIAnalyzer:
 
         # Enforce formal third-person administrative Tamil summary and discard OCR noise
         OCR_JUNK_TOKENS = ["பிளூப்ரீவ்", "ப்ளூப்ரிண்ட்", "வட்டாராசிரியர்", "ராஷ்ட்ர கலா", "தோட்டாரன்", "டி. சி. பட்டணம்", "அடிசூ", "ஷாவ்", "ரயல்"]
-        if not summary_ta or any(junk in summary_ta for junk in OCR_JUNK_TOKENS):
-            if "house site" in (p_gtype + " " + p_gsub).lower() or "free hsd" in (p_gtype + " " + p_gsub).lower() or "natham" in (p_gtype + " " + p_gsub).lower():
-                summary_ta = f"மனுதாரர் {p_name or 'சந்திரசேகர்'}, {p_district or 'ஈரோடு'} மாவட்டம் {p_village or 'கூரப்பாளையம்'} பகுதியில் இலவச வீட்டு மனைப் பட்டா (Free House Site Patta) வழங்கிடக் கோரி ஈரோடு வட்டார வருவாய் வட்டாட்சியருக்கு மனு அளித்துள்ளார்."
+        is_drinking_water = any(k in doc_context for k in ["குடிநீர்", "தண்ணீர்", "water supply"])
+        if is_drinking_water and summary_ta and any(unrelated in summary_ta for unrelated in ["வீட்டு மனை", "பட்டா", "ஆதார்", "scholarship", "சந்திரசேகர்"]):
+            summary_ta = None
+
+        if not summary_ta or any(junk in summary_ta for junk in OCR_JUNK_TOKENS) or "சந்திரசேகர்" in (summary_ta or ""):
+            if is_drinking_water:
+                loc_part = f"{p_village or ''} {p_street or ''}".strip()
+                loc_str = f"{loc_part} பகுதியில்" if loc_part else "பகுதியில்"
+                summary_ta = f"மனுதாரர் {p_name or 'மனுதாரர்'}, {p_district or 'ஈரோடு'} மாவட்டம் {p_taluk or 'பவானி'} வட்டம் {loc_str} நீண்ட நாட்களாக முறையாக குடிநீர் விநியோகம் நடைபெறாததால், சீராக குடிநீர் விநியோகம் செய்ய தகுந்த நடவடிக்கை எடுக்கக் கோரி மனு அளித்துள்ளார்."
+            elif "house site" in (p_gtype + " " + p_gsub).lower() or "free hsd" in (p_gtype + " " + p_gsub).lower() or "natham" in (p_gtype + " " + p_gsub).lower():
+                summary_ta = f"மனுதாரர் {p_name or 'மனுதாரர்'}, {p_district or 'ஈரோடு'} மாவட்டம் {p_village or 'கூரப்பாளையம்'} பகுதியில் இலவச வீட்டு மனைப் பட்டா (Free House Site Patta) வழங்கிடக் கோரி ஈரோடு வட்டார வருவாய் வட்டாட்சியருக்கு மனு அளித்துள்ளார்."
             else:
                 summary_ta = f"மனுதாரர் {p_name or ''}, {p_gtype} தொடர்பாக உரிய நடவடிக்கை எடுத்து தீர்வு காணக் கோரி மனு அளித்துள்ளார்."
 
         if summary_ta:
             summary_ta = summary_ta.replace("\u0908", "\u0B88")
+            summary_ta = summary_ta.replace("[பெயர்]", p_name or "மனுதாரர்").replace("[Petitioner Name]", p_name or "மனுதாரர்")
+
+            # Replace introductory boilerplate "நான் மேலே குறிப்பிட்ட முகவரியில் வசிக்கும்..."
+            summary_ta = re.sub(r'^(?:மனுதாரர்\s+[^,]+,\s*)?நான்\s+மேலே\s+குறிப்பிட்ட\s+முகவரியில்\s+வசிக்கும்\s+[^.]+\.\s*', f'மனுதாரர் {p_name or "மனுதாரர்"}, ', summary_ta)
+            summary_ta = summary_ta.replace("தங்களிடம் தாழ்மையுடன் கேட்டுக்கொள்கிறேன்", "கோரியுள்ளார்")
+            summary_ta = summary_ta.replace("தாழ்மையுடன் கேட்டுக்கொள்கிறேன்", "கோரியுள்ளார்")
+            summary_ta = summary_ta.replace("கேட்டுக்கொள்கிறேன்", "கோரியுள்ளார்")
+
+            # Deduplicate repeated names e.g. "M. சிவராமன், சிவராமன்" or "M. சிவராமன், M. சிவராமன்"
+            if p_name:
+                clean_p_simple = re.sub(r'^[A-Za-z\u0B80-\u0BFF]\.\s*', '', p_name).strip()
+                summary_ta = re.sub(rf'மனுதாரர்\s+{re.escape(p_name)},\s*(?:{re.escape(p_name)}|{re.escape(clean_p_simple)})[.,\s]*', f'மனுதாரர் {p_name}, ', summary_ta)
+
+            # Deduplicate repeated action request phrases
+            summary_ta = re.sub(r'(?:(?:தேவையான|உரிய)\s+நடவடிக்கை\s+எடுக்குமாறு\s+)+(?:உரிய\s+)?', 'தேவையான நடவடிக்கை எடுக்குமாறு ', summary_ta)
+
             # If summary mistakenly begins with the father's name e.g. "மனுதாரர் சாமிநாதன்"
             if f_name and summary_ta.startswith(f"மனுதாரர் {f_name}"):
                 real_actor = p_complainant or (f"{p_complainant} / {p_name}" if (p_complainant and p_name) else (p_name or "மனுதாரர்"))
@@ -774,7 +839,7 @@ class AIAnalyzer:
             summary_ta = summary_ta.replace(" உத்தரவிட்டேன்", " உத்தரவிட்டு நடவடிக்கை எடுக்கக் கோரியுள்ளார்")
             summary_ta = summary_ta.replace("நாம் ", "மனுதாரர் ")
             summary_ta = summary_ta.replace("செய்தேன்", "செய்துள்ளார்")
-            summary_ta = summary_ta.replace("கேட்டுக் கொள்கிறேன்", "கேட்டுக் கொண்டுள்ளார்")
+            summary_ta = summary_ta.replace("கேட்டுக் கொள்கிறேன்", "கோரியுள்ளார்")
 
             # Check for mid-sentence truncation (e.g. ending in "என", "என்று", "ஆக")
             summary_ta = summary_ta.strip(' ,-')

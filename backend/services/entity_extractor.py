@@ -82,12 +82,12 @@ def parse_tamil_address_and_location(address_str: str) -> Dict[str, str]:
             break
 
     if not found_village:
-        village_suffixes = r'([^\s,]+(?:\s+[^\s,]+)?(?:தொழுவு|பாளையம்|பளையம்|பட்டி|நகர்|புரம்|மேடு|காடு|வலசு|ஊர்|கிராமம்|சேரி))'
-        village_match = re.search(village_suffixes, address_str)
-        if village_match:
-            found_village = village_match.group(1).strip(' :,.-')
+        po_m = re.search(r'([A-Za-z\u0B80-\u0BFF]{3,30})\s*(?:\([Pp][Oo]\)|\([Pp]\.[Oo]\)|\(அஞ்சல்\)|\bPo\b|\bPO\b)', address_str)
+        if po_m:
+            found_village = po_m.group(1).strip(' :,.-')
 
     if found_village:
+        found_village = re.sub(r'[\(\[\{]?(?:Po|PO|P\.O|அஞ்சல்|வட்டம்|மாவட்டம்)[\)\]\}]?', '', found_village).strip(' :,.-')
         v_words = found_village.split()
         if len(v_words) >= 2 and len(v_words) % 2 == 0:
             half = len(v_words) // 2
@@ -107,15 +107,17 @@ def parse_tamil_address_and_location(address_str: str) -> Dict[str, str]:
     d_match = re.search(r'([A-Za-z\u0B80-\u0BFF\s\.\-]+?)(?:\(Dt\)|\(மாவட்டம்\)|மாவட்டம்|District)', address_str, re.IGNORECASE)
     if d_match:
         d_val = d_match.group(1).strip(':, -')
+        d_val = re.sub(r'[\(\[\{]?(?:Dt|DT|D\.T|மாவட்டம்)[\)\]\}]?', '', d_val).strip(' :,.-')
         if d_val:
             location["district"] = d_val
     elif "ஈரோடு" in address_str:
         location["district"] = "ஈரோடு"
 
     # 4. Taluk resolution: Never let Taluk == Village
-    t_match = re.search(r'([A-Za-z\u0B80-\u0BFF\s\.\-]+?)(?:\(Tk\)|\(வட்டம்\)|வட்டம்|Taluk)', address_str, re.IGNORECASE)
+    t_match = re.search(r'([A-Za-z\u0B80-\u0BFF\s\.\-]+?)(?:\(Tk\)|\(TK\)|\(வட்டம்\)|வட்டம்|Taluk)', address_str, re.IGNORECASE)
     if t_match:
         t_val = t_match.group(1).strip(':, -')
+        t_val = re.sub(r'[\(\[\{]?(?:TK|Tk|T\.K|வட்டம்)[\)\]\}]?', '', t_val).strip(' :,.-')
         if t_val and t_val != location["village"]:
             location["taluk"] = t_val
         else:
@@ -845,40 +847,59 @@ class EntityExtractor:
                         "officer_corrected": False
                     })
 
-        # 6. Extract Village / Residential Locality (e.g. புஞ்சைபாலத் தொழுவு, சின்னத்தம்பாளையம், காளிபாளையம்)
+        # 6. Extract Village / Residential Locality (e.g. வெள்ளோடு (Po), புஞ்சைபாலத் தொழுவு, கூரப்பாளையம்)
         if not any(e["entity_type"] == "village" for e in entities):
-            for l in lines:
-                # First check comma-separated segments before district/pincode
-                segments = [s.strip() for s in l.split(',') if s.strip()]
-                cand_v = None
-                for seg in reversed(segments):
-                    clean_seg = self._clean_text_artifacts(seg).strip(":- ")
-                    # Skip pincodes, door numbers, district/taluk markers, or road/street names
-                    if re.search(r'\b6\d{5}\b|^\d{1,4}$', clean_seg):
+            cand_v = None
+
+            # Priority A: Check for Post Office (Po / PO / அஞ்சல்) in text
+            po_match = re.search(r'([A-Za-z\u0B80-\u0BFF]{3,30})\s*\((?:Po|PO|P\.O|அஞ்சல்|அ/ல்)\)', full_text, re.IGNORECASE)
+            if po_match:
+                cand_po = self._clean_text_artifacts(po_match.group(1)).strip(":, -")
+                if cand_po and len(cand_po) >= 3 and not self._is_invalid_value(cand_po) and not any(skip in cand_po for skip in ["மாவட்டம்", "வட்டம்", "தெரு"]):
+                    cand_v = cand_po
+
+            if not cand_v:
+                for l in lines:
+                    # Skip annexure / attachment / list / signature lines
+                    if any(skip in l for skip in ["இணைப்புகள்", "இணைப்பு", "சான்றிதழ்", "பட்டியல்", "புகைப்படம்", "நகல்", "இப்படிக்கு", "உண்மையுள்ள"]):
                         continue
-                    if any(skip in clean_seg for skip in ["மாவட்டம்", "வட்டம்", "(Dt)", "(Tk)", "ரோடு", "சாலை", "தெரு", "street", "road"]):
+                    if re.match(r'^\s*\d+[\.\)]', l):
                         continue
-                    # Match village suffixes
-                    if re.search(r'(?:தொழுவு|பாளையம்|பட்டி|புரம்|கிராமம்|சேரி|குப்பம்|வலசு|காடு|மேடு|நகர்|ஊர்)$', clean_seg):
-                        cand_v = clean_seg
+
+                    # First check comma-separated segments before district/pincode
+                    segments = [s.strip() for s in l.split(',') if s.strip()]
+                    for seg in reversed(segments):
+                        clean_seg = self._clean_text_artifacts(seg).strip(":- ")
+                        # Skip pincodes, door numbers, district/taluk markers, or road/street names
+                        if re.search(r'\b6\d{5}\b|^\d{1,4}$', clean_seg):
+                            continue
+                        if any(skip in clean_seg for skip in ["மாவட்டம்", "வட்டம்", "(Dt)", "(Tk)", "ரோடு", "சாலை", "தெரு", "street", "road", "பட்டியல்"]):
+                            continue
+                        # Match village suffixes
+                        if re.search(r'(?:தொழுவு|பாளையம்|பட்டி|புரம்|கிராமம்|சேரி|குப்பம்|வலசு|காடு|மேடு|நகர்|ஊர்)$', clean_seg):
+                            cand_v = clean_seg
+                            break
+
+                    if not cand_v:
+                        v_match = re.search(r'([A-Za-z\u0B80-\u0BFF\s]+(?:தொழுவு|பாளையம்|பட்டி|நகர்|புரம்|ஊர்|குப்பம்|கிராமம்|சேரி|வலசு|காடு|மேடு))', l)
+                        if v_match:
+                            cand_cand = self._clean_text_artifacts(v_match.group(1)).strip(":, ")
+                            if not any(skip in cand_cand for skip in ["பட்டியல்", "இணைப்பு", "நகல்"]):
+                                cand_v = cand_cand
+
+                    if cand_v and len(cand_v) >= 3 and not self._is_invalid_value(cand_v) and not any(skip in cand_v for skip in ["வட்டம்", "மாவட்டம்", "தெரு", "சாலை", "ரோடு", "பட்டியல்"]):
                         break
 
-                if not cand_v:
-                    v_match = re.search(r'([A-Za-z\u0B80-\u0BFF\s]+(?:தொழுவு|பாளையம்|பட்டி|நகர்|புரம்|ஊர்|குப்பம்|கிராமம்|சேரி|வலசு|காடு|மேடு))', l)
-                    if v_match:
-                        cand_v = self._clean_text_artifacts(v_match.group(1)).strip(":, ")
-
-                if cand_v and len(cand_v) >= 3 and not self._is_invalid_value(cand_v) and not any(skip in cand_v for skip in ["வட்டம்", "மாவட்டம்", "தெரு", "சாலை", "ரோடு"]):
-                    entities.append({
-                        "entity_type": "village",
-                        "entity_value": cand_v,
-                        "confidence": 0.94,
-                        "source_page": page_number,
-                        "extracted_by": "structural",
-                        "validation_status": "pending",
-                        "officer_corrected": False
-                    })
-                    break
+            if cand_v and len(cand_v) >= 3 and not self._is_invalid_value(cand_v) and not any(skip in cand_v for skip in ["வட்டம்", "மாவட்டம்", "தெரு", "சாலை", "ரோடு", "பட்டியல்"]):
+                entities.append({
+                    "entity_type": "village",
+                    "entity_value": cand_v,
+                    "confidence": 0.96,
+                    "source_page": page_number,
+                    "extracted_by": "structural",
+                    "validation_status": "pending",
+                    "officer_corrected": False
+                })
 
         # 7. Extract Petitioner Name from Sign-off block (e.g. இப்படிக்கு, ... (மு. கார்த்திக்))
         # 7. Extract Petitioner Name from Sign-off block (bracketed or unbracketed)

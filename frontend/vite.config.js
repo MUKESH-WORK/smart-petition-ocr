@@ -4,12 +4,12 @@ import crypto from 'crypto'
 import os from 'os'
 import net from 'net'
 
-// Dynamic backend port detection (auto-checks 8000, 8001, or process.env.BACKEND_PORT)
-let activeBackendPort = Number(process.env.BACKEND_PORT || process.env.VITE_BACKEND_PORT || 8000)
+// Dynamic backend port detection (auto-checks 8001, 8000, or process.env.BACKEND_PORT)
+let activeBackendPort = Number(process.env.BACKEND_PORT || process.env.VITE_BACKEND_PORT || 8001)
 
 function checkBackendPort(port) {
   return new Promise((resolve) => {
-    const socket = net.createConnection({ port, host: '127.0.0.1', timeout: 400 }, () => {
+    const socket = net.createConnection({ port, host: '127.0.0.1', timeout: 500 }, () => {
       socket.destroy()
       resolve(true)
     })
@@ -23,14 +23,14 @@ async function updateActiveBackendPort() {
     activeBackendPort = Number(process.env.BACKEND_PORT)
     return
   }
-  const is8000 = await checkBackendPort(8000)
-  if (is8000) {
-    activeBackendPort = 8000
-    return
-  }
   const is8001 = await checkBackendPort(8001)
   if (is8001) {
     activeBackendPort = 8001
+    return
+  }
+  const is8000 = await checkBackendPort(8000)
+  if (is8000) {
+    activeBackendPort = 8000
   }
 }
 
@@ -276,7 +276,7 @@ export default defineConfig({
     port: 5174,
     proxy: {
       '/api/v1': {
-        target: 'http://127.0.0.1:8000',
+        target: 'http://127.0.0.1:8001',
         changeOrigin: true,
         router: () => `http://127.0.0.1:${activeBackendPort}`,
         configure: (proxy) => {

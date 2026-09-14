@@ -141,12 +141,19 @@ class CMHelplineTaxonomyValidator:
         source_items = self.taxonomy
         if header_dept_keyword:
             kw = str(header_dept_keyword).strip().lower()
+            # Expand with semantic concept terms if Tamil keyword (e.g. குடிநீர் -> drinking water, water supply)
+            search_terms = {kw}
+            for c_key, c_terms in self.concept_map.items():
+                if c_key in kw or kw in c_key:
+                    search_terms.update([t.lower() for t in c_terms])
+
             scoped = []
             for item in self.taxonomy:
                 dept_val = str(item.get("department", "")).lower()
                 gtype_val = str(item.get("grievance_type", "")).lower()
                 gsub_val = str(item.get("grievance_sub_type", "")).lower()
-                if kw in dept_val or kw in gtype_val or kw in gsub_val:
+                item_str = f"{dept_val} {gtype_val} {gsub_val}"
+                if any(term in item_str for term in search_terms):
                     scoped.append(item)
             if scoped:
                 source_items = scoped
