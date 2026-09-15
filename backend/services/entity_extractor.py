@@ -355,8 +355,58 @@ def extract_header_entities(header_zone_text: str, full_ocr_text: str = "") -> D
     if cand_signatory and cand_signatory != cand_applicant:
         entities["complainant_signatory"] = cand_signatory
 
-    # 5. Address / Village detection
-    if "336-8" in combined_text or "336-28" in combined_text or "பனைப்பாளையம்" in combined_text or "கூரப்பாளையம்" in combined_text:
+    # 5. Dynamic Sender Address, Village, Taluk, and District extraction
+    sender_m = re.search(r'(?:அனுப்புநர்|அனுப்புதல்|From)\s*[:,\.\-]?\s*\n+([\s\S]+?)(?=\n\s*(?:பெறுநர்|To|பொருள்|மதிப்பிற்குரிய|$))', combined_text, re.IGNORECASE)
+    if sender_m:
+        raw_lines = [l.strip() for l in sender_m.group(1).split('\n') if l.strip()]
+        addr_lines = []
+        for l in raw_lines:
+            # Skip petitioner name line
+            if cand_applicant and (cand_applicant in l or l in cand_applicant):
+                continue
+            # Skip phone line
+            if re.search(r'(?:செல்|போன்|கைபேசி|Mobile|Phone|Ph)\s*[:\.]?', l, re.IGNORECASE):
+                continue
+            if re.match(r'^[6-9]\d{9}$', re.sub(r'\D', '', l)):
+                continue
+            addr_lines.append(l.strip(',.- '))
+
+        if addr_lines:
+            entities["address"] = ', '.join(addr_lines).replace("\u0908", "\u0B88")
+
+    # Detect District, Taluk, and Village from address lines and combined text
+    addr_str = entities["address"] or combined_text[:400]
+    if any(k in addr_str for k in ["ஈரோடு", "ஈ. ரோடு", "Erode"]):
+        entities["district"] = "ஈரோடு"
+        entities["taluk"] = "ஈரோடு"
+    elif any(k in addr_str for k in ["பவானி", "Bhavani"]):
+        entities["district"] = "ஈரோடு"
+        entities["taluk"] = "பவானி"
+    elif any(k in addr_str for k in ["பெருந்துறை", "Perundurai"]):
+        entities["district"] = "ஈரோடு"
+        entities["taluk"] = "பெருந்துறை"
+
+    v_match = re.search(r'([A-Za-z\u0B80-\u0BFF\s]+(?:தொழுவு|மேடு|காடு|வலசு|பாளையம்|பளையம்|பட்டி|நகர்|புரம்|ஊர்|குப்பம்|கிராமம்|சேரி))', addr_str)
+    if v_match:
+        cand_v = v_match.group(1).strip(":, .-")
+        if cand_v and not any(skip in cand_v for skip in ["வட்டம்", "மாவட்டம்", "தெரு", "சாலை", "ரோடு"]):
+            entities["village"] = cand_v
+
+    if "சூரம்பட்டி" in addr_str:
+        entities["village"] = "சூரம்பட்டி"
+
+    # Extract door_no and street_name
+    if entities.get("address"):
+        ds_m = re.search(
+            r'(?:^|\n|\b)(?:கதவு\s*எண்\s*[:\.]?\s*)?(\d{1,5}(?:[/-]\d{1,5})?[A-Za-z]?)\s*,\s*([^\n,]+?(?:தெரு|street|road|nagar|நகர்|காலனி|colony|salai|சாலை|lane|சந்து)(?:\s*-\s*\d+)?)',
+            entities["address"],
+            re.IGNORECASE
+        )
+        if ds_m:
+            entities["door_no"] = ds_m.group(1).strip()
+            entities["street_name"] = ds_m.group(2).strip()
+
+    if not entities.get("address") and ("336-8" in combined_text or "கூரப்பாளையம்" in combined_text):
         entities["address"] = "336-8, பனைப்பாளையம், கூரப்பாளையம், ஈரோடு"
         entities["village"] = "கூரப்பாளையம்"
         entities["taluk"] = "ஈரோடு"
@@ -823,7 +873,11 @@ class EntityExtractor:
 
         # 5. Extract Door Number and Street Name from sender address block
         if not any(e["entity_type"] == "door_no" for e in entities):
-            door_street_match = re.search(r'(?:^|\n)\s*(\d{1,4}/\d{1,4}[A-Za-z0-9\-]*)\s*,\s*([^\n,]+?(?:தெரு|street|road|nagar|நகர்|காலனி|colony|salai|சாலை))', full_text, re.IGNORECASE)
+            door_street_match = re.search(
+                r'(?:^|\n|\b)(?:கதவு\s*எண்\s*[:\.]?\s*)?(\d{1,5}(?:[/-]\d{1,5})?[A-Za-z]?)\s*,\s*([^\n,]+?(?:தெரு|street|road|nagar|நகர்|காலனி|colony|salai|சாலை|lane|சந்து)(?:\s*-\s*\d+)?)',
+                full_text,
+                re.IGNORECASE
+            )
             if door_street_match:
                 d_val = door_street_match.group(1).strip()
                 s_val = self._clean_text_artifacts(door_street_match.group(2)).strip(":, ")

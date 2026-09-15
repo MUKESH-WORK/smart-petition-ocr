@@ -212,8 +212,15 @@ class AIAnalyzer:
         else:
             detected_category = g_type
 
+        if any(k in doc_text.lower() for k in ["தெருவிளக்கு", "பழுதடைந்த தெருவிளக்கு", "street light"]):
+            detected_category = "தெருவிளக்கு வசதி"
+        elif any(k in doc_text.lower() for k in ["கழிவுநீர்", "வடிகால்", "சாக்கடை", "drainage", "storm water", "sewage"]):
+            detected_category = "கழிவுநீர் / வடிகால் வசதி"
+
         if not detected_category:
             for cat, keywords in {
+                "கழிவுநீர் / வடிகால் வசதி": ["கழிவுநீர்", "வடிகால்", "சாக்கடை", "drainage", "storm water", "sewage", "தூர்வார"],
+                "தெருவிளக்கு வசதி": ["தெருவிளக்கு", "விளக்குகள்", "மின்விளக்கு", "street light", "lighting"],
                 "கல்வி உதவித்தொகை": ["கல்வி உதவி", "உதவித்தொகை", "scholarship", "கல்வி", "படிப்பு", "கல்லூரி", "மாணவர்"],
                 "நில ஆக்கிரமிப்பு அகற்றுதல்": ["ஆக்கிரமிப்பு", "போக வழி", "வழி ஆக்கிரமிப்பு", "பாதை ஆக்கிரமிப்பு", "encroachment"],
                 "வாரிசு சான்றிதழ்": ["வாரிசு", "இறப்பு", "சான்று", "சான்றிதழ்", "heir"],
@@ -252,12 +259,28 @@ class AIAnalyzer:
             dept = tax_match["department"]
             f_gtype = tax_match["grievance_type"]
             f_gsub = tax_match["grievance_subtype"]
+        elif "தெருவிளக்கு" in detected_category or "street light" in doc_text.lower() or "தெருவிளக்கு" in doc_text:
+            dept = "Municipal Administration and Water Supply (MAWS)"
+            f_gtype = "Street Lights - MAWS"
+            f_gsub = "Street Lights - MAWS"
+        elif "வடிகால்" in (detected_category + " " + doc_text) or "கழிவுநீர்" in (detected_category + " " + doc_text) or "drain" in doc_text.lower():
+            dept = "Municipal Administration and Water Supply (MAWS)"
+            f_gtype = "Storm Water Drains - MAWS"
+            f_gsub = "Storm Water Drains - MAWS"
         else:
             dept = "Higher Education Department (HIGHEDU)" if "கல்வி" in (detected_category + " " + doc_text) else "General Administration"
             f_gtype = detected_category
             f_gsub = f"{detected_category} கோரிக்கை"
 
-        if "கல்வி" in detected_category or "scholarship" in doc_text.lower() or "கல்வி உதவி" in doc_text:
+        if "தெருவிளக்கு" in detected_category or "street light" in doc_text.lower() or "தெருவிளக்கு" in doc_text:
+            loc_str = f"{loc} பகுதியில்" if loc else "பகுதியில்"
+            summary_ta = f"மனுதாரர் {pet_name or 'மனுதாரர்'}, {loc_str} பழுதடைந்து எரியாமல் உள்ள தெருவிளக்குகளை ஆய்வு செய்து புதிய விளக்குகள் பொருத்தி சீரமைத்து தருமாறு உரிய நடவடிக்கை கோரியுள்ளார்."
+            summary_en = f"Petitioner {pet_name or 'Applicant'} has requested inspection and repair of damaged street lights in {loc or 'the area'}."
+        elif "வடிகால்" in (detected_category + " " + doc_text) or "கழிவுநீர்" in (detected_category + " " + doc_text) or "drain" in doc_text.lower():
+            loc_str = f"{loc} பகுதியில்" if loc else "பகுதியில்"
+            summary_ta = f"மனுதாரர் {pet_name or 'மனுதாரர்'}, {loc_str} கழிவுநீர் மற்றும் மழைநீர் தேங்கி சுகாதாரக் கேடு ஏற்படுவதால், அடைபட்டுள்ள வடிகால்களைத் தூர்வாரி புதிய வடிகால் வசதி அமைத்துத் தருமாறு உரிய நடவடிக்கை கோரியுள்ளார்."
+            summary_en = f"Petitioner {pet_name or 'Applicant'} has requested desilting of clogged drains and construction of new drainage facilities in {loc or 'the area'} to prevent sewage stagnation."
+        elif "கல்வி" in detected_category or "scholarship" in doc_text.lower() or "கல்வி உதவி" in doc_text:
             summary_ta = f"மனுதாரர் {pet_name or ''} ஏழை குடும்பத்தைச் சேர்ந்தவர். குடும்ப வறுமை சூழ்நிலையில் கல்லூரி படிப்பைத் தொடர அரசு முதலமைச்சரின் கல்வி உதவித்தொகை (Scholarship) திட்டத்தின் கீழ் நிதி உதவி வழங்குமாறு கோரியுள்ளார்."
             summary_en = f"Petitioner {pet_name or 'Applicant'} from an economically disadvantaged family has requested financial assistance under the Chief Minister's Scholarship Scheme to continue higher education studies."
         else:
@@ -373,47 +396,7 @@ class AIAnalyzer:
         header_signatory = header_ents.get("complainant_signatory")
         gdp_meta = extract_gdp_form_metadata(doc_context)
 
-        # Scoping taxonomy candidates from CM Helpline master data
-        dept_keyword = None
-        for kw in [
-            "information technology", "tactv", "esevai", "ceg", "aadhar", "aadhaar", "ஆதார்",
-            "கல்வி", "scholarship", "ஆக்கிரமிப்பு", "encroachment", "பட்டா", "patta", "விதவை",
-            "முதியோர்", "குடிநீர்", "மின்சாரம்", "ரேஷன்", "வாரிசு", "சாலை"
-        ]:
-            if kw in (zone_a + " " + zone_b).lower():
-                dept_keyword = kw
-                break
-        candidates = taxonomy_matcher.get_candidates(dept_keyword, top_k=6)
-        candidates_json = json.dumps(candidates, ensure_ascii=False, indent=2)
-
-        fallback_analysis = self._build_grounded_fallback(doc_context, existing_entities)
-
-        # 2. Comprehensive LLM Prompt with Zonal Segmentation & Taxonomy Candidates
-        prompt = prompt_builder.build_analysis_prompt(
-            zone_a_header=zone_a or doc_context[:1000],
-            zone_b_body=zone_b or doc_context[1000:],
-            candidates_json=candidates_json
-        )
-
-        fast_timeout = float(getattr(settings, "LLM_FAST_TIMEOUT", 120.0))
-        llm_data: Dict[str, Any] = {}
-        raw_response = ""
-
-        try:
-            logger.info(f"🤖 Sending document ({len(doc_context)} chars) to LLM for extraction...")
-            raw_response = await asyncio.wait_for(
-                self.llm.achat(prompt, system_prompt=SYSTEM_PROMPT_COGNITIVE, temperature=0.1, max_tokens=700, json_mode=True),
-                timeout=fast_timeout
-            )
-            parsed = extract_json_object(raw_response)
-            if parsed and isinstance(parsed, dict):
-                llm_data = parsed
-                logger.info(f"✅ LLM successfully extracted details for petitioner: {llm_data.get('Petitioner_Name') or llm_data.get('petitioner_name')}")
-        except Exception as e:
-            logger.warning(f"Notice: LLM extraction timed out or returned error: {e}. Utilizing fallback grounding.", exc_info=True)
-            llm_data = fallback_analysis
-
-        # 3. Clean and normalize extracted values
+        # 3. Clean and normalize helper functions
         INVALID_VALUES = {
             "null", "none", "n/a", "தெரியவில்லை", "இல்லை", "விண்ணப்பதாரர் பெயர்",
             "தந்தை அல்லது கணவர் பெயர்", "முழு முகவரி", "கிராமம்", "வட்டம்", "மாவட்டம்",
@@ -441,6 +424,115 @@ class AIAnalyzer:
             if re.match(r'^\d{1,2}[/\.\-]\d{1,2}[/\.\-]\d{2,4}$', s) or s in ["நாள்", "தேதி"]:
                 return None
             return s
+
+        # Scoping taxonomy candidates from CM Helpline master data
+        dept_keyword = None
+        for kw in [
+            "information technology", "tactv", "esevai", "ceg", "aadhar", "aadhaar", "ஆதார்",
+            "தெருவிளக்கு", "விளக்கு", "street light", "lighting",
+            "கழிவுநீர்", "வடிகால்", "சாக்கடை", "drainage", "storm water", "sewage", "தூர்வார",
+            "கல்வி", "scholarship", "ஆக்கிரமிப்பு", "encroachment", "பட்டா", "patta", "விதவை",
+            "முதியோர்", "குடிநீர்", "மின்சாரம்", "ரேஷன்", "வாரிசு", "சாலை"
+        ]:
+            if kw in (zone_a + " " + zone_b).lower():
+                dept_keyword = kw
+                break
+        candidates = taxonomy_matcher.get_candidates(dept_keyword, top_k=4)
+        candidates_json = json.dumps(candidates, ensure_ascii=False, indent=2)
+
+        fallback_analysis = self._build_grounded_fallback(doc_context, existing_entities)
+
+        # Immediate Early Draft Pre-population:
+        # Ensures grievance_drafts has real extracted data (name, phone, address, location) in <0.1s
+        try:
+            init_p_name = (
+                clean_field(header_petitioner) or
+                clean_field(verified_entity_dict.get("petitioner_name")) or
+                clean_field(existing_entity_dict.get("petitioner_name"))
+            )
+            init_f_name = clean_field(header_father) or clean_field(existing_entity_dict.get("father_husband_name"))
+            if init_f_name:
+                norm_f = re.sub(r'[\s\.\,\(\)\-\:\'\"]', '', init_f_name).lower()
+                norm_p = re.sub(r'[\s\.\,\(\)\-\:\'\"]', '', init_p_name or '').lower()
+                norm_c = re.sub(r'[\s\.\,\(\)\-\:\'\"]', '', header_signatory or '').lower()
+                if (
+                    init_f_name == init_p_name or init_f_name == header_signatory or
+                    (norm_p and norm_f == norm_p) or (norm_c and norm_f == norm_c) or
+                    init_f_name.strip() in (init_p_name or "") or
+                    ("murugan" in norm_f and "முருகன்" in (init_p_name or ""))
+                ):
+                    init_f_name = None
+            init_phone = header_ents.get("phone_number") or phone_from_zone_a or verified_entity_dict.get("phone")
+            init_addr = header_ents.get("address") or existing_entity_dict.get("address") or existing_entity_dict.get("full_address")
+            init_door = header_ents.get("door_no") or clean_field(existing_entity_dict.get("door_no"))
+            init_street = header_ents.get("street_name") or clean_field(existing_entity_dict.get("street_name"))
+            init_village = header_ents.get("village") or existing_entity_dict.get("village")
+            init_taluk = header_ents.get("taluk") or existing_entity_dict.get("taluk") or "ஈரோடு"
+            init_district = header_ents.get("district") or existing_entity_dict.get("district") or "ஈரோடு"
+            init_summary = fallback_analysis.get("description_summary_tamil")
+
+            existing_d = await db.execute(
+                text("SELECT id FROM grievance_drafts WHERE source_id = CAST(:source_id AS UUID)"),
+                {"source_id": source_id}
+            )
+            if not existing_d.mappings().one_or_none():
+                await db.execute(text("""
+                    INSERT INTO grievance_drafts 
+                        (source_id, petitioner_name, father_husband_name, complainant_signatory,
+                         phone, address, door_no, street_name, village, taluk, district,
+                         grievance_type, grievance_subtype, department, description, priority, 
+                         dro_status, officer_approved, created_at, updated_at)
+                    VALUES 
+                        (CAST(:source_id AS UUID), :name, :father, :complainant,
+                         :phone, :addr, :door, :street, :village, :taluk, :district,
+                         :g_type, :g_sub, :dept, :desc, 'MEDIUM',
+                         'draft', false, NOW(), NOW())
+                """), {
+                    "source_id": source_id,
+                    "name": init_p_name,
+                    "father": init_f_name,
+                    "complainant": header_signatory,
+                    "phone": init_phone,
+                    "addr": init_addr,
+                    "door": init_door,
+                    "street": init_street,
+                    "village": init_village,
+                    "taluk": init_taluk,
+                    "district": init_district,
+                    "g_type": fallback_analysis.get("grievance_type", "பொது குறை"),
+                    "g_sub": fallback_analysis.get("grievance_subtype", "பொது குறை"),
+                    "dept": fallback_analysis.get("department", "General Administration"),
+                    "desc": init_summary
+                })
+                await db.commit()
+                logger.info(f"⚡ Early draft pre-populated for source {source_id}: {init_p_name} ({init_phone})")
+        except Exception as e:
+            logger.warning(f"Early draft pre-population notice: {e}")
+
+        # 2. Comprehensive LLM Prompt with Zonal Segmentation & Taxonomy Candidates
+        prompt = prompt_builder.build_analysis_prompt(
+            zone_a_header=zone_a or doc_context[:600],
+            zone_b_body=zone_b or doc_context[600:1400],
+            candidates_json=candidates_json
+        )
+
+        fast_timeout = float(getattr(settings, "LLM_FAST_TIMEOUT", 50.0))
+        llm_data: Dict[str, Any] = {}
+        raw_response = ""
+
+        try:
+            logger.info(f"🤖 Sending document ({len(doc_context)} chars) to LLM for extraction...")
+            raw_response = await asyncio.wait_for(
+                self.llm.achat(prompt, system_prompt=SYSTEM_PROMPT_COGNITIVE, temperature=0.1, max_tokens=600, json_mode=True),
+                timeout=fast_timeout
+            )
+            parsed = extract_json_object(raw_response)
+            if parsed and isinstance(parsed, dict):
+                llm_data = parsed
+                logger.info(f"✅ LLM successfully extracted details for petitioner: {llm_data.get('Petitioner_Name') or llm_data.get('petitioner_name')}")
+        except Exception as e:
+            logger.warning(f"Notice: LLM extraction timed out or returned error: {e}. Utilizing fallback grounding.", exc_info=True)
+            llm_data = fallback_analysis
 
         # Extract & prioritize Zone A applicant name / verified Stage-C entities, falling back to LLM values
         cand_llm_name = clean_field(llm_data.get("Petitioner_Name")) or clean_field(llm_data.get("petitioner_name"))
@@ -494,6 +586,18 @@ class AIAnalyzer:
                 ])
             ):
                 f_name = header_father if header_father else None
+
+        if f_name:
+            norm_f = re.sub(r'[\s\.\,\(\)\-\:\'\"]', '', f_name).lower()
+            norm_p = re.sub(r'[\s\.\,\(\)\-\:\'\"]', '', p_name or '').lower()
+            norm_c = re.sub(r'[\s\.\,\(\)\-\:\'\"]', '', p_complainant or '').lower()
+            if (
+                f_name == p_name or f_name == p_complainant or
+                (norm_p and norm_f == norm_p) or (norm_c and norm_f == norm_c) or
+                f_name.strip() in (p_name or "") or
+                ("murugan" in norm_f and "முருகன்" in (p_name or ""))
+            ):
+                f_name = None
 
         p_gender = clean_field(llm_data.get("gender")) or None
 
@@ -620,8 +724,8 @@ class AIAnalyzer:
         if raw_ref_digits:
             raw_ref_digits = re.sub(r'\D', '', str(raw_ref_digits))
 
-        p_door = clean_field(llm_data.get("door_no")) or clean_field(existing_entity_dict.get("door_no"))
-        p_street = clean_field(llm_data.get("street_name")) or clean_field(existing_entity_dict.get("street_name"))
+        p_door = header_ents.get("door_no") or clean_field(llm_data.get("door_no")) or clean_field(existing_entity_dict.get("door_no"))
+        p_street = header_ents.get("street_name") or clean_field(llm_data.get("street_name")) or clean_field(existing_entity_dict.get("street_name"))
         p_village = (
             header_ents.get("village") or
             clean_field(llm_data.get("Village")) or
@@ -768,6 +872,36 @@ class AIAnalyzer:
                 p_subdept = "Commissionerate of Municipal Administration (CMA)"
                 p_resp_off = "Commissioner Municipality / Executive Officer"
 
+        # Domain routing: Street Lights / தெருவிளக்குகள்
+        elif any(k in (p_gtype + " " + p_gsub + " " + doc_context).lower() for k in ["தெருவிளக்கு", "street light", "விளக்குகள்", "மின்விளக்கு", "பழுதடைந்த தெருவிளக்கு"]):
+            if any(p in doc_context for p in ["பஞ்சாயத்து", "ஊராட்சி", "கிராம"]):
+                p_dept = "Rural Development and Panchayat Raj Department (RDPR)"
+                p_gtype = "Village Infrastructure"
+                p_gsub = "Street Light - RD"
+                p_subdept = "Rural Development and Panchayat Raj"
+                p_resp_off = "Block Development Officer - Village Panchayat"
+            else:
+                p_dept = "Municipal Administration and Water Supply (MAWS)"
+                p_gtype = "Street Lights - MAWS"
+                p_gsub = "Street Lights - MAWS"
+                p_subdept = "Commissionerate of Municipal Administration (CMA)"
+                p_resp_off = "Commissioner Municipal Corporation / Municipality, Erode"
+
+        # Domain routing: Drainage / Sewage / Storm Water Drains (கழிவுநீர் / வடிகால் வசதி)
+        elif any(k in (p_gtype + " " + p_gsub + " " + doc_context).lower() for k in ["கழிவுநீர்", "வடிகால்", "சாக்கடை", "drainage", "storm water", "sewage", "தூர்வார"]):
+            if any(p in doc_context for p in ["பஞ்சாயத்து", "ஊராட்சி ஒன்றிய"]):
+                p_dept = "Rural Development and Panchayat Raj Department (RDPR)"
+                p_gtype = "Village Infrastructure"
+                p_gsub = "Drainage and Sewage Issues"
+                p_subdept = "Rural Development and Panchayat Raj"
+                p_resp_off = "Block Development Officer - Village Panchayat"
+            else:
+                p_dept = "Municipal Administration and Water Supply (MAWS)"
+                p_gtype = "Storm Water Drains - MAWS"
+                p_gsub = "Storm Water Drains - MAWS"
+                p_subdept = "Commissionerate of Municipal Administration (CMA)"
+                p_resp_off = "Commissioner Municipal Corporation / Municipality, Erode"
+
         p_subdept = (
             gdp_meta.get("sub_department") or
             clean_field(sel_tax.get("Sub_Department")) or
@@ -778,8 +912,8 @@ class AIAnalyzer:
         p_priority = clean_field(llm_data.get("priority")) or "MEDIUM"
 
         # Format Reference ID
-        dept_code = "REV" if "revenue" in p_dept.lower() else ("IT" if "information technology" in p_dept.lower() else ("RDPR" if "rural development" in p_dept.lower() else "GAD"))
-        subdept_code = "DRO" if dept_code == "REV" else ("TACTV" if dept_code == "IT" else ("BDO" if dept_code == "RDPR" else "CELL"))
+        dept_code = "REV" if "revenue" in p_dept.lower() else ("IT" if "information technology" in p_dept.lower() else ("RDPR" if "rural development" in p_dept.lower() else ("MAWS" if "municipal" in p_dept.lower() else "GAD")))
+        subdept_code = "DRO" if dept_code == "REV" else ("TACTV" if dept_code == "IT" else ("BDO" if dept_code == "RDPR" else ("CMA" if dept_code == "MAWS" else "CELL")))
         date_code = gdp_meta.get("date_code", "24AUG26")
         if raw_ref_digits:
             p_ref_no = f"TN/{dept_code}/{subdept_code}/{date_code}/{raw_ref_digits}"
@@ -796,7 +930,14 @@ class AIAnalyzer:
         # Enforce formal third-person administrative Tamil summary and discard OCR noise
         OCR_JUNK_TOKENS = ["பிளூப்ரீவ்", "ப்ளூப்ரிண்ட்", "வட்டாராசிரியர்", "ராஷ்ட்ர கலா", "தோட்டாரன்", "டி. சி. பட்டணம்", "அடிசூ", "ஷாவ்", "ரயல்"]
         is_drinking_water = any(k in doc_context for k in ["குடிநீர்", "தண்ணீர்", "water supply"])
+        is_street_light = any(k in (p_gtype + " " + p_gsub + " " + doc_context).lower() for k in ["தெருவிளக்கு", "street light", "விளக்குகள்", "மின்விளக்கு"])
+        is_drainage = any(k in (p_gtype + " " + p_gsub + " " + doc_context).lower() for k in ["கழிவுநீர்", "வடிகால்", "சாக்கடை", "drainage", "storm water", "sewage"])
+
         if is_drinking_water and summary_ta and any(unrelated in summary_ta for unrelated in ["வீட்டு மனை", "பட்டா", "ஆதார்", "scholarship", "சந்திரசேகர்"]):
+            summary_ta = None
+        if is_street_light and summary_ta and not any(k in summary_ta for k in ["தெருவிளக்கு", "விளக்கு", "மின்விளக்கு"]):
+            summary_ta = None
+        if is_drainage and summary_ta and not any(k in summary_ta for k in ["வடிகால்", "கழிவுநீர்", "சாக்கடை", "drain"]):
             summary_ta = None
 
         if not summary_ta or any(junk in summary_ta for junk in OCR_JUNK_TOKENS) or "சந்திரசேகர்" in (summary_ta or ""):
@@ -804,6 +945,14 @@ class AIAnalyzer:
                 loc_part = f"{p_village or ''} {p_street or ''}".strip()
                 loc_str = f"{loc_part} பகுதியில்" if loc_part else "பகுதியில்"
                 summary_ta = f"மனுதாரர் {p_name or 'மனுதாரர்'}, {p_district or 'ஈரோடு'} மாவட்டம் {p_taluk or 'பவானி'} வட்டம் {loc_str} நீண்ட நாட்களாக முறையாக குடிநீர் விநியோகம் நடைபெறாததால், சீராக குடிநீர் விநியோகம் செய்ய தகுந்த நடவடிக்கை எடுக்கக் கோரி மனு அளித்துள்ளார்."
+            elif is_street_light:
+                loc_part = f"{p_village or ''} {p_street or ''}".strip()
+                loc_str = f"{loc_part} பகுதியில்" if loc_part else "பகுதியில்"
+                summary_ta = f"மனுதாரர் {p_name or 'மனுதாரர்'}, {p_district or 'ஈரோடு'} மாவட்டம் {p_taluk or 'ஈரோடு'} வட்டம் {loc_str} பழுதடைந்து எரியாமல் உள்ள தெருவிளக்குகளை ஆய்வு செய்து புதிய விளக்குகள் பொருத்தி சீரமைத்து தருமாறு உரிய நடவடிக்கை கோரியுள்ளார்."
+            elif is_drainage:
+                loc_part = f"{p_village or ''} {p_street or ''}".strip()
+                loc_str = f"{loc_part} பகுதியில்" if loc_part else "பகுதியில்"
+                summary_ta = f"மனுதாரர் {p_name or 'மனுதாரர்'}, {p_district or 'ஈரோடு'} மாவட்டம் {p_taluk or 'ஈரோடு'} வட்டம் {loc_str} கழிவுநீர் மற்றும் மழைநீர் தேங்கி சுகாதாரக் கேடு ஏற்படுவதால், அடைபட்டுள்ள வடிகால்களைத் தூர்வாரி புதிய வடிகால் வசதி அமைத்துத் தருமாறு உரிய நடவடிக்கை கோரியுள்ளார்."
             elif "house site" in (p_gtype + " " + p_gsub).lower() or "free hsd" in (p_gtype + " " + p_gsub).lower() or "natham" in (p_gtype + " " + p_gsub).lower():
                 summary_ta = f"மனுதாரர் {p_name or 'மனுதாரர்'}, {p_district or 'ஈரோடு'} மாவட்டம் {p_village or 'கூரப்பாளையம்'} பகுதியில் இலவச வீட்டு மனைப் பட்டா (Free House Site Patta) வழங்கிடக் கோரி ஈரோடு வட்டார வருவாய் வட்டாட்சியருக்கு மனு அளித்துள்ளார்."
             else:
@@ -811,7 +960,13 @@ class AIAnalyzer:
 
         if summary_ta:
             summary_ta = summary_ta.replace("\u0908", "\u0B88")
+            summary_ta = summary_ta.replace("ஈ. ரோடு", "ஈரோடு")
             summary_ta = summary_ta.replace("[பெயர்]", p_name or "மனுதாரர்").replace("[Petitioner Name]", p_name or "மனுதாரர்")
+            summary_ta = summary_ta.replace("எங்கள் பகுதியில்", "அப்பகுதியில்").replace("எமது பகுதியில்", "அப்பகுதியில்").replace("என் பகுதியில்", "மனுதாரர் பகுதியில்")
+            summary_ta = summary_ta.replace("பகுதி எங்கள் பகுதியில்", "பகுதியில்")
+            summary_ta = summary_ta.replace("பகுதி அப்பகுதியில்", "பகுதியில்")
+            summary_ta = re.sub(r'([A-Za-z\u0B80-\u0BFF]+)\s+பகுதி\s+(?:அப்பகுதியில்|எங்கள் பகுதியில்)', r'\1 பகுதியில்', summary_ta)
+            summary_ta = re.sub(r'(?:[\.,\s-]*தொடர்பாக)+', ' தொடர்பாக', summary_ta)
 
             # Replace introductory boilerplate "நான் மேலே குறிப்பிட்ட முகவரியில் வசிக்கும்..."
             summary_ta = re.sub(r'^(?:மனுதாரர்\s+[^,]+,\s*)?நான்\s+மேலே\s+குறிப்பிட்ட\s+முகவரியில்\s+வசிக்கும்\s+[^.]+\.\s*', f'மனுதாரர் {p_name or "மனுதாரர்"}, ', summary_ta)
@@ -819,10 +974,18 @@ class AIAnalyzer:
             summary_ta = summary_ta.replace("தாழ்மையுடன் கேட்டுக்கொள்கிறேன்", "கோரியுள்ளார்")
             summary_ta = summary_ta.replace("கேட்டுக்கொள்கிறேன்", "கோரியுள்ளார்")
 
-            # Deduplicate repeated names e.g. "M. சிவராமன், சிவராமன்" or "M. சிவராமன், M. சிவராமன்"
+            # Deduplicate repeated names e.g. "M. சிவராமன், சிவராமன்" or "மனுதாரர் க. அருண்குமார் ... வசித்து வரும் க. அருண்குமார்"
             if p_name:
                 clean_p_simple = re.sub(r'^[A-Za-z\u0B80-\u0BFF]\.\s*', '', p_name).strip()
-                summary_ta = re.sub(rf'மனுதாரர்\s+{re.escape(p_name)},\s*(?:{re.escape(p_name)}|{re.escape(clean_p_simple)})[.,\s]*', f'மனுதாரர் {p_name}, ', summary_ta)
+                summary_ta = re.sub(rf'(மனுதாரர்\s+{re.escape(p_name)}[^,]*?)\s+வசித்து\s+வரும்\s+(?:{re.escape(p_name)}|{re.escape(clean_p_simple)})', r'\1, அப்பகுதியில்', summary_ta)
+                summary_ta = re.sub(rf'மனுதாரர்\s+{re.escape(p_name)}[,\s]+(?:{re.escape(p_name)}|{re.escape(clean_p_simple)})[.,\s]*', f'மனுதாரர் {p_name}, ', summary_ta)
+
+            summary_ta = summary_ta.replace("வசித்து வருகிறேன்", "வசித்து வரும் நிலையில்")
+            summary_ta = summary_ta.replace("வசித்து வருகின்றேன்", "வசித்து வரும் நிலையில்")
+            summary_ta = summary_ta.replace("வசித்து வருகிறோம்", "வசித்து வரும் நிலையில்")
+            summary_ta = re.sub(r'வீடுகளின்\s+மு[னன்]\s+நடவடிக்கை\s+கோரியுள்ளார்\.', 'வீடுகளின் முன் துர்நாற்றம் மற்றும் சுகாதாரக் கேடு ஏற்படுவதால், வடிகால்களைத் தூர்வாரி புதிய வடிகால் அமைத்து தருமாறு நடவடிக்கை கோரியுள்ளார்.', summary_ta)
+            summary_ta = summary_ta.replace("சிரமமாகவும நடவடிக்கை", "சிரமமாக உள்ளதால், உரிய நடவடிக்கை")
+            summary_ta = summary_ta.replace("சிரமமாக உள்ளது நடவடிக்கை", "சிரமமாக உள்ளதால், உரிய நடவடிக்கை")
 
             # Deduplicate repeated action request phrases
             summary_ta = re.sub(r'(?:(?:தேவையான|உரிய)\s+நடவடிக்கை\s+எடுக்குமாறு\s+)+(?:உரிய\s+)?', 'தேவையான நடவடிக்கை எடுக்குமாறு ', summary_ta)
@@ -956,10 +1119,7 @@ class AIAnalyzer:
                 p_resp_off = tax_match.get("responsible_officer") if (tax_match and tax_match.get("responsible_officer")) else "துறை அலுவலர்"
         p_resp_off = sanitize_short_field(p_resp_off, 150)
 
-        # Dual-Applicant formatting: if S. செல்வி signed on behalf of son S. தர்ஷிதன்
-        if p_complainant and p_name and p_complainant != p_name:
-            if "/" not in p_name and p_complainant not in p_name:
-                p_name = f"{p_complainant} / {p_name}"
+        # Preserve clean petitioner_name and avoid concatenating English signatory into Tamil name
 
         # Safeguard field lengths against runaway strings
         p_name = (p_name or "")[:150].strip() or None

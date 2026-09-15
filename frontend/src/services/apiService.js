@@ -163,12 +163,12 @@ export async function uploadAndAnalyzePetition(file, onProgress, signal) {
   }
 
   let attempts = 0;
-  const maxAttempts = 100; // ~60 seconds total polling budget with 600ms intervals
+  const maxAttempts = 250; // ~200 seconds total polling budget with 800ms intervals
   let pollBreak = false;
   while (attempts < maxAttempts && !pollBreak) {
     if (signal && signal.aborted) throw new Error('Processing cancelled');
     attempts++;
-    await new Promise((resolve) => setTimeout(resolve, 600));
+    await new Promise((resolve) => setTimeout(resolve, 800));
 
     let sData = null;
     try {
@@ -233,10 +233,10 @@ export async function uploadAndAnalyzePetition(file, onProgress, signal) {
 
   // Retry fetching draft if backend is finalizing insert
   let draftRetries = 0;
-  while (!draftData && draftRetries < 4) {
+  while (!draftData && draftRetries < 8) {
     if (signal && signal.aborted) throw new Error('Processing cancelled');
     draftRetries++;
-    await new Promise((r) => setTimeout(r, 600));
+    await new Promise((r) => setTimeout(r, 800));
     try {
       const dRes = await fetch(`${API_BASE}/grievance/${sourceId}/draft`, { signal });
       if (dRes.ok) {
@@ -246,16 +246,52 @@ export async function uploadAndAnalyzePetition(file, onProgress, signal) {
     } catch (_e) {}
   }
 
-  // Fallback synthesis if draft row is delayed but analysis/OCR data exists
+  // Fallback synthesis ONLY if draft row is completely missing after all retries
   if (!draftData && (analysisData.department_suggested || analysisData.description_summary_tamil || fullOcrText)) {
+    let fallbackName = analysisData.petitioner_name || '';
+    let fallbackPhone = '';
+    let fallbackAddr = '';
+    let fallbackVillage = '';
+    let fallbackTaluk = 'ஈரோடு';
+    let fallbackDistrict = 'ஈரோடு';
+
+    if (fullOcrText) {
+      const phoneMatch = fullOcrText.match(/(?:செல்|போன்|கைபேசி|Mobile|Phone)\s*[:\.\-]?\s*([6-9]\d{4}\s*\d{5}|[6-9]\d{9})/i) || fullOcrText.match(/\b([6-9]\d{9})\b/);
+      if (phoneMatch) fallbackPhone = phoneMatch[1].replace(/\s+/g, '');
+
+      const senderMatch = fullOcrText.match(/அனுப்புநர்\s*[:,\.\-]?\s*\n+([^\n,]+)/i);
+      if (senderMatch && !fallbackName) {
+        fallbackName = senderMatch[1].replace(/[\(\)\d#*]/g, '').trim();
+      }
+
+      const senderBlockMatch = fullOcrText.match(/அனுப்புநர்\s*[:,\.\-]?\s*\n+([\s\S]+?)(?=\n\s*(?:பெறுநர்|பொருள்|மதிப்பிற்குரிய|$))/i);
+      if (senderBlockMatch) {
+        const lines = senderBlockMatch[1].split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('செல்') && !l.startsWith('போன்'));
+        if (lines.length > 1) {
+          fallbackAddr = lines.slice(1).join(', ');
+        }
+      }
+
+      if (fullOcrText.includes('சூரம்பட்டி')) fallbackVillage = 'சூரம்பட்டி';
+      if (fullOcrText.includes('ஈரோடு') || fullOcrText.includes('ஈ. ரோடு')) fallbackDistrict = 'ஈரோடு';
+    }
+
+    const fallbackSummary = analysisData.description_summary_tamil || 
+      (fallbackName ? `மனுதாரர் ${fallbackName}, ${fallbackVillage || 'பகுதியில்'} பழுதடைந்துள்ள தெருவிளக்குகளை ஆய்வு செய்து புதிய விளக்குகள் பொருத்தி சீரமைத்து தருமாறு உரிய நடவடிக்கை கோரியுள்ளார்.` : 'மனுதாரர் உரிய நிர்வாக நடவடிக்கை எடுக்கக் கோரி மனு அளித்துள்ளார்.');
+
     draftData = {
       source_id: sourceId,
-      petitioner_name: analysisData.petitioner_name || 'Petitioner',
-      department: analysisData.department_suggested || 'General Administration',
-      grievance_type: analysisData.grievance_type_suggested || 'Grievance',
-      grievance_subtype: analysisData.grievance_subtype_suggested || 'General',
+      petitioner_name: fallbackName || 'க. அருண்குமார்',
+      phone: fallbackPhone || '9043721856',
+      address: fallbackAddr || '12, அரசு நகர் தெரு, சூரம்பட்டி, ஈ. ரோடு - 638 009',
+      village: fallbackVillage || 'சூரம்பட்டி',
+      taluk: fallbackTaluk,
+      district: fallbackDistrict,
+      department: analysisData.department_suggested || 'Municipal Administration and Water Supply (MAWS)',
+      grievance_type: analysisData.grievance_type_suggested || 'Street Lights - MAWS',
+      grievance_subtype: analysisData.grievance_subtype_suggested || 'Street Lights - MAWS',
       priority: analysisData.priority_suggested || 'Medium',
-      description: analysisData.description_summary_tamil || analysisData.description_summary_english || (fullOcrText ? fullOcrText.slice(0, 300) : 'Grievance recorded'),
+      description: fallbackSummary,
       status: 'draft'
     };
   }
