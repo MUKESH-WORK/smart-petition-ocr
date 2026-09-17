@@ -1,0 +1,76 @@
+@import './variables.css';
+@import './base.css';
+
+/* Application Root Layout (Strictly 100vh Desktop Shell) */
+.app-container {
+  height: 100vh;
+  width: 100vw;
+  display: flex;
+  flex-direction: column;
+  background-color: var(--bg-canvas);
+  overflow: hidden;
+}
+
+/* App Body Container: Left Sidebar + Main Content */
+.app-body-container {
+  flex: 1;
+  min-height: 0;
+  height: calc(100vh - var(--header-height));
+  display: flex;
+  flex-direction: row;
+  overflow: hidden;
+  position: relative;
+  width: 100%;
+}
+
+.main-content {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  overflow: hidden;
+  background-color: var(--bg-canvas);
+}
+
+/* Common Toast Notification */
+.toast-container {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.toast-message {
+  pointer-events: auto;
+  background-color: #081730;
+  color: var(--text-white);
+  padding: var(--card-padding);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-body);
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: var(--space-sections);
+  box-shadow: 0 10px 25px -3px rgba(16, 44, 87, 0.4);
+  border: 1px solid rgba(218, 192, 163, 0.35);
+  border-left: 4px solid var(--tan-warm);
+  animation: toastSlideIn 200ms ease-out;
+}
+
+@keyframes toastSlideIn {
+  from {
+    transform: translateY(12px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}

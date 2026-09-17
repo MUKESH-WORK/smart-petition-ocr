@@ -1,0 +1,664 @@
+/* ==========================================================================
+   UPGRADED AUDIT LOGS STYLES & LAYOUT SYSTEM
+   ========================================================================== */
+
+.audit-logs-page {
+  flex: 1;
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background-color: var(--bg-canvas);
+  overflow-y: auto;
+  box-sizing: border-box;
+}
+
+.audit-logs-container {
+  width: 100%;
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 20px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sections, 10px);
+  box-sizing: border-box;
+}
+
+
+/* 1. Page Header */
+.audit-page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sections, 10px);
+  border-bottom: 1px solid var(--border-subtle);
+  padding-bottom: var(--space-sections, 10px);
+}
+
+.audit-title-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-label-input, 4px);
+}
+
+.audit-page-title {
+  font-size: var(--font-size-title, 1.05rem);
+  font-weight: 700;
+  color: #102C57;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+
+.audit-page-subtext {
+  font-size: var(--font-size-body, 1rem);
+  color: var(--text-muted, #64748B);
+  margin: 0;
+}
+
+.audit-header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sections, 10px);
+}
+
+.refresh-logs-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--font-size-btn-secondary, 0.88rem);
+  font-weight: 600;
+  color: #102C57;
+  background-color: var(--bg-surface, #FFFFFF);
+  border: 1.5px solid var(--border-medium);
+  padding: 8px 16px;
+  border-radius: var(--radius-md, 6px);
+  cursor: pointer;
+  box-shadow: var(--shadow-xs, 0 1px 2px rgba(0, 0, 0, 0.05));
+  transition: all var(--transition-fast, 0.15s ease);
+}
+
+.refresh-logs-btn:hover:not(:disabled) {
+  background-color: var(--parchment-100);
+  border-color: var(--steel-400);
+  color: #102C57;
+}
+
+.refresh-logs-btn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.refresh-icon {
+  color: #102C57;
+}
+
+/* Spin Keyframes for Loading */
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.spin-anim {
+  animation: spin 0.75s linear infinite;
+}
+
+/* 2. Filter Card (Single Horizontal Row Layout) */
+.audit-filter-card {
+  background-color: var(--bg-surface, #FFFFFF);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xl, 12px);
+  padding: var(--card-padding, 12px 16px);
+  box-shadow: var(--shadow-xs, 0 1px 3px rgba(0, 0, 0, 0.04));
+}
+
+.audit-filter-controls-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sections, 10px);
+  width: 100%;
+  flex-wrap: wrap;
+}
+
+.audit-search-box {
+  flex: 2;
+  min-width: 240px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background-color: var(--bg-surface, #FFFFFF);
+  border: 1.5px solid var(--border-medium, #CBD5E1);
+  border-radius: var(--radius-md, 6px);
+  padding: 6px 12px;
+  box-shadow: var(--shadow-xs, 0 1px 2px rgba(0, 0, 0, 0.04));
+  transition: all var(--transition-fast, 0.15s ease);
+}
+
+.audit-search-box:focus-within {
+  background-color: #FFFFFF;
+  border-color: #102C57;
+  box-shadow: 0 0 0 3px rgba(16, 44, 87, 0.2);
+}
+
+.search-icon {
+  color: var(--text-light, #94A3B8);
+  flex-shrink: 0;
+}
+
+.audit-search-input {
+  flex: 1;
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
+  background: transparent;
+  font-size: var(--font-size-body, 1rem);
+  color: var(--text-primary, #0F172A);
+  font-family: inherit;
+  padding: 0;
+}
+
+.audit-search-input::placeholder {
+  color: var(--text-light, #94A3B8);
+}
+
+.search-clear-btn {
+  color: var(--text-light, #94A3B8);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  padding: 2px;
+}
+
+.search-clear-btn:hover {
+  color: #102C57;
+}
+
+/* Date Picker Wrapper */
+.date-input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 0 0 175px;
+  min-width: 165px;
+  cursor: pointer;
+}
+
+.date-field-icon {
+  position: absolute;
+  left: 10px;
+  color: var(--text-muted, #64748B);
+  pointer-events: none;
+  z-index: 2;
+  transition: color var(--transition-fast, 0.15s ease);
+}
+
+.date-input-wrapper:hover .date-field-icon,
+.date-input-wrapper:focus-within .date-field-icon {
+  color: #102C57;
+}
+
+.date-picker-input {
+  width: 100%;
+  height: 38px;
+  padding: 0 10px 0 32px;
+  font-size: var(--font-size-btn-secondary, 0.88rem);
+  font-family: inherit;
+  font-weight: 500;
+  color: var(--text-primary);
+  background-color: var(--bg-surface, #FFFFFF);
+  border: 1.5px solid var(--border-medium);
+  border-radius: var(--radius-md, 6px);
+  outline: none;
+  cursor: pointer;
+  transition: all var(--transition-fast, 0.15s ease);
+  box-sizing: border-box;
+}
+
+.date-picker-input::placeholder {
+  color: var(--text-muted, #64748B);
+  font-weight: 400;
+  font-size: var(--font-size-btn-secondary, 0.88rem);
+}
+
+.date-picker-input:hover {
+  border-color: #102C57;
+}
+
+.date-picker-input:focus {
+  background-color: #FFFFFF;
+  border-color: #102C57;
+  box-shadow: 0 0 0 2px rgba(16, 44, 87, 0.15);
+}
+
+.date-input-wrapper.has-date .date-picker-input {
+  padding-right: 32px;
+}
+
+/* Hide the duplicate native calendar icon so it doesn't collide with text or Lucide icon */
+.date-picker-input::-webkit-calendar-picker-indicator {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  cursor: pointer;
+  opacity: 0;
+  width: 24px;
+  height: 24px;
+}
+
+/* Clear date button */
+.date-clear-btn {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #F1F5F9;
+  border: none;
+  color: var(--text-muted, #64748B);
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  cursor: pointer;
+  z-index: 5;
+  transition: all var(--transition-fast, 0.15s ease);
+}
+
+.date-clear-btn:hover {
+  color: #FFFFFF;
+  background-color: #EF4444;
+}
+
+/* Category Pill Buttons (All, GDP Assistant) */
+.category-pill-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border-radius: var(--radius-md, 6px);
+  font-size: var(--font-size-btn-secondary, 0.88rem);
+  font-weight: 600;
+  color: var(--text-secondary, #475569);
+  background-color: var(--bg-surface, #FFFFFF);
+  border: 1.5px solid var(--border-medium);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all var(--transition-fast, 0.15s ease);
+}
+
+.category-pill-btn:hover {
+  border-color: #102C57;
+  color: #102C57;
+  background-color: #F5EDE2;
+}
+
+.category-pill-btn.active {
+  background-color: #102C57;
+  color: #FEFAF6;
+  border-color: #102C57;
+  box-shadow: 0 1px 4px rgba(16, 44, 87, 0.3);
+}
+
+.category-pill-btn.active .pill-icon {
+  color: #DAC0A3;
+}
+
+.pill-icon {
+  color: var(--text-muted, #64748B);
+}
+
+/* Dropdowns Wrapper (Category, Year, Month, Day) */
+.date-select-wrapper {
+  display: flex;
+  flex: 0 0 120px;
+  min-width: 105px;
+}
+
+.category-select-wrapper {
+  flex: 0 0 140px;
+  min-width: 125px;
+}
+
+.date-select {
+  width: 100%;
+  padding: 7px 10px;
+  font-size: var(--font-size-body, 1rem);
+  font-family: inherit;
+  color: var(--text-primary);
+  background-color: var(--bg-surface, #FFFFFF);
+  border: 1.5px solid var(--border-medium);
+  border-radius: var(--radius-md, 6px);
+  outline: none;
+  cursor: pointer;
+  transition: all var(--transition-fast, 0.15s ease);
+}
+
+.date-select:focus {
+  background-color: #FFFFFF;
+  border-color: #102C57;
+  box-shadow: 0 0 0 2px rgba(16, 44, 87, 0.2);
+}
+
+/* Reset Filters Button */
+.reset-filters-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--font-size-btn-secondary, 0.88rem);
+  font-weight: 600;
+  color: #FEFAF6;
+  background-color: #102C57;
+  border: 1px solid #091A34;
+  padding: 7px 14px;
+  border-radius: var(--radius-md, 6px);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all var(--transition-fast, 0.15s ease);
+  box-shadow: 0 1px 4px rgba(16, 44, 87, 0.25);
+}
+
+.reset-filters-btn:hover {
+  background-color: #163C73;
+  border-color: #091A34;
+  color: #FEFAF6;
+}
+
+/* 3. Results Summary Strip */
+.audit-results-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.results-count-text {
+  font-size: var(--font-size-body, 1rem);
+  color: var(--text-secondary, #475569);
+}
+
+.active-filter-tag {
+  margin-left: 6px;
+  font-size: var(--font-size-label, 0.95rem);
+  font-weight: 600;
+  color: #102C57;
+}
+
+/* 4. Table Wrapper & Scrollable Container */
+.audit-records-wrapper {
+  width: 100%;
+  min-height: 240px;
+}
+
+.audit-table-container {
+  width: 100%;
+  max-height: calc(100vh - 340px);
+  min-height: 300px;
+  overflow: auto;
+  background-color: var(--bg-surface, #FFFFFF);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg, 8px);
+  box-shadow: var(--shadow-xs, 0 1px 3px rgba(0, 0, 0, 0.04));
+}
+
+.audit-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: var(--font-size-body, 1rem);
+}
+
+/* Sticky Table Header */
+.audit-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background-color: var(--bg-subtle);
+  color: var(--text-primary);
+  font-size: var(--font-size-label, 0.95rem);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: var(--card-padding, 12px 16px);
+  border-bottom: 2px solid #DAC0A3;
+  white-space: nowrap;
+}
+
+.audit-table tbody tr {
+  border-bottom: 1px solid var(--border-subtle);
+  transition: background-color var(--transition-fast, 0.15s ease);
+}
+
+.audit-table tbody tr:hover {
+  background-color: var(--bg-canvas);
+}
+
+.audit-table tbody tr.clickable-row {
+  cursor: pointer;
+}
+
+.audit-table tbody tr.clickable-row:hover {
+  background-color: var(--bg-subtle);
+}
+
+.audit-table td {
+  padding: var(--card-padding, 12px 16px);
+  vertical-align: middle;
+  color: var(--text-primary, #0F172A);
+  font-size: var(--font-size-body, 1rem);
+}
+
+.cell-datetime {
+  font-family: var(--font-mono, monospace);
+  font-size: var(--font-size-body, 1rem);
+  color: var(--text-secondary, #475569);
+  white-space: nowrap;
+}
+
+/* Category Badges */
+.cat-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 9999px;
+  font-size: var(--font-size-label, 0.95rem);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* General Assistant -> Amber */
+.cat-badge-amber {
+  background-color: #FEF3C7;
+  border: 1px solid #FDE68A;
+  color: #92400E;
+}
+
+/* Data & Visualization -> Blue */
+.cat-badge-blue {
+  background-color: #EFF6FF;
+  border: 1px solid #BFDBFE;
+  color: #1E40AF;
+}
+
+/* Official Content -> Purple */
+.cat-badge-purple {
+  background-color: #F3E8FF;
+  border: 1px solid #E9D5FF;
+  color: #6B21A8;
+}
+
+/* Bulk Workflow -> Green */
+.cat-badge-green {
+  background-color: #ECFDF5;
+  border: 1px solid #A7F3D0;
+  color: #047857;
+}
+
+.cell-officer {
+  font-weight: 600;
+  color: #102C57;
+  max-width: 170px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-size-body, 1rem);
+}
+
+/* Source ID Badge (Truncated) */
+.cell-source-id {
+  white-space: nowrap;
+}
+
+.source-id-badge {
+  display: inline-block;
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono, monospace);
+  font-size: var(--font-size-label, 0.95rem);
+  font-weight: 600;
+  background-color: var(--parchment-100);
+  color: #102C57;
+  border: 1px solid var(--border-subtle);
+  padding: 3px 8px;
+  border-radius: var(--radius-sm, 4px);
+}
+
+/* Details Cell */
+.cell-details {
+  min-width: 240px;
+}
+
+.details-text {
+  margin: 0;
+  font-size: var(--font-size-body, 1rem);
+  color: var(--text-secondary);
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+/* 5. Loading State */
+.audit-loading-card {
+  background-color: var(--bg-surface, #FFFFFF);
+  border: 1px solid var(--border-medium, #E2E8F0);
+  border-radius: var(--radius-xl, 12px);
+  padding: 48px 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-sections, 10px);
+}
+
+.loading-spinner-icon {
+  color: #102C57;
+}
+
+.loading-text {
+  margin: 0;
+  font-size: var(--font-size-body, 1rem);
+  font-weight: 600;
+  color: var(--text-secondary, #475569);
+}
+
+/* 6. Empty State */
+.audit-empty-card {
+  background-color: var(--bg-surface, #FFFFFF);
+  border: 2px dashed var(--border-medium);
+  border-radius: var(--radius-xl, 12px);
+  padding: 48px 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: var(--space-sections, 10px);
+}
+
+.audit-empty-icon-box {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background-color: var(--parchment-100);
+  color: #102C57;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.audit-empty-title {
+  font-size: var(--font-size-title, 1.05rem);
+  font-weight: 700;
+  color: #102C57;
+  margin: 0;
+}
+
+.audit-empty-subtext {
+  font-size: var(--font-size-body, 1rem);
+  color: var(--text-muted, #64748B);
+  max-width: 420px;
+  margin: 0;
+  line-height: 1.4;
+}
+
+.audit-reset-btn {
+  margin-top: 6px;
+  background-color: #102C57;
+  color: #FEFAF6;
+  padding: 8px 20px;
+  border-radius: var(--radius-md, 6px);
+  font-size: var(--font-size-btn-primary, 1rem);
+  font-weight: 600;
+  border: 1px solid #091A34;
+  cursor: pointer;
+  transition: all var(--transition-fast, 0.15s ease);
+}
+
+.audit-reset-btn:hover {
+  background-color: #163C73;
+  transform: translateY(-1px);
+}
+
+/* Responsive Breakpoints */
+@media (max-width: 1024px) {
+  .audit-filter-controls-row {
+    flex-wrap: wrap;
+  }
+}
+
+@media (max-width: 640px) {
+  .audit-logs-container {
+    padding: 16px;
+  }
+
+  .audit-page-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .audit-header-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .audit-filter-controls-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-sections, 10px);
+  }
+
+  .audit-search-box,
+  .date-input-wrapper,
+  .date-select-wrapper {
+    flex: 1 1 100%;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .reset-filters-btn {
+    align-self: flex-start;
+  }
+}

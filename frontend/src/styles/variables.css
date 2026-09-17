@@ -1,0 +1,191 @@
+/* ==========================================================================
+   GOVERNMENT PETITION ASSISTANT - REFINED DESIGN TOKENS
+   Palette:
+     Primary Brand:                    #102C57 (rgb(16, 44, 87))
+     Vibrant Accent / Highlights:      #FEFAF6 (rgb(254, 250, 246))
+     Soft Sand / Warm Parchment:       #EADBC8 (rgb(234, 219, 200))
+     Warm Camel / Tan:                 #DAC0A3 (rgb(218, 192, 163))
+   ========================================================================== */
+
+:root {
+  /* 1. Four Core Palette Tokens */
+  --primary-brand:   #102C57; /* rgb(16, 44, 87) - Deep Royal Navy */
+  --vibrant-accent:  #FEFAF6; /* rgb(254, 250, 246) - Alabaster Cream Highlights */
+  --sand-soft:       #EADBC8; /* rgb(234, 219, 200) - Soft Sand */
+  --tan-warm:        #DAC0A3; /* rgb(218, 192, 163) - Warm Camel Tan */
+
+  /* 2. Primary Brand (#102C57) Ramp */
+  --primary-950: #061124;
+  --primary-900: #091A34;
+  --primary-850: #0D2347;
+  --primary-800: #102C57; /* Core Primary Brand */
+  --primary-700: #163C73;
+  --primary-600: #1D4E94;
+  --primary-500: #102C57; /* Action Primary */
+  --primary-400: #2964B8;
+  --primary-300: #DAC0A3;
+  --primary-200: #EADBC8;
+  --primary-100: #F5ECE1;
+  --primary-50:  #FEFAF6;
+
+  /* Backward-compatible Navy Tokens mapped to #102C57 */
+  --navy-950: #061124;
+  --navy-900: #091A34;
+  --navy-850: #0D2347;
+  --navy-800: #102C57;
+  --navy-700: #163C73;
+  --navy-600: #1D4E94;
+  --navy-500: #102C57;
+  --navy-400: #2964B8;
+  --navy-300: #DAC0A3;
+  --navy-200: #EADBC8;
+  --navy-100: #F5ECE1;
+  --navy-50:  #FEFAF6;
+
+  --midnight-950: #061124;
+  --midnight-900: #091A34;
+  --midnight-850: #0D2347;
+  --midnight-800: #102C57;
+  --midnight-700: #163C73;
+  --midnight-600: #1D4E94;
+  --midnight-500: #102C57;
+  --midnight-400: #2964B8;
+  --midnight-300: #DAC0A3;
+  --midnight-200: #EADBC8;
+  --midnight-100: #F5ECE1;
+  --midnight-50:  #FEFAF6;
+
+  /* 3. Warm Tan / Camel Tokens (#DAC0A3) */
+  --tan-800: #5C4731;
+  --tan-700: #7E6244;
+  --tan-600: #A7845E;
+  --tan-500: #DAC0A3; /* Core Warm Camel */
+  --tan-400: #E4D0BA;
+  --tan-300: #EFE2D2;
+  --tan-200: #F7EFE5;
+  --tan-100: #FAF5EE;
+  --tan-50:  #FEFAF6;
+
+  --steel-800: #5C4731;
+  --steel-700: #7E6244;
+  --steel-600: #A7845E;
+  --steel-500: #DAC0A3;
+  --steel-400: #DAC0A3;
+  --steel-300: #EADBC8;
+  --steel-200: #F7EFE5;
+  --steel-100: #FAF5EE;
+  --steel-50:  #FEFAF6;
+
+  /* 4. Soft Sand / Parchment Tokens (#EADBC8, #FEFAF6) */
+  --parchment-900: #102C57;
+  --parchment-800: #163C73;
+  --parchment-700: #5C4731;
+  --parchment-600: #8C6D4C;
+  --parchment-500: #DAC0A3;
+  --parchment-400: #EADBC8; /* Soft Sand */
+  --parchment-300: #F5ECE1;
+  --parchment-200: #FAF3EC;
+  --parchment-100: #FDF9F4;
+  --parchment-50:  #FEFAF6; /* Vibrant Cream Highlight */
+
+  /* Legacy mappings */
+  --royal-950: #061124;
+  --royal-900: #091A34;
+  --royal-850: #0D2347;
+  --royal-800: #102C57;
+  --royal-700: #163C73;
+  --royal-600: #1D4E94;
+  --royal-500: #102C57;
+  --royal-400: #DAC0A3;
+  --royal-300: #EADBC8;
+  --royal-200: #F5ECE1;
+  --royal-100: #FAF3EC;
+  --royal-50:  #FEFAF6;
+
+  --mint-aqua:       #FEFAF6;
+  --sky-azure:       #EADBC8;
+  --periwinkle-blue: #DAC0A3;
+  --royal-blue:      #102C57;
+
+  /* Surface & Background Colors */
+  --bg-canvas: #FEFAF6;       /* Vibrant Accent / Warm Alabaster Canvas */
+  --bg-surface: #FFFFFF;      /* Clean White Card Surfaces */
+  --bg-subtle: #F5EDE2;       /* Soft Sand Tinted Surface */
+  --bg-header: #102C57;       /* Top Navigation Bar */
+  --bg-header-gradient: #102C57; /* Solid Primary Brand */
+  --bg-muted: #EADBC8;
+
+  /* Text & Content */
+  --text-primary: #102C57;     /* Deep Royal Navy Text */
+  --text-secondary: #3A4B63;   /* Muted Slate Navy */
+  --text-muted: #687991;       /* Medium Slate */
+  --text-light: #8C9BB0;       /* Soft Slate */
+  --text-white: #FFFFFF;
+  --text-white-muted: #FEFAF6; /* Vibrant Cream Highlight on Dark */
+  --text-accent: #102C57;
+
+  /* Borders & Dividers */
+  --border-subtle: #EADBC8;    /* Soft Sand Border */
+  --border-medium: #DAC0A3;    /* Camel Tan Border */
+  --border-strong: #C5A581;    /* Strong Tan Border */
+  --border-navy: #102C57;      /* Deep Navy Border */
+  --border-orange: #DAC0A3;
+  --border-sky: #EADBC8;
+  --border-parchment: #DAC0A3;
+
+  /* Common UI Sizing Standard (Elder-Friendly Government Standard) */
+  --font-size-body: 1rem;            /* Input text / Body / Preview (16px) */
+  --font-size-label: 0.95rem;        /* Labels / Section titles (15.2px) */
+  --font-size-title: 1.05rem;        /* Page title (16.8px) */
+  --font-size-btn-primary: 1rem;     /* Primary buttons (16px) */
+  --font-size-btn-secondary: 0.88rem;/* Secondary buttons (14px) */
+
+  /* Common UI Spacing Standard */
+  --space-sections: 10px;            /* Between sections */
+  --space-fields: 10px;              /* Between form fields */
+  --card-padding: 12px 16px;         /* Card padding */
+  --gap-label-input: 4px;            /* Label -> input gap */
+
+  /* Extraction Badge Tokens */
+  --badge-extracted-bg: #F4ECE1;
+  --badge-extracted-text: #102C57;
+  --badge-extracted-border: #DAC0A3;
+  --badge-extracted-dot: #102C57;
+
+  --badge-suggested-bg: #F5EDE2;
+  --badge-suggested-text: #102C57;
+  --badge-suggested-border: #DAC0A3;
+  --badge-suggested-dot: #163C73;
+
+  --badge-notfound-bg: #FAF5EE;
+  --badge-notfound-text: #687991;
+  --badge-notfound-border: #EADBC8;
+  --badge-notfound-dot: #DAC0A3;
+
+  /* Shadows (Harmonized with Deep Royal Navy) */
+  --shadow-xs: 0 1px 2px 0 rgba(16, 44, 87, 0.04);
+  --shadow-sm: 0 1px 3px 0 rgba(16, 44, 87, 0.06), 0 1px 2px -1px rgba(16, 44, 87, 0.04);
+  --shadow-md: 0 4px 6px -1px rgba(16, 44, 87, 0.08), 0 2px 4px -2px rgba(16, 44, 87, 0.04);
+  --shadow-lg: 0 10px 18px -3px rgba(16, 44, 87, 0.12), 0 4px 6px -4px rgba(16, 44, 87, 0.06);
+  --shadow-drawer: -6px 0 24px rgba(16, 44, 87, 0.22);
+
+  /* Typography */
+  --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+
+  /* Radius */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+  --radius-pill: 9999px;
+
+  /* Transitions */
+  --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-normal: 250ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-drawer: 320ms cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* Layout dimensions */
+  --header-height: 58px;
+  --workspace-header-height: 54px;
+}

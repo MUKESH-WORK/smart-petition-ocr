@@ -1,0 +1,24 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: dro_postgres_pgvector
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-dro_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dro_password_2026}
+      POSTGRES_DB: ${POSTGRES_DB:-dro_grievance_db}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - dro_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-dro_user} -d ${POSTGRES_DB:-dro_grievance_db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  dro_pgdata:
+    driver: local

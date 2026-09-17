@@ -1,0 +1,280 @@
+/* Slim Top Navigation Header - Primary Brand (#102C57) & Highlights (#FEFAF6) */
+.app-header {
+  height: var(--header-height);
+  background: #081730 !important;
+  background-color: #081730 !important;
+  background-image: none !important;
+  color: #FEFAF6;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 20px;
+  box-shadow: 0 2px 8px rgba(16, 44, 87, 0.3);
+  border-bottom: 1.5px solid rgba(218, 192, 163, 0.35);
+  position: relative;
+  z-index: 50;
+  user-select: none;
+  flex-shrink: 0;
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* Circular Official Emblem Logo (No square container) */
+.govt-emblem-badge {
+  width: 42px;
+  height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: transparent;
+  border-radius: 50%;
+  border: none;
+  box-shadow: none;
+  padding: 0;
+  transition: transform var(--transition-fast);
+}
+
+.govt-emblem-badge:hover {
+  transform: scale(1.06);
+}
+
+.govt-emblem-img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  border-radius: 50%;
+  display: block;
+  filter: drop-shadow(0 2px 5px rgba(0, 0, 0, 0.35));
+}
+
+.brand-title-group {
+  display: flex;
+  flex-direction: column;
+  cursor: pointer;
+}
+
+.brand-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.brand-title {
+  font-size: var(--font-size-title);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: #FFFFFF;
+  line-height: 1.2;
+}
+
+.brand-subtitle {
+  font-size: var(--font-size-label);
+  color: #EADBC8;
+  font-weight: 500;
+  opacity: 0.95;
+}
+
+/* Header Right Area */
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* Compact Language Toggle (English | தமிழ்) */
+.header-lang-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(234, 219, 200, 0.15);
+  border: 1px solid rgba(218, 192, 163, 0.35);
+  border-radius: var(--radius-pill);
+  padding: 2px 6px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+}
+
+.lang-option-btn {
+  background: transparent;
+  border: none;
+  color: #EADBC8;
+  font-size: var(--font-size-btn-secondary);
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.lang-option-btn:hover {
+  color: #FEFAF6;
+}
+
+.lang-option-btn.active {
+  background: #FEFAF6;
+  color: #102C57;
+  font-weight: 700;
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.25);
+}
+
+.lang-sep {
+  color: rgba(218, 192, 163, 0.4);
+  font-size: var(--font-size-btn-secondary);
+}
+
+/* Officer Profile Badge & Dropdown */
+.officer-profile-wrapper {
+  position: relative;
+}
+
+.officer-profile-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px 4px 6px;
+  background: rgba(234, 219, 200, 0.15);
+  border: 1px solid rgba(218, 192, 163, 0.3);
+  border-radius: var(--radius-pill);
+}
+
+.officer-profile-card.clickable {
+  font-family: inherit;
+  cursor: pointer;
+  outline: none;
+  text-align: left;
+  transition: all var(--transition-fast, 0.15s ease);
+}
+
+.officer-profile-card.clickable:hover,
+.officer-profile-card.clickable.open {
+  background: rgba(234, 219, 200, 0.28);
+  border-color: rgba(218, 192, 163, 0.6);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.officer-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background-color: #102C57;
+  border: 1.5px solid #DAC0A3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #FEFAF6;
+  flex-shrink: 0;
+}
+
+.officer-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.officer-name {
+  font-size: var(--font-size-label);
+  font-weight: 700;
+  color: #FFFFFF;
+  line-height: 1.15;
+}
+
+.officer-role {
+  font-size: var(--font-size-btn-secondary);
+  color: #EADBC8;
+  line-height: 1.15;
+  font-weight: 500;
+}
+
+.officer-chevron {
+  color: #EADBC8;
+  transition: transform 0.2s ease;
+  flex-shrink: 0;
+}
+
+.officer-chevron.chevron-rotated {
+  transform: rotate(180deg);
+}
+
+/* Floating Profile Dropdown Menu */
+.profile-dropdown-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 190px;
+  background-color: #081730;
+  border: 1.5px solid #DAC0A3;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  z-index: 100;
+  animation: profileDropdownFade 0.15s ease-out;
+}
+
+@keyframes profileDropdownFade {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.profile-dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 12px;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  color: #FEFAF6;
+  font-size: 0.88rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  text-align: left;
+  transition: background-color var(--transition-fast, 0.15s ease), color var(--transition-fast, 0.15s ease);
+}
+
+.profile-dropdown-item:hover {
+  background-color: rgba(234, 219, 200, 0.18);
+  color: #FFFFFF;
+}
+
+.profile-dropdown-item.logout-item {
+  color: #FFB4B4;
+}
+
+.profile-dropdown-item.logout-item:hover {
+  background-color: rgba(239, 68, 68, 0.25);
+  color: #FFD1D1;
+}
+
+.dropdown-item-icon {
+  flex-shrink: 0;
+}
+
+.header-divider {
+  width: 1px;
+  height: 22px;
+  background-color: rgba(218, 192, 163, 0.35);
+}
+
+@media (max-width: 640px) {
+  .brand-subtitle {
+    display: none;
+  }
+
+  .officer-info {
+    display: none;
+  }
+}

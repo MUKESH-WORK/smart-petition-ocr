@@ -1,0 +1,290 @@
+@import './styles/index.css';
+
+/* ==========================================================================
+   GLOBAL LAYOUT & ANTI-COLLISION GUARDS FOR DYNAMIC TRANSLATION
+   (Applies strictly to Tamil ('ta') and English ('en'))
+   ========================================================================== */
+
+/* Universal Box-Sizing to prevent layout calculation shifts */
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+/* Typography settings for Tamil */
+[data-lang="ta"] {
+  line-height: 1.6 !important;
+}
+
+[data-lang="ta"] body {
+  font-family: 'Plus Jakarta Sans', 'Noto Sans Tamil', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  letter-spacing: normal;
+}
+
+/* 1. Header Resilience — Prevent collision between brand on left & profile on right */
+[data-lang="ta"] .app-header {
+  min-height: var(--header-height, 56px);
+  height: auto;
+  padding: 6px 16px;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+[data-lang="ta"] .header-left {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+[data-lang="ta"] .brand-title-group {
+  min-width: 0;
+}
+
+[data-lang="ta"] .brand-title {
+  font-size: clamp(0.95rem, 2vw, 1.15rem);
+  line-height: 1.25;
+}
+
+[data-lang="ta"] .brand-subtitle {
+  font-size: 0.78rem;
+  line-height: 1.3;
+  max-width: 360px;
+}
+
+[data-lang="ta"] .header-right {
+  flex-shrink: 0;
+  gap: 8px;
+}
+
+[data-lang="ta"] .officer-profile-card {
+  max-width: 260px;
+  min-width: 0;
+  height: auto;
+  padding: 4px 10px;
+}
+
+[data-lang="ta"] .officer-name,
+[data-lang="ta"] .officer-designation {
+  line-height: 1.3;
+}
+
+/* 2. Sidebar Resilience — Extra width and multi-line wrapping */
+[data-lang="ta"] .app-sidebar.sidebar-expanded {
+  width: 248px;
+}
+
+[data-lang="ta"] .sidebar-nav-item {
+  min-height: 42px;
+  height: auto;
+  padding: 8px 12px;
+  white-space: normal;
+  line-height: 1.35;
+  word-break: break-word;
+}
+
+[data-lang="ta"] .sidebar-item-label {
+  line-height: 1.35;
+  word-break: break-word;
+}
+
+/* 3. Workspace Header Bar — Wrap gracefully without pushing controls off-screen */
+[data-lang="ta"] .workspace-header-bar {
+  min-height: var(--workspace-header-height, 48px);
+  height: auto;
+  padding: 8px 16px;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+[data-lang="ta"] .workspace-header-left {
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+[data-lang="ta"] .petition-id-chip,
+[data-lang="ta"] .petition-status-pill,
+[data-lang="ta"] .new-petition-btn {
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+[data-lang="ta"] .petition-file-name {
+  max-width: 340px;
+}
+
+[data-lang="ta"] .workspace-body-split {
+  height: auto;
+  flex: 1;
+  min-height: 0;
+}
+
+/* 4. Chat & Summary Response Cards — Never clip or truncate text */
+[data-lang="ta"] .compact-summary-card {
+  min-height: max-content;
+  height: auto;
+  padding: 14px 16px;
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+
+[data-lang="ta"] .summary-main-text {
+  line-height: 1.7;
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+
+[data-lang="ta"] .contextual-prompts-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+[data-lang="ta"] .full-details-action-chip,
+[data-lang="ta"] .contextual-followup-chip {
+  height: auto;
+  min-height: 32px;
+  padding: 6px 12px;
+  white-space: normal;
+  word-break: break-word;
+  line-height: 1.35;
+  text-align: left;
+}
+
+[data-lang="ta"] .row-content-body {
+  min-width: 0;
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+
+[data-lang="ta"] .row-text-bubble {
+  line-height: 1.7;
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+
+/* 5. Full Details Form Response — Grid layout protection */
+[data-lang="ta"] .full-details-form-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+[data-lang="ta"] .form-item-wrapper.col-half {
+  flex: 1 1 calc(50% - 10px);
+  min-width: 220px;
+}
+
+[data-lang="ta"] .form-item-label {
+  line-height: 1.35;
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+
+[data-lang="ta"] .info-display-box {
+  min-height: 40px;
+  height: auto;
+  padding: 8px 12px;
+  padding-right: 76px;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  position: relative;
+}
+
+[data-lang="ta"] .info-display-text {
+  line-height: 1.5;
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+
+/* 6. Upload Landing & Dropzone — Clear text & button wrap */
+[data-lang="ta"] .landing-container {
+  max-width: 520px;
+  width: 100%;
+}
+
+[data-lang="ta"] .landing-title,
+[data-lang="ta"] .landing-description {
+  line-height: 1.5;
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+
+[data-lang="ta"] .upload-action-btn,
+[data-lang="ta"] .scan-mobile-action-btn {
+  height: auto;
+  min-height: 42px;
+  white-space: normal;
+  line-height: 1.35;
+  word-break: break-word;
+  padding: 8px 16px;
+}
+
+/* 7. Mobile QR Modal & Processing Overlay */
+[data-lang="ta"] .qr-modal-card {
+  max-width: 460px;
+  width: 92vw;
+  box-sizing: border-box;
+}
+
+[data-lang="ta"] .qr-modal-instruction,
+[data-lang="ta"] .qr-modal-title {
+  line-height: 1.45;
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+
+[data-lang="ta"] .processing-file-strip {
+  flex-wrap: wrap;
+  gap: 8px;
+  height: auto;
+}
+
+[data-lang="ta"] .step-item-content {
+  min-width: 0;
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+
+/* 8. Audit Logs Table & Filter Responsiveness */
+[data-lang="ta"] .audit-page-header {
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+[data-lang="ta"] .audit-filter-controls-row {
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+[data-lang="ta"] .audit-table th,
+[data-lang="ta"] .audit-table td {
+  padding: 10px 12px;
+  line-height: 1.45;
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+
+/* 9. Mobile Capture Page */
+[data-lang="ta"] .mobile-btn-primary,
+[data-lang="ta"] .mobile-btn-secondary {
+  min-height: 48px;
+  height: auto;
+  padding: 12px 16px;
+  white-space: normal;
+  line-height: 1.35;
+  word-break: break-word;
+}
+
+[data-lang="ta"] .viewfinder-prompt-title,
+[data-lang="ta"] .viewfinder-prompt-sub {
+  overflow-wrap: break-word;
+  word-break: break-word;
+  line-height: 1.4;
+}
+
+[data-lang="ta"] .tips-list li {
+  line-height: 1.5;
+  margin-bottom: 4px;
+}
+

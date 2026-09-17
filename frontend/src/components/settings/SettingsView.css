@@ -1,0 +1,516 @@
+/* ==========================================================================
+   ADMINISTRATIVE SETTINGS VIEW STYLES (#102C57 & #DAC0A3 PALETTE)
+   ========================================================================== */
+
+.settings-page {
+  flex: 1;
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background-color: var(--bg-canvas, #FEFAF6);
+  overflow-y: auto;
+  box-sizing: border-box;
+}
+
+.settings-container {
+  width: 100%;
+  max-width: 1060px;
+  margin: 0 auto;
+  padding: 24px 20px 48px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  box-sizing: border-box;
+}
+
+/* 1. Page Header */
+.settings-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 16px;
+  border-bottom: 1.5px solid #EADBC8;
+  flex-wrap: wrap;
+}
+
+.settings-header-left {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.settings-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.settings-header-icon {
+  color: #102C57;
+}
+
+.settings-title {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #102C57;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+
+.settings-subtitle {
+  font-size: 0.92rem;
+  color: #687991;
+  margin: 0;
+}
+
+.settings-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.settings-reset-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: #102C57;
+  background-color: #FFFFFF;
+  border: 1.5px solid #DAC0A3;
+  padding: 8px 16px;
+  border-radius: var(--radius-md, 6px);
+  cursor: pointer;
+  transition: all var(--transition-fast, 0.15s ease);
+}
+
+.settings-reset-btn:hover {
+  background-color: #F5EDE2;
+  border-color: #102C57;
+}
+
+.settings-save-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #FEFAF6;
+  background-color: #102C57;
+  border: 1px solid #091A34;
+  padding: 8px 20px;
+  border-radius: var(--radius-md, 6px);
+  cursor: pointer;
+  box-shadow: 0 3px 10px rgba(16, 44, 87, 0.25);
+  transition: all var(--transition-fast, 0.15s ease);
+}
+
+.settings-save-btn:hover {
+  background-color: #163C73;
+  transform: translateY(-1px);
+  box-shadow: 0 5px 14px rgba(16, 44, 87, 0.35);
+}
+
+/* 2. Top Category Navigation Bar */
+.settings-nav-tabs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 1.5px solid #EADBC8;
+  padding-bottom: 4px;
+  overflow-x: auto;
+}
+
+.settings-tab-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-radius: var(--radius-md, 6px);
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: #687991;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all var(--transition-fast, 0.15s ease);
+}
+
+.settings-tab-btn:hover {
+  color: #102C57;
+  background-color: #F5EDE2;
+}
+
+.settings-tab-btn.active {
+  color: #102C57;
+  background-color: #F5EDE2;
+  border: 1.5px solid #DAC0A3;
+  box-shadow: 0 1px 3px rgba(16, 44, 87, 0.08);
+}
+
+.settings-tab-btn.active .tab-icon {
+  color: #102C57;
+}
+
+.tab-icon {
+  color: #8C9BB0;
+  flex-shrink: 0;
+}
+
+/* 3. Section Cards */
+.settings-section-card {
+  background-color: #FFFFFF;
+  border: 1.5px solid #DAC0A3;
+  border-radius: var(--radius-xl, 12px);
+  padding: 20px 24px;
+  box-shadow: 0 4px 16px rgba(16, 44, 87, 0.05);
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+}
+
+.settings-section-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-bottom: 14px;
+  border-bottom: 1.5px solid #F5EDE2;
+  margin-bottom: 8px;
+}
+
+.settings-section-icon-box {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  background-color: #F5EDE2;
+  border: 1.5px solid #DAC0A3;
+  color: #102C57;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.settings-section-title-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.settings-section-title {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #102C57;
+  margin: 0;
+}
+
+.settings-section-desc {
+  font-size: 0.84rem;
+  color: #687991;
+  margin: 0;
+}
+
+/* 4. Settings Item Rows */
+.settings-items-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.settings-item-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 0;
+  border-bottom: 1px solid #F5EDE2;
+  gap: 24px;
+}
+
+.settings-item-row:last-child {
+  border-bottom: none;
+  padding-bottom: 4px;
+}
+
+.settings-item-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.settings-item-title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #102C57;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.settings-item-badge {
+  font-size: 0.72rem;
+  font-weight: 700;
+  background-color: #F5EDE2;
+  color: #102C57;
+  border: 1px solid #DAC0A3;
+  padding: 1px 7px;
+  border-radius: var(--radius-pill, 9999px);
+  text-transform: uppercase;
+}
+
+.settings-item-help {
+  font-size: 0.83rem;
+  color: #687991;
+  line-height: 1.45;
+  margin: 0;
+}
+
+.settings-item-control {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+/* 5. Switch Toggle */
+.settings-switch {
+  position: relative;
+  display: inline-block;
+  width: 48px;
+  height: 26px;
+  flex-shrink: 0;
+}
+
+.settings-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.settings-slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: #EADBC8;
+  transition: 200ms cubic-bezier(0.4, 0, 0.2, 1);
+  border-radius: 9999px;
+  border: 1px solid #DAC0A3;
+}
+
+.settings-slider:before {
+  position: absolute;
+  content: "";
+  height: 20px;
+  width: 20px;
+  left: 2px;
+  bottom: 2px;
+  background-color: #FFFFFF;
+  transition: 200ms cubic-bezier(0.4, 0, 0.2, 1);
+  border-radius: 50%;
+  box-shadow: 0 1px 4px rgba(16, 44, 87, 0.2);
+}
+
+.settings-switch input:checked + .settings-slider {
+  background-color: #102C57;
+  border-color: #102C57;
+}
+
+.settings-switch input:checked + .settings-slider:before {
+  transform: translateX(22px);
+}
+
+/* 6. Form Controls: Select & Text Input */
+.settings-select {
+  padding: 8px 14px;
+  border-radius: var(--radius-md, 6px);
+  border: 1.5px solid #DAC0A3;
+  background-color: #FFFFFF;
+  color: #102C57;
+  font-size: 0.9rem;
+  font-weight: 600;
+  outline: none;
+  cursor: pointer;
+  min-width: 210px;
+  box-shadow: 0 1px 3px rgba(16, 44, 87, 0.04);
+  transition: all var(--transition-fast, 0.15s ease);
+}
+
+.settings-select:focus {
+  border-color: #102C57;
+  box-shadow: 0 0 0 3px rgba(16, 44, 87, 0.15);
+}
+
+.settings-text-input {
+  padding: 8px 14px;
+  border-radius: var(--radius-md, 6px);
+  border: 1.5px solid #DAC0A3;
+  background-color: #FFFFFF;
+  color: #102C57;
+  font-size: 0.9rem;
+  font-weight: 600;
+  outline: none;
+  min-width: 240px;
+  box-shadow: 0 1px 3px rgba(16, 44, 87, 0.04);
+  transition: all var(--transition-fast, 0.15s ease);
+}
+
+.settings-text-input:focus {
+  border-color: #102C57;
+  box-shadow: 0 0 0 3px rgba(16, 44, 87, 0.15);
+}
+
+/* 7. Range Slider */
+.settings-range-wrap {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.settings-range-input {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 140px;
+  height: 6px;
+  border-radius: 9999px;
+  background: #EADBC8;
+  outline: none;
+}
+
+.settings-range-input::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #102C57;
+  cursor: pointer;
+  box-shadow: 0 1px 4px rgba(16, 44, 87, 0.3);
+  transition: transform var(--transition-fast, 0.15s ease);
+}
+
+.settings-range-input::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+}
+
+.settings-range-badge {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: #102C57;
+  background-color: #F5EDE2;
+  border: 1px solid #DAC0A3;
+  padding: 3px 8px;
+  border-radius: var(--radius-sm, 4px);
+  min-width: 44px;
+  text-align: center;
+}
+
+/* 8. Radio Pill Group */
+.settings-pill-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background-color: #F5EDE2;
+  padding: 3px;
+  border-radius: var(--radius-md, 6px);
+  border: 1px solid #DAC0A3;
+}
+
+.settings-pill-btn {
+  padding: 6px 12px;
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: #687991;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all var(--transition-fast, 0.15s ease);
+}
+
+.settings-pill-btn:hover {
+  color: #102C57;
+}
+
+.settings-pill-btn.active {
+  background-color: #102C57;
+  color: #FEFAF6;
+  box-shadow: 0 1px 3px rgba(16, 44, 87, 0.2);
+}
+
+/* 9. Action Buttons Inside Security / Maintenance */
+.settings-action-btn-danger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border-radius: var(--radius-md, 6px);
+  font-size: 0.86rem;
+  font-weight: 600;
+  color: #DC2626;
+  background-color: #FEF2F2;
+  border: 1px solid #FECACA;
+  cursor: pointer;
+  transition: all var(--transition-fast, 0.15s ease);
+}
+
+.settings-action-btn-danger:hover {
+  background-color: #FEE2E2;
+}
+
+.settings-action-btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border-radius: var(--radius-md, 6px);
+  font-size: 0.86rem;
+  font-weight: 600;
+  color: #102C57;
+  background-color: #FFFFFF;
+  border: 1.5px solid #DAC0A3;
+  cursor: pointer;
+  transition: all var(--transition-fast, 0.15s ease);
+}
+
+.settings-action-btn-secondary:hover {
+  background-color: #F5EDE2;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .settings-container {
+    padding: 16px;
+  }
+
+  .settings-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .settings-header-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .settings-item-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .settings-item-control {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .settings-select,
+  .settings-text-input {
+    width: 100%;
+    min-width: 0;
+  }
+}
