@@ -3,6 +3,8 @@ import { UserCheck, ChevronDown, User, LogOut } from 'lucide-react';
 import './Header.css';
 
 export default function Header({
+  notifications,
+  loginRole,
   officerProfile,
   onLogoClick,
   currentLanguage = 'en',
@@ -78,6 +80,7 @@ export default function Header({
 
       {/* Right: Language Switcher & Officer Profile */}
       <div className="header-right">
+        {loginRole === 'admin' && notifications}
 
         {/* Language Toggle: EN / தமிழ் */}
         <div className="header-lang-toggle notranslate" translate="no" title="Select Interface Language / மொழி">
@@ -115,7 +118,7 @@ export default function Header({
             </div>
             <div className="officer-info">
               <span className="officer-name">{displayName}</span>
-              <span className="officer-role">{displayRole}</span>
+              <span className="officer-role">{loginRole ? (loginRole === 'admin' ? 'Admin' : 'User') : displayRole}</span>
             </div>
             <ChevronDown
               size={14}

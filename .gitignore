@@ -29,6 +29,7 @@
 # User and Temporary test scans (STRICTLY BLOCKED)
 *petition*
 *Petition*
+!frontend/src/data/mockPetitions.js
 *DocScanner*
 *docscanner*
 temp_*

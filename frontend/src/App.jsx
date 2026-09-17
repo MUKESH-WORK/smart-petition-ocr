@@ -9,10 +9,12 @@ import DocumentDrawer from './components/workspace/DocumentDrawer';
 import AuditLogsView from './components/audit/AuditLogsView';
 import ProfileView from './components/profile/ProfileView';
 import MobileCapturePage from './components/mobile/MobileCapturePage';
+import LoginPage from './components/auth/LoginPage';
+import AdminWorkspace from './components/admin/AdminWorkspace';
+import AdminNotifications from './components/admin/AdminNotifications';
 import { ChevronRight, ChevronLeft } from 'lucide-react';
 import { fetchAuditHistory, fetchPetitionBySourceId } from './services/apiService';
 import ErrorBoundary from './components/common/ErrorBoundary';
-import { FullAppAutoTranslator } from './lib/dynamicTranslate';
 import './styles/index.css';
 
 function getCaptureSessionFromUrl() {
@@ -48,6 +50,17 @@ const DEFAULT_OFFICER_PROFILE = {
 const PROFILE_STORAGE_KEY = 'tn_gdp_officer_profile';
 
 export default function App() {
+  const [session, setSession] = useState(null);
+
+  if (!session && !getCaptureSessionFromUrl()) {
+    return <LoginPage onLogin={setSession} />;
+  }
+
+  return <Workstation session={session} onLogout={() => setSession(null)} />;
+}
+
+function Workstation({ session, onLogout }) {
+  const isAdmin = session?.role === 'admin';
   // Check if current route is dedicated mobile capture page
   const [mobileSessionId, setMobileSessionId] = useState(() => getCaptureSessionFromUrl());
 
@@ -88,7 +101,7 @@ export default function App() {
   }, []);
 
   // Navigation Modules: 'gdp' | 'audit' | 'settings'
-  const [activeModule, setActiveModule] = useState('gdp');
+  const [activeModule, setActiveModule] = useState(isAdmin ? 'dashboard' : 'gdp');
 
   // GDP Assistant internal view state: 'landing' | 'processing' | 'workspace'
   const [viewState, setViewState] = useState('landing');
@@ -98,12 +111,21 @@ export default function App() {
 
   // Session audit records list (Maintains real activity records in current session)
   const [auditRecords, setAuditRecords] = useState([]);
+  const [adminActivity, setAdminActivity] = useState([]);
   
   // Document Drawer state (Right panel open/collapsed in workspace)
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   
   // Sidebar collapsed state
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => isAdmin && window.matchMedia('(max-width: 640px)').matches);
+
+  useEffect(() => {
+    if (!isAdmin) return;
+    const mobile = window.matchMedia('(max-width: 640px)');
+    const collapseOnMobile = () => { if (mobile.matches) setIsSidebarCollapsed(true); };
+    mobile.addEventListener('change', collapseOnMobile);
+    return () => mobile.removeEventListener('change', collapseOnMobile);
+  }, [isAdmin]);
   
   // Language state: 'en' | 'ta'
   const [currentLanguage, setCurrentLanguage] = useState('en');
@@ -220,32 +242,27 @@ export default function App() {
 
   // Handle user logout action from top-right officer profile menu
   const handleLogout = () => {
-    showToast('Session ended. Officer logged out successfully.');
-    // Future backend auth session clear integration can be called here
+    if (activePetition?.previewUrl) URL.revokeObjectURL(activePetition.previewUrl);
+    onLogout();
   };
 
   // -------------------------------------------------------------
   // If user is accessing the mobile capture route on phone/browser
   // -------------------------------------------------------------
   if (mobileSessionId) {
-    return (
-      <>
-        <FullAppAutoTranslator currentLanguage={currentLanguage} />
-        <MobileCapturePage sessionId={mobileSessionId} />
-      </>
-    );
+    return <MobileCapturePage sessionId={mobileSessionId} />;
   }
 
   // -------------------------------------------------------------
   // Otherwise render Desktop Workstation
   // -------------------------------------------------------------
   return (
-    <>
-      <FullAppAutoTranslator currentLanguage={currentLanguage} />
-      <div className="app-container">
+    <div className="app-container">
       
       {/* 1. Slim Top Navigation Header (Stationary, Fixed Height) */}
       <Header
+        notifications={isAdmin ? <AdminNotifications activity={adminActivity} petitionActivity={auditRecords} /> : null}
+        loginRole={session?.role}
         officerProfile={officerProfile}
         onLogoClick={handleNewPetition}
         currentLanguage={currentLanguage}
@@ -255,18 +272,23 @@ export default function App() {
       />
 
       {/* 2. Application Body Container (Left Sidebar + Main Content Area) */}
-      <div className="app-body-container">
+      <div className={`app-body-container${isAdmin ? ' admin-layout' : ''}`}>
         
         {/* Left Administrative Sidebar */}
         <Sidebar
+          isAdmin={isAdmin}
           activeModule={activeModule}
-          onSelectModule={(mod) => setActiveModule(mod)}
+          onSelectModule={(mod) => {
+            setActiveModule(mod);
+            if (isAdmin && window.matchMedia('(max-width: 640px)').matches) setIsSidebarCollapsed(true);
+          }}
           isCollapsed={isSidebarCollapsed}
           onToggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
         />
 
         {/* Main Application Content Area */}
         <main className="main-content">
+          {isAdmin && <AdminWorkspace activeModule={activeModule} onNavigate={setActiveModule} onActivityChange={setAdminActivity} />}
           
           {/* VIEW A: GDP ASSISTANT MODULE */}
           {activeModule === 'gdp' && (
@@ -376,6 +398,5 @@ export default function App() {
       </div>
 
     </div>
-    </>
   );
 }

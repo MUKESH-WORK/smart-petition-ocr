@@ -1,6 +1,9 @@
 import React from 'react';
 import { 
-  FileText, 
+  FileText,
+  LayoutDashboard,
+  Users,
+  DatabaseBackup,
   History, 
   ChevronLeft, 
   ChevronRight 
@@ -8,6 +11,7 @@ import {
 import './Sidebar.css';
 
 export default function Sidebar({
+  isAdmin = false,
   activeModule = 'gdp',
   onSelectModule,
   isCollapsed = false,
@@ -22,6 +26,19 @@ export default function Sidebar({
       {/* 1. TOP / MAIN MODULE AREA */}
       <div className="sidebar-top-section">
         <nav className="sidebar-nav-list" aria-label="Main Modules">
+          {isAdmin && [
+            { id: 'dashboard', label: 'Dashboard', Icon: LayoutDashboard },
+            { id: 'users', label: 'User Management', Icon: Users },
+            { id: 'backup', label: 'Backup', Icon: DatabaseBackup }
+          ].map(({ id, label, Icon }) => (
+            <button key={id} type="button" title={label} aria-label={label}
+              className={`sidebar-nav-item ${activeModule === id ? 'active' : ''}`}
+              aria-current={activeModule === id ? 'page' : undefined}
+              onClick={() => onSelectModule(id)}>
+              <div className="sidebar-item-icon"><Icon size={18} /></div>
+              {!isCollapsed && <div className="sidebar-item-text"><span className="sidebar-item-label">{label}</span></div>}
+            </button>
+          ))}
           {/* GDP Assistant - Primary Module */}
           <button
             type="button"
