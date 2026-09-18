@@ -126,3 +126,26 @@
   .admin-span-2 { grid-column: auto; }
   .admin-dialog-body { padding: 14px; }
 }
+
+/* DB Health and Disconnection Alert Banner */
+.admin-db-banner { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 18px; border-radius: var(--radius-md); font-size: 0.88rem; font-weight: 500; margin-bottom: 8px; animation: adminFadeIn 0.3s ease-out; }
+.admin-db-banner.is-disconnected { background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; }
+.admin-db-banner.is-degraded { background: #fffbeb; border: 1px solid #fde68a; color: #92400e; }
+.admin-db-banner.is-healthy { background: #f0fdf4; border: 1px solid #bbf7d0; color: #166534; }
+.admin-db-banner-left { display: flex; align-items: center; gap: 10px; }
+.admin-reconnect-btn { background: #991b1b; color: white; border: none; border-radius: 6px; padding: 6px 14px; font-size: 0.82rem; font-weight: 600; cursor: pointer; transition: background 0.15s ease; white-space: nowrap; }
+.admin-reconnect-btn:hover { background: #7f1d1d; }
+.admin-reconnect-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+.admin-header-db-pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 9999px; font-size: 0.76rem; font-weight: 600; }
+.admin-header-db-pill.connected { background: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; }
+.admin-header-db-pill.disconnected { background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; }
+.admin-header-db-pill .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+
+.admin-id-badge { font-family: monospace; font-size: 0.78rem; font-weight: 600; color: var(--text-secondary); background: var(--bg-canvas); padding: 2px 6px; border-radius: 4px; border: 1px solid var(--border-subtle); margin-left: 6px; }
+.admin-button-danger { background: #dc2626; border-color: #dc2626; color: #ffffff; }
+.admin-button-danger:hover { background: #b91c1c; }
+.admin-button-danger:disabled { opacity: 0.5; }
+
+@keyframes adminFadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+

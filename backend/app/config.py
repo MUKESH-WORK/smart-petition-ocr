@@ -63,7 +63,6 @@ class Settings(BaseSettings):
     DATALAB_API_URL: str = "https://www.datalab.to/api/v1/convert"
     DATALAB_MODE: str = "balanced"
     DATALAB_TIMEOUT: int = 60
-    ENABLE_PADDLE_FALLBACK: bool = False
 
     # Production Performance & Pipeline Tuning
     OCR_MAX_IMAGE_DIMENSION: int = 1500      # Max long-edge px (up from 1100 for enhanced Tamil separation)

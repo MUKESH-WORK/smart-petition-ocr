@@ -20,7 +20,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy import text
 
 from app.config import settings
-from app.routers import grievance, search, admin, translate, petitions
+from app.routers import grievance, search, admin, translate
 from models.database import engine, AsyncSessionLocal, init_db_schema, is_sqlite
 from services.job_queue import job_queue
 
@@ -42,51 +42,17 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"Schema initialization warning: {e}")
 
-    # 2. Seed default officer and master locations portably if explicitly enabled
-    if getattr(settings, "SEED_DEMO_DATA", False):
-        try:
-            async with AsyncSessionLocal() as db:
-                # Seed default officer
-                off_check = await db.execute(text("SELECT officer_id FROM officers WHERE officer_id = 'DRO_ERODE_01'"))
-                if not off_check.scalar():
-                    if is_sqlite:
-                        await db.execute(text("""
-                            INSERT INTO officers (officer_id, name_tamil, designation, department, taluk_access)
-                            VALUES ('DRO_ERODE_01', 'சுந்தரம் கே.', 'மாவட்ட வருவாய் அலுவலர்', 'வருவாய்த்துறை', :taluk)
-                        """), {"taluk": json.dumps(['பெருந்துறை', 'ஈரோடு', 'பவானி'])})
-                    else:
-                        await db.execute(text("""
-                            INSERT INTO officers (officer_id, name_tamil, designation, department, taluk_access)
-                            VALUES ('DRO_ERODE_01', 'சுந்தரம் கே.', 'மாவட்ட வருவாய் அலுவலர்', 'வருவாய்த்துறை', ARRAY['பெருந்துறை', 'ஈரோடு', 'பவானி'])
-                            ON CONFLICT (officer_id) DO NOTHING;
-                        """))
-
-                # Seed sample master locations if empty
-                loc_cnt = await db.execute(text("SELECT COUNT(*) FROM master_locations"))
-                if (loc_cnt.scalar() or 0) == 0:
-                    await db.execute(text("""
-                        INSERT INTO master_locations (district_code, district_name_tamil, taluk_code, taluk_name_tamil, block_code, block_name_tamil, firka_code, firka_name_tamil, village_code, village_name_tamil)
-                        VALUES 
-                        ('10', 'ஈரோடு', '01', 'பெருந்துறை', '01', 'பெருந்துறை', '01', 'பெருந்துறை', '001', 'காந்தி நகர்'),
-                        ('10', 'ஈரோடு', '01', 'பெருந்துறை', '01', 'பெருந்துறை', '01', 'பெருந்துறை', '002', 'விஜயமங்கலம்'),
-                        ('10', 'ஈரோடு', '02', 'பவானி', '02', 'பவானி', '02', 'பவானி', '003', 'அந்தியூர்'),
-                        ('10', 'ஈரோடு', '03', 'ஈரோடு', '03', 'ஈரோடு', '03', 'சூரியம்பாளையம்', '004', 'சூரியம்பாளையம்'),
-                        ('12', 'கோயம்புத்தூர்', '01', 'பொள்ளாச்சி', '01', 'பொள்ளாச்சி', '01', 'ஆனைமலை', '005', 'ஆனைமலை')
-                    """))
-                await db.commit()
-                logger.info("Master locations and default officers verified.")
-        except Exception as e:
-            logger.warning(f"Could not auto-seed master locations: {e}")
-
-    # 3. Warm up background services asynchronously so server binds instantly (<1s)
+    # 2. Warm up background services & master data asynchronously so server binds instantly (<1s)
     from services.vector_store import vector_store
     from core.llm_client import llm_client
 
     async def _async_warmup():
         try:
+            from services.master_data_seeder import seed_master_data_if_needed
+            await seed_master_data_if_needed()
             await asyncio.to_thread(vector_store.warmup)
             await llm_client._verify_or_discover_model()
-            logger.info("AI models and embedder initialized and ready.")
+            logger.info("AI models, embedder, and master data initialized and ready.")
         except Exception as e:
             logger.warning(f"Non-blocking model warmup notice: {e}")
 
@@ -134,7 +100,6 @@ app.include_router(grievance.router, prefix=settings.API_V1_STR)
 app.include_router(search.router, prefix=settings.API_V1_STR)
 app.include_router(admin.router, prefix=settings.API_V1_STR)
 app.include_router(translate.router, prefix=settings.API_V1_STR)
-app.include_router(petitions.router, prefix=settings.API_V1_STR)
 
 # Locate pre-built frontend distribution
 frontend_dist = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "frontend", "dist"))

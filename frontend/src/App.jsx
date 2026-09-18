@@ -35,17 +35,37 @@ function getCaptureSessionFromUrl() {
   return null;
 }
 
-const DEFAULT_OFFICER_PROFILE = {
-  fullName: 'S. Ramanathan',
-  designation: 'Tahsildar',
-  department: 'Grievance Cell',
-  officerId: 'TN-GRIEV-2024-8842',
-  email: 's.ramanathan@tn.gov.in',
-  phone: '+91 44 2530 1000',
-  role: 'Tahsildar',
-  assignedOffice: 'Revenue & Disaster Management Department, Chennai District',
-  accessLevel: 'Level 2 Administrative Access (Grievance Pre-Processing & Approval)'
-};
+function createProfileFromSession(session) {
+  const isAdm = session?.role === 'admin' || session?.isAdmin || session?.user?.isAdmin || session?.user?.is_admin;
+  const u = session?.user || session?.profile || session || {};
+
+  let stored = {};
+  try {
+    const raw = localStorage.getItem('officer_profile');
+    if (raw) stored = JSON.parse(raw);
+  } catch {}
+
+  const email = u.email || session?.email || stored.email || localStorage.getItem('officer_email') || (isAdm ? 'collector.erode@tn.gov.in' : '');
+  const phone = u.mobile || u.phone || session?.mobile || session?.phone || stored.mobile || stored.phone || localStorage.getItem('officer_phone') || (isAdm ? '+91 424 2262000' : '');
+  const name = u.name || u.fullName || session?.name || stored.name || (isAdm ? 'Tmt. Raja Gopal Sunkara, I.A.S.' : 'Department Officer');
+  const designation = u.designation || session?.designation || (isAdm ? 'District Administrator' : 'Revenue Officer');
+  const department = u.department || session?.department || (isAdm ? 'District Administration / Collectorate' : 'Revenue Administration');
+  const officerId = u.id || u.officerId || session?.id || session?.officerId || (isAdm ? 'ADM-ERODE-001' : 'OFF-USER-001');
+
+  return {
+    fullName: name,
+    name: name,
+    designation: designation,
+    department: department,
+    officerId: officerId,
+    id: officerId,
+    email: email,
+    phone: phone,
+    mobile: phone,
+    role: isAdm ? 'District Administrator' : (u.role || session?.role || 'Department User'),
+    assignedOffice: 'Erode District Collectorate, Tamil Nadu'
+  };
+}
 
 const PROFILE_STORAGE_KEY = 'tn_gdp_officer_profile';
 
@@ -60,22 +80,18 @@ export default function App() {
 }
 
 function Workstation({ session, onLogout }) {
-  const isAdmin = session?.role === 'admin';
+  const isAdmin = session?.role === 'admin' || session?.isAdmin;
   // Check if current route is dedicated mobile capture page
   const [mobileSessionId, setMobileSessionId] = useState(() => getCaptureSessionFromUrl());
 
-  // Officer profile state with persistent local storage
-  const [officerProfile, setOfficerProfile] = useState(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        const saved = localStorage.getItem(PROFILE_STORAGE_KEY);
-        if (saved) return { ...DEFAULT_OFFICER_PROFILE, ...JSON.parse(saved) };
-      } catch (err) {
-        console.warn('Failed to parse saved officer profile:', err);
-      }
+  // Officer profile state derived dynamically from session
+  const [officerProfile, setOfficerProfile] = useState(() => createProfileFromSession(session));
+
+  useEffect(() => {
+    if (session) {
+      setOfficerProfile(createProfileFromSession(session));
     }
-    return DEFAULT_OFFICER_PROFILE;
-  });
+  }, [session]);
 
   const handleSaveProfile = (updatedProfile) => {
     setOfficerProfile(updatedProfile);

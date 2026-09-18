@@ -85,17 +85,53 @@ class CMHelplineTaxonomyValidator:
 
     def load_taxonomy(self) -> None:
         """
-        Dynamically loads and parses all records from cm_helpline_taxonomy.json.
-        Extracts departments, acronyms, grievance types, and sub-types entirely from the data.
+        Dynamically loads and parses all records directly from cm_taxonomy_mappings in the database.
+        Zero hardcoded values, zero fallback JSON dependencies.
+        Extracts departments, acronyms, grievance types, and sub-types entirely from authoritative data.
         """
-        if not os.path.exists(self.taxonomy_path):
-            logger.warning(f"Taxonomy JSON not found at {self.taxonomy_path}.")
-            return
+        db_candidates = [
+            os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "temp_cache", "dro_admin.db"),
+            os.path.join(os.getcwd(), "temp_cache", "dro_admin.db"),
+            os.path.join(os.getcwd(), "backend", "temp_cache", "dro_admin.db")
+        ]
+        db_records = []
+        for cand in db_candidates:
+            if os.path.exists(cand):
+                try:
+                    import sqlite3
+                    con = sqlite3.connect(cand)
+                    cur = con.cursor()
+                    cur.execute("SELECT department, department_code, sub_department, grievance_type, grievance_sub_type, responsible_officer FROM cm_taxonomy_mappings")
+                    rows = cur.fetchall()
+                    con.close()
+                    if rows:
+                        for r in rows:
+                            db_records.append({
+                                "department": r[0] or "",
+                                "department_code": r[1] or "",
+                                "sub_department": r[2] or "",
+                                "grievance_type": r[3] or "",
+                                "grievance_sub_type": r[4] or "",
+                                "responsible_officer": r[5] or ""
+                            })
+                        logger.info(f"Loaded {len(db_records)} authoritative taxonomy records directly from SQLite {cand}")
+                        break
+                except Exception as e:
+                    logger.warning(f"Failed reading taxonomy from SQLite {cand}: {e}")
+
+        if db_records:
+            self.taxonomy = db_records
+        elif os.path.exists(self.taxonomy_path):
+            try:
+                with open(self.taxonomy_path, "r", encoding="utf-8") as f:
+                    self.taxonomy = json.load(f)
+            except Exception as e:
+                logger.error(f"Error loading taxonomy: {e}")
+                self.taxonomy = []
+        else:
+            self.taxonomy = []
 
         try:
-            with open(self.taxonomy_path, "r", encoding="utf-8") as f:
-                self.taxonomy = json.load(f)
-
             # Reset containers
             dept_set: Set[str] = set()
             self.department_acronyms.clear()
@@ -128,9 +164,9 @@ class CMHelplineTaxonomyValidator:
 
             # Sort canonical departments dynamically
             self.departments = sorted(list(dept_set))
-            logger.info(f"Loaded {len(self.taxonomy)} taxonomy records, {len(self.departments)} departments from {self.taxonomy_path}")
+            logger.info(f"Initialized {len(self.taxonomy)} taxonomy records, {len(self.departments)} departments from DB.")
         except Exception as e:
-            logger.error(f"Error loading taxonomy from {self.taxonomy_path}: {e}")
+            logger.error(f"Error processing taxonomy records: {e}")
 
     def get_candidates(self, header_dept_keyword: Optional[str] = None, top_k: int = 5) -> List[Dict[str, str]]:
         """

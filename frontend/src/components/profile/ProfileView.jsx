@@ -1,54 +1,101 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  User, 
-  UserCheck, 
-  ShieldCheck, 
-  Mail, 
-  Phone, 
-  Building2, 
-  BadgeCheck, 
+import {
+  User,
+  UserCheck,
+  ShieldCheck,
+  Mail,
+  Phone,
+  Building2,
+  BadgeCheck,
   Briefcase,
   Check
 } from 'lucide-react';
 import './ProfileView.css';
+
+function resolveInitialProfile(p) {
+  let stored = {};
+  try {
+    const raw = localStorage.getItem('officer_profile');
+    if (raw) stored = JSON.parse(raw);
+  } catch {}
+
+  const isAdm =
+    p?.role === 'admin' ||
+    p?.role === 'District Administrator' ||
+    p?.isAdmin ||
+    p?.is_admin ||
+    stored.is_admin ||
+    stored.isAdmin;
+
+  const email =
+    p?.email ||
+    stored.email ||
+    localStorage.getItem('officer_email') ||
+    (isAdm ? 'collector.erode@tn.gov.in' : '');
+
+  const phone =
+    p?.phone ||
+    p?.mobile ||
+    stored.mobile ||
+    stored.phone ||
+    localStorage.getItem('officer_phone') ||
+    (isAdm ? '+91 424 2262000' : '');
+
+  const name =
+    p?.fullName ||
+    p?.name ||
+    stored.name ||
+    (isAdm ? 'Tmt. Raja Gopal Sunkara, I.A.S.' : 'Department Officer');
+
+  const designation =
+    p?.designation ||
+    stored.designation ||
+    (isAdm ? 'District Administrator' : 'Revenue Officer');
+
+  const department =
+    p?.department ||
+    stored.department ||
+    (isAdm ? 'District Administration / Collectorate' : 'Revenue Administration');
+
+  const officerId =
+    p?.officerId ||
+    p?.id ||
+    stored.id ||
+    stored.officerId ||
+    (isAdm ? 'ADM-ERODE-001' : 'OFF-USER-001');
+
+  const role = isAdm ? 'District Administrator' : (p?.role || stored.role || 'Department User');
+  const assignedOffice = p?.assignedOffice || 'Erode District Collectorate, Tamil Nadu';
+
+  return {
+    fullName: name,
+    designation,
+    department,
+    officerId,
+    email,
+    phone,
+    role,
+    assignedOffice
+  };
+}
 
 export default function ProfileView({
   officerProfile,
   onSaveProfile,
   onNotify
 }) {
-  const [formData, setFormData] = useState(() => ({
-    fullName: officerProfile?.fullName || 'S. Ramanathan',
-    designation: officerProfile?.designation || 'Tahsildar',
-    department: officerProfile?.department || 'Grievance Cell',
-    officerId: officerProfile?.officerId || 'TN-GRIEV-2024-8842',
-    email: officerProfile?.email || 's.ramanathan@tn.gov.in',
-    phone: officerProfile?.phone || '+91 44 2530 1000',
-    role: officerProfile?.role || 'Tahsildar',
-    assignedOffice: officerProfile?.assignedOffice || 'Revenue & Disaster Management Department, Chennai District',
-    accessLevel: officerProfile?.accessLevel || 'Level 2 Administrative Access (Grievance Pre-Processing & Approval)'
-  }));
+  const [formData, setFormData] = useState(() => resolveInitialProfile(officerProfile));
 
   // Synchronize when officerProfile prop updates externally
   useEffect(() => {
     if (officerProfile) {
-      setFormData({
-        fullName: officerProfile.fullName || '',
-        designation: officerProfile.designation || '',
-        department: officerProfile.department || '',
-        officerId: officerProfile.officerId || '',
-        email: officerProfile.email || '',
-        phone: officerProfile.phone || '',
-        role: officerProfile.role || '',
-        assignedOffice: officerProfile.assignedOffice || '',
-        accessLevel: officerProfile.accessLevel || ''
-      });
+      setFormData(resolveInitialProfile(officerProfile));
     }
   }, [officerProfile]);
 
   // Check if user has made any changes compared to current saved profile
   const hasUnsavedChanges = Object.keys(formData).some((key) => {
-    return formData[key] !== (officerProfile?.[key] || '');
+    return formData[key] !== (officerProfile?.[key] || resolveInitialProfile(officerProfile)[key] || '');
   });
 
   const handleChange = (field, value) => {
@@ -71,7 +118,7 @@ export default function ProfileView({
   return (
     <div className="profile-page" role="region" aria-label="Officer Profile">
       <form className="profile-container" onSubmit={handleSave}>
-        
+
         {/* Page Header */}
         <header className="profile-header">
           <div className="profile-header-left">
@@ -80,15 +127,15 @@ export default function ProfileView({
               <h2 className="profile-title">My Profile</h2>
             </div>
             <p className="profile-subtitle">
-              View and manage your officer profile information.
+              View and manage your official credentials, contact info, and department assignment.
             </p>
           </div>
 
           {/* Show Save Changes button ONLY IF user has made changes */}
           {hasUnsavedChanges && (
             <div className="profile-header-actions">
-              <button 
-                type="submit" 
+              <button
+                type="submit"
                 className="profile-save-btn"
                 title="Save updated profile information"
               >
@@ -101,7 +148,7 @@ export default function ProfileView({
 
         {/* Profile Details Sections */}
         <div className="profile-cards-grid">
-          
+
           {/* Card 1: Officer Information */}
           <section className="profile-card">
             <div className="profile-card-header">
@@ -113,7 +160,7 @@ export default function ProfileView({
 
             <div className="profile-card-body">
               <div className="profile-field-grid">
-                
+
                 <div className="profile-field-item">
                   <label htmlFor="field-fullName" className="field-label">Full Name</label>
                   <div className="field-value-group">
@@ -180,6 +227,7 @@ export default function ProfileView({
                       className="field-input"
                       value={formData.email}
                       onChange={(e) => handleChange('email', e.target.value)}
+                      placeholder="officer@tn.gov.in"
                     />
                   </div>
                 </div>
@@ -194,6 +242,7 @@ export default function ProfileView({
                       className="field-input"
                       value={formData.phone}
                       onChange={(e) => handleChange('phone', e.target.value)}
+                      placeholder="+91 94431 00000"
                     />
                   </div>
                 </div>
@@ -202,18 +251,18 @@ export default function ProfileView({
             </div>
           </section>
 
-          {/* Card 2: Role & Access */}
+          {/* Card 2: Role & Office */}
           <section className="profile-card">
             <div className="profile-card-header">
               <div className="profile-card-title-group">
                 <ShieldCheck size={18} className="card-header-icon" />
-                <h3 className="profile-card-title">Role & Access</h3>
+                <h3 className="profile-card-title">Role & Office</h3>
               </div>
             </div>
 
             <div className="profile-card-body">
               <div className="profile-field-grid">
-                
+
                 <div className="profile-field-item">
                   <label htmlFor="field-role" className="field-label">Role</label>
                   <div className="field-value-group">
@@ -238,20 +287,6 @@ export default function ProfileView({
                       className="field-input"
                       value={formData.assignedOffice}
                       onChange={(e) => handleChange('assignedOffice', e.target.value)}
-                    />
-                  </div>
-                </div>
-
-                <div className="profile-field-item span-full">
-                  <label htmlFor="field-accessLevel" className="field-label">Access Level & Permissions</label>
-                  <div className="field-value-group">
-                    <ShieldCheck size={15} className="field-icon" />
-                    <input
-                      id="field-accessLevel"
-                      type="text"
-                      className="field-input badge-access"
-                      value={formData.accessLevel}
-                      onChange={(e) => handleChange('accessLevel', e.target.value)}
                     />
                   </div>
                 </div>

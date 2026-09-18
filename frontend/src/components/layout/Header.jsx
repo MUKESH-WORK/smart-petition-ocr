@@ -1,4 +1,4 @@
-  import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { UserCheck, ChevronDown, User, LogOut } from 'lucide-react';
 import './Header.css';
 
@@ -15,8 +15,8 @@ export default function Header({
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const profileRef = useRef(null);
 
-  const displayName = officerProfile?.fullName || 'S. Ramanathan';
-  const displayRole = `${officerProfile?.designation || 'Tahsildar'} • ${officerProfile?.department || 'Grievance Cell'}`;
+  const displayName = officerProfile?.fullName || officerProfile?.name;
+  const displayRole = `${officerProfile?.designation || (loginRole === 'admin' ? 'District Administrator' : 'Department Officer')}${officerProfile?.department ? ` • ${officerProfile.department}` : ''}`;
 
   // Close dropdown on outside click
   useEffect(() => {

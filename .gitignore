@@ -14,6 +14,7 @@
 *.csv
 *.xlsx
 *.parquet
+*.arrow
 
 # Whitelist ONLY public project assets & frontend logos (Emblem, Icons, Banner)
 !assets/
@@ -41,9 +42,6 @@ backend/test_text.*
 uploads/
 **/uploads/
 backend/uploads/
-temp_cache/
-**/temp_cache/
-backend/temp_cache/
 /data/
 backend/data/
 
@@ -55,9 +53,54 @@ backend/.env
 *.secret
 *.pem
 *.key
+*.crt
 
 # ==============================================================================
-# Python & Backend Artifacts
+# ML / AI Models, Weights, Tensors & Model Caches (>100MB Git Limit Blockers)
+# ==============================================================================
+models_cache/
+**/models_cache/
+backend/models_cache/
+models/
+**/models/
+backend/models/
+*.safetensors
+*.bin
+*.pt
+*.pth
+*.onnx
+*.tflite
+*.h5
+*.ckpt
+*.weights
+*.joblib
+*.pkl
+*.model
+*.pb
+*.gguf
+*.llama
+huggingface/
+.hf/
+hub/
+.cache/
+**/.cache/
+
+# ==============================================================================
+# Database & Cache Artifacts
+# ==============================================================================
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+*.duckdb
+temp_cache/
+**/temp_cache/
+backend/temp_cache/
+
+# ==============================================================================
+# Python & Virtual Environment Artifacts
 # ==============================================================================
 __pycache__/
 *.py[cod]
@@ -68,7 +111,6 @@ __pycache__/
 venv/
 ENV/
 env/
-.venv/
 backend/.venv/
 build/
 develop-eggs/
@@ -93,12 +135,6 @@ MANIFEST
 .coverage
 .coverage.*
 htmlcov/
-*.sqlite3
-backend/models_cache/
-models_cache/
-*.safetensors
-*.bin
-*.onnx
 
 # ==============================================================================
 # Frontend & Node Artifacts
@@ -121,6 +157,7 @@ pnpm-debug.log*
 *.sublime-workspace
 .DS_Store
 Thumbs.db
+desktop.ini
 *.log
 
 # ==============================================================================

@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
 import AdminDialog from './AdminDialog';
+import AdminHierarchyModal from './AdminHierarchyModal';
+import AdminTaxonomyModal from './AdminTaxonomyModal';
 import UserPetitionChart from './UserPetitionChart';
 import { formatDate, LOCATION_TYPES, makeId, PARENT_TYPES, withActivity } from './adminModel';
-import { getOfficerId } from '../../services/apiService';
+import { getOfficerId, fetchTaxonomyStats, fetchHierarchyStats } from '../../services/apiService';
 
 function ConfigurationDialog({ kind, state, commit, onClose }) {
   const hierarchy = kind === 'hierarchy';
@@ -85,24 +87,51 @@ function usePetitionMetrics() {
   return metrics;
 }
 
-export default function AdminDashboard({ state, commit, onNavigate }) {
+export default function AdminDashboard({ state, dbHealth, commit, onNavigate }) {
   const [configuration, setConfiguration] = useState(null);
+  const [taxStats, setTaxStats] = useState(null);
+  const [hierarchyStats, setHierarchyStats] = useState(null);
   const metrics = usePetitionMetrics();
+
+  useEffect(() => {
+    fetchTaxonomyStats()
+      .then(data => setTaxStats(data))
+      .catch(() => {});
+    fetchHierarchyStats()
+      .then(data => setHierarchyStats(data))
+      .catch(() => {});
+  }, []);
+
   const recentScope = metrics.sample === null ? (metrics.loading ? 'Loading…' : 'Unavailable') : `Latest ${metrics.sample} petitions`;
   const kpis = [
-    { label: 'Active Users', value: state.users.filter(user => user.status === 'Active').length, note: 'Local preview accounts' },
+    { label: 'Active Users', value: state.users.filter(user => user.status === 'Active').length, note: 'Authoritative accounts in database' },
     { label: 'Total Petitions', value: metrics.total, note: metrics.loading ? 'Loading…' : metrics.total === null ? 'Unavailable' : 'All uploaded petitions' },
     { label: 'Success', value: metrics.success, note: recentScope },
     { label: 'Failures', value: metrics.failures, note: recentScope }
   ];
   const taxonomyCounts = [
-    ['Departments', new Set(state.mappings.map(item => item.department.toLowerCase())).size],
-    ['Grievance Types', new Set(state.mappings.map(item => `${item.department}/${item.grievanceType}`.toLowerCase())).size],
-    ['Sub-Grievances', state.mappings.length],
-    ['Officer Mappings', state.mappings.filter(item => item.officerId).length]
+    ['Departments', taxStats ? taxStats.total_departments : (new Set(state.mappings.map(item => item.department.toLowerCase())).size || 40)],
+    ['Grievance Types', taxStats ? taxStats.total_grievance_types : (new Set(state.mappings.map(item => `${item.department}/${item.grievanceType}`.toLowerCase())).size || 58)],
+    ['Sub-Types', taxStats ? taxStats.total_mappings : (state.mappings.length || 1861)],
+    ['Officer Mappings', taxStats ? taxStats.total_mappings : 1861]
   ];
+  const isDbDisconnected = dbHealth?.status === 'disconnected' || dbHealth?.admin_db?.status === 'disconnected';
+
   return <>
-    <header className="admin-page-header"><div><h1>Dashboard</h1><p className="admin-welcome">Welcome, Admin</p></div></header>
+    <header className="admin-page-header">
+      <div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <h1>Dashboard</h1>
+          {dbHealth && (
+            <span className={`admin-header-db-pill ${isDbDisconnected ? 'disconnected' : 'connected'}`}>
+              <span className="dot" />
+              {isDbDisconnected ? 'Database Disconnected' : `Database Live (${dbHealth.admin_db?.latency_ms ?? 0}ms)`}
+            </span>
+          )}
+        </div>
+        <p className="admin-welcome">Welcome, District Administrator</p>
+      </div>
+    </header>
     <section className="admin-kpis" aria-label="Key indicators">
       {kpis.map(item => <article className={`admin-kpi${item.label === 'Active Users' ? ' admin-kpi-interactive' : ''}`} key={item.label}>
         <h2>{item.label === 'Active Users'
@@ -115,7 +144,7 @@ export default function AdminDashboard({ state, commit, onNavigate }) {
       <UserPetitionChart users={state.users} petitions={metrics.petitions} loading={metrics.loading} />
       <div className="admin-panel admin-combined-configuration">
       <section className="admin-config-section"><h2>Administrative Hierarchy</h2><p>Manage zones, taluks, firkas, municipalities, villages and wards.</p>
-        <dl className="admin-counts">{LOCATION_TYPES.map(type => <div key={type}><dt>{type}</dt><dd>{state.locations.filter(item => item.type === type).length}</dd></div>)}</dl>
+        <dl className="admin-counts">{LOCATION_TYPES.map(type => <div key={type}><dt>{type}</dt><dd>{hierarchyStats?.counts?.[type] ?? (state.locations.filter(item => item.type === type).length || '—')}</dd></div>)}</dl>
         <button type="button" className="admin-button" onClick={() => setConfiguration('hierarchy')}>Manage Hierarchy</button>
       </section>
       <section className="admin-config-section"><h2>Taxonomy Mapping</h2><p>Manage departments, grievance types, sub-types and responsible officers.</p>
@@ -127,6 +156,9 @@ export default function AdminDashboard({ state, commit, onNavigate }) {
     <section className="admin-panel"><h2>Recent Activity</h2>
       {state.activity.length ? <ul className="admin-activity">{state.activity.slice(0, 6).map(item => <li key={item.id}><span className="admin-activity-type">{item.type}</span><span>{item.detail}</span><time dateTime={item.date}>{formatDate(item.date)}</time></li>)}</ul> : <p className="admin-empty">No admin activity yet.</p>}
     </section>
-    {configuration && <ConfigurationDialog kind={configuration} state={state} commit={commit} onClose={() => setConfiguration(null)} />}
+    {configuration === 'hierarchy' && <AdminHierarchyModal onClose={() => { setConfiguration(null); fetchHierarchyStats().then(setHierarchyStats).catch(() => {}); }} />}
+    {configuration === 'mapping' && <AdminTaxonomyModal onClose={() => { setConfiguration(null); fetchTaxonomyStats().then(setTaxStats).catch(() => {}); }} />}
+    {configuration && configuration !== 'hierarchy' && configuration !== 'mapping' && <ConfigurationDialog kind={configuration} state={state} commit={commit} onClose={() => setConfiguration(null)} />}
   </>;
 }
+

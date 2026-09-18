@@ -4,7 +4,7 @@ from typing import Optional, Dict, Any
 from fastapi import Depends, HTTPException, Header, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
-from models.database import get_db, AsyncSessionLocal, is_sqlite
+from models.database import get_db, AsyncSessionLocal
 from core.security import decode_access_token
 
 logger = logging.getLogger(__name__)
@@ -25,10 +25,37 @@ async def get_current_officer(
             return payload
 
     if x_officer_id and x_officer_id.strip():
+        oid = x_officer_id.strip()
+        from models.database import AdminAsyncSessionLocal
+        try:
+            async with AdminAsyncSessionLocal() as a_db:
+                res = await a_db.execute(
+                    text("SELECT id, name, name_tamil, email, department, role, is_admin FROM admin_users WHERE id = :id OR LOWER(email) = :id_lower LIMIT 1"),
+                    {"id": oid, "id_lower": oid.lower()}
+                )
+                u = res.mappings().one_or_none()
+                if u:
+                    return {
+                        "officer_id": u["id"],
+                        "name": u["name"],
+                        "name_tamil": u.get("name_tamil") or "",
+                        "email": u.get("email") or "",
+                        "department": u.get("department") or "",
+                        "role": u.get("role") or ("Admin" if u.get("is_admin") else "Department User"),
+                        "is_admin": bool(u.get("is_admin"))
+                    }
+        except Exception as e:
+            logger.debug(f"Admin DB lookup error in get_current_officer: {e}")
+
+        # Fallback for recognized administrative demo accounts
+        is_adm = ("ADM" in oid.upper() or "COLLECTOR" in oid.upper() or "DRO" in oid.upper())
         return {
-            "officer_id": x_officer_id.strip(),
-            "name_tamil": "வருவாய் ஆய்வாளர்",
-            "department": "வருவாய்த்துறை"
+            "officer_id": oid,
+            "name": "District Administrator" if is_adm else "Department Officer",
+            "name_tamil": "மாவட்ட ஆட்சியர்" if is_adm else "வருவாய் ஆய்வாளர்",
+            "department": "District Administration / Collectorate" if is_adm else "வருவாய்த்துறை",
+            "role": "Admin" if is_adm else "Department User",
+            "is_admin": is_adm
         }
 
     raise HTTPException(
@@ -57,15 +84,13 @@ async def log_audit_event(
             valid_ip = ip_address
 
         async with AsyncSessionLocal() as audit_db:
+            from models.database import is_sqlite
             if is_sqlite:
                 await audit_db.execute(text("""
                     INSERT INTO audit_log (id, timestamp, source_id, officer_id, action, details, ip_address)
-                    VALUES (
-                        (SELECT COALESCE(MAX(id), 0) + 1 FROM audit_log),
-                        CURRENT_TIMESTAMP, :source_id, :officer_id, :action, :details, :ip_address
-                    )
+                    VALUES ((SELECT COALESCE(MAX(id), 0) + 1 FROM audit_log), CURRENT_TIMESTAMP, :source_id, :officer_id, :action, :details, :ip_address)
                 """), {
-                    "source_id": source_id,
+                    "source_id": str(source_id) if source_id else None,
                     "officer_id": officer_id,
                     "action": action,
                     "details": json.dumps(details or {}, ensure_ascii=False),

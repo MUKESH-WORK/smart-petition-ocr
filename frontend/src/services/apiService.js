@@ -11,6 +11,26 @@ export function getOfficerId() {
 }
 
 /**
+ * Get current JWT auth token dynamically
+ */
+export function getAuthToken() {
+  return localStorage.getItem('auth_token') || localStorage.getItem('token') || '';
+}
+
+/**
+ * Standard authenticated headers combining Bearer JWT and X-Officer-Id
+ */
+export function authHeaders(contentType = 'application/json') {
+  const headers = {};
+  if (contentType) headers['Content-Type'] = contentType;
+  const token = getAuthToken();
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const officerId = getOfficerId();
+  if (officerId) headers['X-Officer-Id'] = officerId;
+  return headers;
+}
+
+/**
  * Update current officer ID dynamically
  */
 export function setOfficerId(id) {
@@ -452,3 +472,206 @@ export async function fetchPetitionBySourceId(sourceId) {
     return null;
   }
 }
+
+/**
+ * Diagnostic DB health check
+ */
+export async function checkDbHealth() {
+  try {
+    const res = await fetch(`${API_BASE}/admin/db-health`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return await res.json();
+  } catch (err) {
+    return {
+      status: 'disconnected',
+      user_db: { status: 'disconnected', error: err.message },
+      admin_db: { status: 'disconnected', error: err.message }
+    };
+  }
+}
+
+/**
+ * Fetch all admin users from live Admin DB
+ */
+export async function fetchAdminUsers() {
+  const res = await fetch(`${API_BASE}/admin/users`, {
+    headers: authHeaders()
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || `Failed to fetch users (HTTP ${res.status})`);
+  }
+  return await res.json();
+}
+
+/**
+ * Create new user in live Admin DB
+ */
+export async function createAdminUser(userData) {
+  const res = await fetch(`${API_BASE}/admin/users`, {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify(userData)
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || `Failed to create user (HTTP ${res.status})`);
+  }
+  return await res.json();
+}
+
+/**
+ * Update user in live Admin DB
+ */
+export async function updateAdminUser(userId, userData) {
+  const res = await fetch(`${API_BASE}/admin/users/${encodeURIComponent(userId)}`, {
+    method: 'PUT',
+    headers: authHeaders(),
+    body: JSON.stringify(userData)
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || `Failed to update user (HTTP ${res.status})`);
+  }
+  return await res.json();
+}
+
+/**
+ * Delete user from live Admin DB
+ */
+export async function deleteAdminUser(userId) {
+  const res = await fetch(`${API_BASE}/admin/users/${encodeURIComponent(userId)}`, {
+    method: 'DELETE',
+    headers: authHeaders()
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || `Failed to delete user (HTTP ${res.status})`);
+  }
+  return await res.json();
+}
+
+/**
+ * Fetch live activity logs from Admin DB
+ */
+export async function fetchAdminActivity(limit = 50) {
+  try {
+    const res = await fetch(`${API_BASE}/admin/activity-log?limit=${limit}`, {
+      headers: authHeaders()
+    });
+    if (!res.ok) return [];
+    return await res.json();
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Fetch administrative hierarchy statistics directly from live database
+ */
+export async function fetchHierarchyStats() {
+  const res = await fetch(`${API_BASE}/admin/hierarchy/stats`, {
+    headers: authHeaders()
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || `Failed to fetch hierarchy stats (HTTP ${res.status})`);
+  }
+  return await res.json();
+}
+
+/**
+ * Fetch taxonomy statistics from live authoritative database
+ */
+export async function fetchTaxonomyStats() {
+  const res = await fetch(`${API_BASE}/admin/taxonomy/stats`, {
+    headers: authHeaders()
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || `Failed to fetch taxonomy stats (HTTP ${res.status})`);
+  }
+  return await res.json();
+}
+
+/**
+ * Fetch unique departments list with counts
+ */
+export async function fetchTaxonomyDepartments() {
+  const res = await fetch(`${API_BASE}/admin/taxonomy/departments`, {
+    headers: authHeaders()
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || `Failed to fetch taxonomy departments (HTTP ${res.status})`);
+  }
+  return await res.json();
+}
+
+/**
+ * Fetch paginated taxonomy mappings with search and department filtering
+ */
+export async function fetchTaxonomyList({ department = '', q = '', page = 1, pageSize = 25 } = {}) {
+  const params = new URLSearchParams();
+  if (department) params.set('department', department);
+  if (q) params.set('q', q);
+  params.set('page', page);
+  params.set('page_size', pageSize);
+
+  const res = await fetch(`${API_BASE}/admin/taxonomy?${params.toString()}`, {
+    headers: authHeaders()
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || `Failed to fetch taxonomy records (HTTP ${res.status})`);
+  }
+  return await res.json();
+}
+
+/**
+ * Create a new taxonomy mapping in live Admin DB
+ */
+export async function createTaxonomyItem(itemData) {
+  const res = await fetch(`${API_BASE}/admin/taxonomy`, {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify(itemData)
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || `Failed to create taxonomy mapping (HTTP ${res.status})`);
+  }
+  return await res.json();
+}
+
+/**
+ * Update taxonomy mapping in live Admin DB
+ */
+export async function updateTaxonomyItem(itemId, itemData) {
+  const res = await fetch(`${API_BASE}/admin/taxonomy/${encodeURIComponent(itemId)}`, {
+    method: 'PUT',
+    headers: authHeaders(),
+    body: JSON.stringify(itemData)
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || `Failed to update taxonomy mapping (HTTP ${res.status})`);
+  }
+  return await res.json();
+}
+
+/**
+ * Delete taxonomy mapping from live Admin DB
+ */
+export async function deleteTaxonomyItem(itemId) {
+  const res = await fetch(`${API_BASE}/admin/taxonomy/${encodeURIComponent(itemId)}`, {
+    method: 'DELETE',
+    headers: authHeaders()
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || `Failed to delete taxonomy mapping (HTTP ${res.status})`);
+  }
+  return await res.json();
+}
+
