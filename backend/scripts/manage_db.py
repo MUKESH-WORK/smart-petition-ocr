@@ -310,6 +310,17 @@ def cmd_sync_postgres(args):
         print("❌ Error: No PostgreSQL URL provided. Specify --postgres-url or set DATABASE_URL in .env")
         sys.exit(1)
         
+    # Detect placeholder hosts
+    if "@host:" in pg_url or "user:pass@" in pg_url:
+        print("\n❌ Configuration Notice: You entered a placeholder URL ('host' / 'user:pass')!")
+        print("👉 Please replace the placeholders with your actual PostgreSQL connection details:")
+        print("   • Local PostgreSQL:   postgresql+asyncpg://dro_user:dro_password_2026@localhost:5432/dro_grievance_db")
+        print("   • Remote IP / Server: postgresql+asyncpg://myuser:mypassword@192.168.1.50:5432/gdp_db")
+        print("   • Cloud Database:     postgresql+asyncpg://postgres:secret@db.xyz.supabase.co:5432/postgres")
+        print("\n💡 Tip: If you want to transfer the SQLite database to another machine directly without PostgreSQL, use:")
+        print("   python scripts/manage_db.py export --output gdp_database_bundle.tar.gz")
+        sys.exit(1)
+
     print(f"🔄 Migrating SQLite data to PostgreSQL + pgvector: {pg_url.split('@')[-1]}")
     import asyncio
     sys.path.insert(0, str(REPO_ROOT / "backend"))
@@ -326,19 +337,20 @@ def cmd_sync_postgres(args):
     user_db = get_active_db("dro_user.db")
     
     async def _migrate():
-        engine = create_async_engine(async_pg_url, echo=False)
-        async with engine.begin() as conn:
-            # 1. Enable pgvector
-            try:
-                await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector;"))
-                print("  ✓ Enabled pgvector extension on PostgreSQL")
-            except Exception as e:
-                print(f"  ⚠️ Warning enabling pgvector: {e}")
-                
-            # 2. Initialize schemas
-            from models.database import init_db_schema
-            print("  • Creating PostgreSQL relational and vector tables...")
-            await init_db_schema()
+        try:
+            engine = create_async_engine(async_pg_url, echo=False)
+            async with engine.begin() as conn:
+                # 1. Enable pgvector
+                try:
+                    await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector;"))
+                    print("  ✓ Enabled pgvector extension on PostgreSQL")
+                except Exception as e:
+                    print(f"  ⚠️ Warning enabling pgvector: {e}")
+                    
+                # 2. Initialize schemas
+                from models.database import init_db_schema
+                print("  • Creating PostgreSQL relational and vector tables...")
+                await init_db_schema()
             
             # 3. Migrate dro_admin.db tables
             if admin_db:
@@ -414,8 +426,18 @@ def cmd_sync_postgres(args):
                     
                 con.close()
                 
-        await engine.dispose()
-        print("\n🎉 PostgreSQL + pgvector synchronization completed successfully!")
+            await engine.dispose()
+            print("\n🎉 PostgreSQL + pgvector synchronization completed successfully!")
+        except Exception as e:
+            err_str = str(e)
+            print(f"\n❌ Connection to PostgreSQL failed: {err_str}")
+            if "11001" in err_str or "getaddrinfo" in err_str:
+                print("👉 DNS lookup failed: The host could not be resolved. Please replace placeholder hostnames with a valid IP or domain.")
+            elif "10061" in err_str or "Connection refused" in err_str:
+                print("👉 Port 5432 refused connection: PostgreSQL is not running or listening on that host/port.")
+            elif "password" in err_str.lower() or "authentication" in err_str.lower():
+                print("👉 Authentication failed: Verify your username and password in the connection URL.")
+            sys.exit(1)
 
     asyncio.run(_migrate())
 
