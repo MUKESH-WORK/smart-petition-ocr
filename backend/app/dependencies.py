@@ -4,7 +4,7 @@ from typing import Optional, Dict, Any
 from fastapi import Depends, HTTPException, Header, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
-from models.database import get_db, AsyncSessionLocal
+from models.database import get_db, AsyncSessionLocal, is_sqlite
 from core.security import decode_access_token
 
 logger = logging.getLogger(__name__)
@@ -57,16 +57,31 @@ async def log_audit_event(
             valid_ip = ip_address
 
         async with AsyncSessionLocal() as audit_db:
-            await audit_db.execute(text("""
-                INSERT INTO audit_log (timestamp, source_id, officer_id, action, details, ip_address)
-                VALUES (NOW(), CAST(:source_id AS UUID), :officer_id, :action, :details, CAST(:ip_address AS INET))
-            """), {
-                "source_id": source_id,
-                "officer_id": officer_id,
-                "action": action,
-                "details": json.dumps(details or {}, ensure_ascii=False),
-                "ip_address": valid_ip
-            })
+            if is_sqlite:
+                await audit_db.execute(text("""
+                    INSERT INTO audit_log (id, timestamp, source_id, officer_id, action, details, ip_address)
+                    VALUES (
+                        (SELECT COALESCE(MAX(id), 0) + 1 FROM audit_log),
+                        CURRENT_TIMESTAMP, :source_id, :officer_id, :action, :details, :ip_address
+                    )
+                """), {
+                    "source_id": source_id,
+                    "officer_id": officer_id,
+                    "action": action,
+                    "details": json.dumps(details or {}, ensure_ascii=False),
+                    "ip_address": valid_ip
+                })
+            else:
+                await audit_db.execute(text("""
+                    INSERT INTO audit_log (timestamp, source_id, officer_id, action, details, ip_address)
+                    VALUES (NOW(), CAST(:source_id AS UUID), :officer_id, :action, :details, CAST(:ip_address AS INET))
+                """), {
+                    "source_id": source_id,
+                    "officer_id": officer_id,
+                    "action": action,
+                    "details": json.dumps(details or {}, ensure_ascii=False),
+                    "ip_address": valid_ip
+                })
             await audit_db.commit()
     except Exception as e:
         logger.error(f"Failed to log audit event: {e}")

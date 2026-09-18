@@ -94,6 +94,11 @@ MANIFEST
 .coverage.*
 htmlcov/
 *.sqlite3
+backend/models_cache/
+models_cache/
+*.safetensors
+*.bin
+*.onnx
 
 # ==============================================================================
 # Frontend & Node Artifacts

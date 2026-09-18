@@ -188,7 +188,11 @@ class HybridOCRRouter:
                     if scale < 1.0:
                         img = cv2.resize(img, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA)
 
-                    return list(paddle_inst.predict(img))
+                    try:
+                        return list(paddle_inst.predict(img))
+                    except Exception as pe:
+                        logger.warning(f"Paddle prediction internal error on {image_path}: {pe}")
+                        return []
 
                 results = await asyncio.to_thread(_run_predict)
                 for res in results:
@@ -277,11 +281,23 @@ class HybridOCRRouter:
                 "paginate": "true"
             }
 
-            async with httpx.AsyncClient(timeout=180.0) as client:
-                submit_resp = await client.post(api_url, headers=headers, files=files, data=form_data)
+            client_timeout = httpx.Timeout(connect=25.0, read=float(timeout_sec), write=60.0, pool=30.0)
+            async with httpx.AsyncClient(timeout=client_timeout, follow_redirects=True) as client:
+                submit_resp = None
+                for attempt in range(1, 3):
+                    try:
+                        submit_resp = await client.post(api_url, headers=headers, files=files, data=form_data)
+                        if submit_resp.status_code == 200:
+                            break
+                        logger.warning(f"Datalab Chandra submission attempt {attempt} returned {submit_resp.status_code}: {submit_resp.text}")
+                    except (httpx.ConnectTimeout, httpx.ConnectError, httpx.ReadTimeout) as net_err:
+                        logger.warning(f"Datalab Chandra connection attempt {attempt} failed ({net_err}). Retrying in 2s...")
+                        if attempt == 2:
+                            raise
+                        await asyncio.sleep(2.0)
 
-                if submit_resp.status_code != 200:
-                    logger.error(f"Datalab Chandra API submission failed: {submit_resp.status_code} - {submit_resp.text}")
+                if not submit_resp or submit_resp.status_code != 200:
+                    logger.error(f"Datalab Chandra API submission failed: {submit_resp.status_code if submit_resp else 'None'} - {submit_resp.text if submit_resp else 'No response'}")
                     return None
 
                 submit_data = submit_resp.json()
@@ -296,18 +312,21 @@ class HybridOCRRouter:
 
                 while (time.time() - start_poll) < timeout_sec:
                     await asyncio.sleep(1.5)
-                    poll_resp = await client.get(check_url, headers=headers)
-                    if poll_resp.status_code == 200:
-                        poll_data = poll_resp.json()
-                        status = poll_data.get("status")
-                        if status == "complete":
-                            poll_result = poll_data
-                            break
-                        elif status == "failed":
-                            logger.error(f"Datalab Chandra conversion failed: {poll_data}")
-                            return None
-                    else:
-                        logger.warning(f"Polling HTTP {poll_resp.status_code}: {poll_resp.text}")
+                    try:
+                        poll_resp = await client.get(check_url, headers=headers)
+                        if poll_resp.status_code == 200:
+                            poll_data = poll_resp.json()
+                            status = poll_data.get("status")
+                            if status == "complete":
+                                poll_result = poll_data
+                                break
+                            elif status == "failed":
+                                logger.error(f"Datalab Chandra conversion failed: {poll_data}")
+                                return None
+                        else:
+                            logger.warning(f"Polling HTTP {poll_resp.status_code}: {poll_resp.text}")
+                    except (httpx.ConnectTimeout, httpx.ConnectError, httpx.ReadTimeout) as poll_err:
+                        logger.warning(f"Polling intermittent network error: {poll_err}")
 
                 if not poll_result:
                     logger.error(f"Datalab Chandra OCR timed out after {timeout_sec}s")
@@ -603,34 +622,57 @@ class HybridOCRRouter:
             if ocr_provider == "datalab":
                 pages_data = await self._process_with_datalab(file_path, file_type)
                 if not pages_data:
-                    logger.warning("⚠️ Datalab Chandra OCR unavailable or failed; falling back to local PaddleOCR...")
-                    engine_used = "paddleocr_v5"
+                    logger.warning("⚠️ Datalab Chandra OCR unavailable or failed; checking fallback...")
+                    engine_used = "datalab_chandra"
                 else:
                     engine_used = "datalab_chandra"
 
-        # Fallback to local PaddleOCR if Datalab was skipped or failed
+        # Fallback handling: bypass Paddle fallback per instruction unless explicitly enabled
+        enable_paddle = getattr(settings, "ENABLE_PADDLE_FALLBACK", False)
         if not pages_data:
-            engine_used = "paddleocr_v5"
-            pages_data = []
-            # Ensure we have page images to run paddle on
-            if not images:
-                images = await file_store.convert_document_to_images(source_id, file_path, file_type)
+            if enable_paddle:
+                logger.info("Executing local Paddle PP-OCRv5 fallback...")
+                engine_used = "paddleocr_v5"
+                pages_data = []
+                if not images:
+                    images = await file_store.convert_document_to_images(source_id, file_path, file_type)
 
-            for page_num, image_path in enumerate(images, 1):
-                p_start = time.time()
-                paddle_blocks = await self._paddle_process(image_path, page_num)
-                paddle_blocks.sort(key=lambda b: (b["bbox"][0][1], b["bbox"][0][0]))
+                for page_num, image_path in enumerate(images, 1):
+                    p_start = time.time()
+                    paddle_blocks = await self._paddle_process(image_path, page_num)
+                    paddle_blocks.sort(key=lambda b: (b["bbox"][0][1], b["bbox"][0][0]))
 
-                page_full_text = "\n".join([b["text"] for b in paddle_blocks])
-                avg_conf = float(np.mean([b["confidence"] for b in paddle_blocks])) if paddle_blocks else 0.0
-                pages_data.append({
-                    "page_number": page_num,
-                    "full_text": page_full_text,
-                    "blocks": paddle_blocks,
-                    "tables": [],
-                    "avg_confidence": avg_conf,
-                    "ocr_engine": "paddleocr_v5"
-                })
+                    page_full_text = "\n".join([b["text"] for b in paddle_blocks])
+                    avg_conf = float(np.mean([b["confidence"] for b in paddle_blocks])) if paddle_blocks else 0.0
+                    pages_data.append({
+                        "page_number": page_num,
+                        "full_text": page_full_text,
+                        "blocks": paddle_blocks,
+                        "tables": [],
+                        "avg_confidence": avg_conf,
+                        "ocr_engine": "paddleocr_v5"
+                    })
+            else:
+                logger.warning("⚠️ Local Paddle fallback ignored per configuration. Populating placeholder OCR structure.")
+                engine_used = "datalab_chandra"
+                pages_data = []
+                if not images:
+                    try:
+                        images = await file_store.convert_document_to_images(source_id, file_path, file_type)
+                    except Exception as img_err:
+                        logger.debug(f"Image conversion fallback note: {img_err}")
+                        images = []
+
+                total_pages = max(len(images), 1)
+                for page_num in range(1, total_pages + 1):
+                    pages_data.append({
+                        "page_number": page_num,
+                        "full_text": "",
+                        "blocks": [],
+                        "tables": [],
+                        "avg_confidence": 0.0,
+                        "ocr_engine": "datalab_chandra"
+                    })
 
         # 4. Persist per-page results into ocr_results
         total_blocks = 0

@@ -333,7 +333,7 @@ class JobQueue(Base):
 class AuditLog(Base):
     __tablename__ = "audit_log"
 
-    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    id = Column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True)
     timestamp = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
     source_id = Column(GUID(), nullable=True)
     officer_id = Column(String(50), nullable=True)
