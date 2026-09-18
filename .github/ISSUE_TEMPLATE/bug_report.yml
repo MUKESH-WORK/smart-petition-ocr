@@ -1,0 +1,89 @@
+name: 🐛 Bug Report
+description: File a bug report to help us improve GDP Assistant.
+title: "[Bug]: "
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting an issue! Please provide as much detail as possible to help us reproduce and resolve the problem.
+        ⚠️ **Security Notice**: Do NOT include real citizen grievance petitions, Aadhaar numbers, phone numbers, or private credentials in this issue.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description of the Bug
+      description: A clear and concise description of what the bug is.
+      placeholder: What happened? What went wrong?
+    validations:
+      required: true
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Affected Component
+      description: Select the module or area where the bug occurred.
+      options:
+        - "Backend - OCR Engine (Chandra OCRv2 / PaddleOCR)"
+        - "Backend - Vector Store & SentenceTransformers"
+        - "Backend - CM Helpline Taxonomy Matcher"
+        - "Backend - Administrative Hierarchy & Seeder"
+        - "Backend - FastAPI Gateway & Auth"
+        - "Frontend - Workspace Dual Panel"
+        - "Frontend - Admin Dashboard & Hierarchy Modal"
+        - "Frontend - Taxonomy Management Modal"
+        - "Frontend - User Management"
+        - "Mobile QR Capture Bridge"
+        - "Database & Migrations"
+        - "Deployment & Docker"
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to Reproduce
+      description: Step-by-step instructions to reproduce the behavior.
+      placeholder: |
+        1. Start backend with `...`
+        2. Navigate to '...'
+        3. Click on '....'
+        4. See error
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: A clear explanation of what you expected to happen.
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Error Logs & Stacktrace
+      description: Paste any relevant terminal logs, browser console errors, or network responses (ensure PII is redacted).
+      render: shell
+
+  - type: input
+    id: environment
+    attributes:
+      label: Environment Details
+      description: OS version, Python version, Node version, and browser (e.g., Windows 11 / Python 3.11 / Chrome 124).
+      placeholder: "e.g. Windows 11, Python 3.11, Node 20, Chrome 124"
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Confirmation
+      options:
+        - label: I have verified this is not a security vulnerability (security issues must be sent to security@gdp-assistant.org).
+          required: true
+        - label: I have ensured no real citizen PII (Aadhaar, citizen phone, private names) is included in this report.
+          required: true
+        - label: I have searched existing issues to ensure this is not a duplicate.
+          required: true

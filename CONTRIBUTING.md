@@ -28,11 +28,14 @@ This project follows engineering standards modeled after modern open-source foun
 
 ## Code of Conduct
 
-We are committed to providing a friendly, safe, and welcoming environment for everyone, regardless of background, gender, identity, experience level, or nationality. 
+We are committed to providing a friendly, safe, and welcoming environment for everyone. All contributors and participants are expected to adhere to our official [Code of Conduct](CODE_OF_CONDUCT.md).
+
+For security vulnerabilities and responsible PII disclosure guidelines, please refer to our [Security Policy](SECURITY.md).
 
 * Treat all contributors and users with respect and empathy.
 * Focus on constructive feedback and objective code review.
 * Keep communications professional and aligned with public interest civic technology.
+* Never commit or paste real citizen grievance documents, Aadhaar numbers, or contact PII into issues, commits, or PRs.
 
 ---
 

@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 🔒 Security & Vulnerability Reporting
+    url: https://github.com/MUKESH-WORK/smart-petition-ocr/blob/main/SECURITY.md
+    about: Please report security vulnerabilities privately via our security policy.
+  - name: 💬 Discussion & Civic Community
+    url: https://github.com/MUKESH-WORK/smart-petition-ocr/discussions
+    about: Ask questions, share ideas, and discuss grievance redressal workflows.

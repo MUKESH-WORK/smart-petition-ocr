@@ -1,0 +1,53 @@
+name: 💡 Feature Request
+description: Suggest an idea or architectural enhancement for GDP Assistant.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for suggesting an improvement! Please describe the use case and expected benefit for revenue officers and citizens.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem Statement
+      description: Is your feature request related to a specific workflow bottleneck or administrative challenge?
+      placeholder: "e.g. Revenue officers spend too much time manual cross-referencing firka boundaries..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution
+      description: A clear and concise description of what you want to happen.
+      placeholder: "Describe the proposed feature, UI interface, or backend service..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: Describe any alternative solutions or features you've considered.
+
+  - type: dropdown
+    id: target-module
+    attributes:
+      label: Target Module
+      options:
+        - "OCR & Typography Pipeline"
+        - "Taxonomy & Routing Intelligence"
+        - "Administrative Hierarchy & Location Engine"
+        - "Officer Dual-Panel Workspace"
+        - "Admin Analytics & Telemetry"
+        - "Mobile Capture & Wireless Bridge"
+        - "Data Export & Inter-System Sync"
+
+  - type: checkboxes
+    id: contribution
+    attributes:
+      label: Contribution Willingness
+      options:
+        - label: I am willing to submit a PR to implement this feature.

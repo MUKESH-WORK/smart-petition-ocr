@@ -282,6 +282,97 @@ async def init_db_schema():
                     await conn.execute(text(col_stmt))
                 except Exception:
                     pass
+        else:
+            # PostgreSQL schema creation with pgvector support
+            await conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS admin_users (
+                    id VARCHAR(50) PRIMARY KEY,
+                    name VARCHAR(100) NOT NULL,
+                    name_tamil VARCHAR(100),
+                    mobile VARCHAR(20),
+                    email VARCHAR(150),
+                    password_hash VARCHAR(255),
+                    department VARCHAR(100),
+                    role VARCHAR(50),
+                    is_admin BOOLEAN DEFAULT FALSE,
+                    status VARCHAR(20) DEFAULT 'Active',
+                    last_login TIMESTAMP,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+            """))
+            await conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS admin_activity_log (
+                    id VARCHAR(50) PRIMARY KEY,
+                    type VARCHAR(50) NOT NULL,
+                    detail TEXT NOT NULL,
+                    date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    officer_id VARCHAR(50)
+                );
+            """))
+            await conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS system_backups (
+                    id VARCHAR(50) PRIMARY KEY,
+                    filename VARCHAR(255) NOT NULL,
+                    size_bytes BIGINT,
+                    record_count INTEGER,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    created_by VARCHAR(50)
+                );
+            """))
+            await conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS master_locations (
+                    id SERIAL PRIMARY KEY,
+                    district_code VARCHAR(10),
+                    district_name_tamil VARCHAR(100),
+                    district_name_en VARCHAR(100),
+                    division_code VARCHAR(10),
+                    division_name_tamil VARCHAR(100),
+                    division_name_en VARCHAR(100),
+                    taluk_code VARCHAR(10),
+                    taluk_name_tamil VARCHAR(100),
+                    taluk_name_en VARCHAR(100),
+                    firka_code VARCHAR(10),
+                    firka_name_tamil VARCHAR(100),
+                    firka_name_en VARCHAR(100),
+                    block_code VARCHAR(10),
+                    block_name_tamil VARCHAR(100),
+                    block_name_en VARCHAR(100),
+                    village_code VARCHAR(10),
+                    village_name_tamil VARCHAR(100),
+                    village_name_en VARCHAR(100),
+                    local_body_type VARCHAR(100),
+                    ward_no INTEGER,
+                    ward_name_tamil VARCHAR(200),
+                    ward_name_en VARCHAR(200),
+                    pincode VARCHAR(10),
+                    search_text TEXT,
+                    embedding vector(384),
+                    sub_departments VARCHAR(255)
+                );
+            """))
+            await conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS cm_taxonomy_mappings (
+                    id SERIAL PRIMARY KEY,
+                    department VARCHAR(200) NOT NULL,
+                    department_code VARCHAR(50),
+                    sub_department VARCHAR(200),
+                    grievance_type VARCHAR(255) NOT NULL,
+                    grievance_sub_type VARCHAR(255) NOT NULL,
+                    responsible_officer VARCHAR(255),
+                    search_text TEXT,
+                    embedding vector(384)
+                );
+            """))
+            for col_stmt in [
+                "ALTER TABLE master_locations ADD COLUMN IF NOT EXISTS sub_departments VARCHAR(255);",
+                "ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS password_hash VARCHAR(255);",
+                "ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS department VARCHAR(100);",
+                "ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS role VARCHAR(50);",
+            ]:
+                try:
+                    await conn.execute(text(col_stmt))
+                except Exception:
+                    pass
 
     logger.info(f"Database schemas initialized successfully (User DB: {'SQLite' if is_sqlite else 'PostgreSQL'}, Admin DB: {'SQLite' if is_admin_sqlite else 'PostgreSQL'}).")
 

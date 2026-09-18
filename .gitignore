@@ -61,9 +61,6 @@ backend/.env
 models_cache/
 **/models_cache/
 backend/models_cache/
-models/
-**/models/
-backend/models/
 *.safetensors
 *.bin
 *.pt
