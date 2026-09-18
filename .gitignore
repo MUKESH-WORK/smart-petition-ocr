@@ -95,6 +95,11 @@ hub/
 temp_cache/
 **/temp_cache/
 backend/temp_cache/
+*.tar.gz
+*.tar
+*.gz
+*.bundle
+gdp_database_bundle*
 
 # ==============================================================================
 # Python & Virtual Environment Artifacts
