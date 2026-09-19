@@ -96,11 +96,12 @@ async def upload_petition(
 
         # Ensure officer exists to satisfy foreign key
         if eff_officer_id:
-            await db.execute(text("""
-                INSERT INTO officers (officer_id, name_tamil, designation, department)
-                VALUES (:officer_id, 'வருவாய் அலுவலர்', 'DRO Officer', 'வருவாய்த்துறை')
-                ON CONFLICT (officer_id) DO NOTHING
-            """), {"officer_id": eff_officer_id})
+            check_officer = await db.execute(text("SELECT officer_id FROM officers WHERE officer_id = :id"), {"id": eff_officer_id})
+            if not check_officer.scalar():
+                await db.execute(text("""
+                    INSERT INTO officers (officer_id, name, name_tamil, email, designation, department, status)
+                    VALUES (:officer_id, 'DRO Officer', 'வருவாய் அலுவலர்', :email, 'DRO Officer', 'வருவாய்த்துறை', 'Active')
+                """), {"officer_id": eff_officer_id, "email": f"{eff_officer_id.lower()}@tn.gov.in"})
 
         # Insert into sources (save BYTEA only if configured)
         file_data_db = content if getattr(settings, "STORE_FILE_BYTEA", False) else None

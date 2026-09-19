@@ -13,7 +13,7 @@ import LoginPage from './components/auth/LoginPage';
 import AdminWorkspace from './components/admin/AdminWorkspace';
 import AdminNotifications from './components/admin/AdminNotifications';
 import { ChevronRight, ChevronLeft } from 'lucide-react';
-import { fetchAuditHistory, fetchPetitionBySourceId } from './services/apiService';
+import { fetchAuditHistory, fetchPetitionBySourceId, logoutAdminSession, updateMyProfile } from './services/apiService';
 import ErrorBoundary from './components/common/ErrorBoundary';
 import './styles/index.css';
 
@@ -55,6 +55,7 @@ function createProfileFromSession(session) {
   return {
     fullName: name,
     name: name,
+    nameTamil: u.name_tamil || u.nameTamil || '',
     designation: designation,
     department: department,
     officerId: officerId,
@@ -72,11 +73,26 @@ const PROFILE_STORAGE_KEY = 'tn_gdp_officer_profile';
 export default function App() {
   const [session, setSession] = useState(null);
 
+  const handleAppLogout = async () => {
+    try {
+      const officerId = session?.id || session?.officerId || session?.user?.id;
+      if (officerId) {
+        await logoutAdminSession(officerId);
+      }
+    } catch (err) {
+      console.warn('Logout session cleanup warning:', err);
+    } finally {
+      localStorage.removeItem('auth_token');
+      localStorage.removeItem('token');
+      setSession(null);
+    }
+  };
+
   if (!session && !getCaptureSessionFromUrl()) {
     return <LoginPage onLogin={setSession} />;
   }
 
-  return <Workstation session={session} onLogout={() => setSession(null)} />;
+  return <Workstation session={session} onLogout={handleAppLogout} />;
 }
 
 function Workstation({ session, onLogout }) {
@@ -93,12 +109,21 @@ function Workstation({ session, onLogout }) {
     }
   }, [session]);
 
-  const handleSaveProfile = (updatedProfile) => {
+  const handleSaveProfile = async (updatedProfile) => {
     setOfficerProfile(updatedProfile);
     try {
       localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(updatedProfile));
+      await updateMyProfile({
+        name: updatedProfile.fullName || updatedProfile.name,
+        name_tamil: updatedProfile.nameTamil || updatedProfile.name_tamil,
+        mobile: updatedProfile.phone || updatedProfile.mobile,
+        email: updatedProfile.email,
+        department: updatedProfile.department
+      });
+      showToast('Profile updated and saved to database successfully.');
     } catch (err) {
-      console.error('Failed to persist officer profile:', err);
+      console.error('Failed to persist officer profile to database:', err);
+      showToast('Profile saved locally (database update warning).');
     }
   };
 
@@ -395,8 +420,6 @@ function Workstation({ session, onLogout }) {
           {activeModule === 'profile' && (
             <ProfileView
               officerProfile={officerProfile}
-              onSaveProfile={handleSaveProfile}
-              onNotify={showToast}
             />
           )}
 

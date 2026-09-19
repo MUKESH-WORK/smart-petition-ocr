@@ -38,16 +38,16 @@ Use the included `scripts/manage_db.py` tool.
 
 1. **On the Source Machine (Export)**:
    ```bash
-   python scripts/manage_db.py export --output dro_data_bundle.tar.gz
+   python scripts/manage_db.py export --output gdp_database_bundle.tar.gz
    ```
    *Creates an integrity-checked, compressed `.tar.gz` bundle containing both `dro_admin.db` and `dro_user.db` along with a SHA-256 manifest.*
 
 2. **Transfer the Bundle**:
-   *Copy `dro_data_bundle.tar.gz` to the target system via USB drive, secure SCP, S3 bucket, or local network share.*
+   *Copy `gdp_database_bundle.tar.gz` (or your chosen bundle name) to the target system via USB drive, secure SCP, S3 bucket, or local network share.*
 
 3. **On the Target Machine (Import)**:
    ```bash
-   python scripts/manage_db.py import --input dro_data_bundle.tar.gz
+   python scripts/manage_db.py import --input gdp_database_bundle.tar.gz
    ```
    *Automatically verifies SHA-256 checksums, backs up any existing local database, and installs the active databases.*
 

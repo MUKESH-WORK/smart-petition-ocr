@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     API_V1_STR: str = "/api/v1"
     
     # Database Settings
+    USE_SQLITE: bool = True
     POSTGRES_USER: str = "dro_user"
     POSTGRES_PASSWORD: str = ""
     POSTGRES_HOST: str = "localhost"

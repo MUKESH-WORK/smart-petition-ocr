@@ -80,9 +80,7 @@ function resolveInitialProfile(p) {
 }
 
 export default function ProfileView({
-  officerProfile,
-  onSaveProfile,
-  onNotify
+  officerProfile
 }) {
   const [formData, setFormData] = useState(() => resolveInitialProfile(officerProfile));
 
@@ -93,57 +91,41 @@ export default function ProfileView({
     }
   }, [officerProfile]);
 
-  // Check if user has made any changes compared to current saved profile
-  const hasUnsavedChanges = Object.keys(formData).some((key) => {
-    return formData[key] !== (officerProfile?.[key] || resolveInitialProfile(officerProfile)[key] || '');
-  });
-
-  const handleChange = (field, value) => {
-    setFormData((prev) => ({
-      ...prev,
-      [field]: value
-    }));
-  };
-
-  const handleSave = (e) => {
-    e.preventDefault();
-    if (onSaveProfile) {
-      onSaveProfile(formData);
-    }
-    if (onNotify) {
-      onNotify('Officer profile updated successfully');
-    }
-  };
-
   return (
     <div className="profile-page" role="region" aria-label="Officer Profile">
-      <form className="profile-container" onSubmit={handleSave}>
+      <div className="profile-container">
 
         {/* Page Header */}
         <header className="profile-header">
           <div className="profile-header-left">
             <div className="profile-title-row">
               <User size={22} className="profile-header-icon" />
-              <h2 className="profile-title">My Profile</h2>
+              <h2 className="profile-title">Official Profile</h2>
             </div>
             <p className="profile-subtitle">
-              View and manage your official credentials, contact info, and department assignment.
+              Official credentials, contact information, and departmental assignment (Managed solely by District Administration).
             </p>
           </div>
 
-          {/* Show Save Changes button ONLY IF user has made changes */}
-          {hasUnsavedChanges && (
-            <div className="profile-header-actions">
-              <button
-                type="submit"
-                className="profile-save-btn"
-                title="Save updated profile information"
-              >
-                <Check size={16} />
-                <span>Save Changes</span>
-              </button>
-            </div>
-          )}
+          <div className="profile-header-actions">
+            <span
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '6px 12px',
+                backgroundColor: '#f1f5f9',
+                color: '#475569',
+                borderRadius: '9999px',
+                fontSize: '0.8rem',
+                fontWeight: 600,
+                border: '1px solid #cbd5e1'
+              }}
+            >
+              <ShieldCheck size={16} style={{ color: '#047857' }} />
+              <span>Admin-Managed Profile</span>
+            </span>
+          </div>
         </header>
 
         {/* Profile Details Sections */}
@@ -170,7 +152,7 @@ export default function ProfileView({
                       type="text"
                       className="field-input highlight"
                       value={formData.fullName}
-                      onChange={(e) => handleChange('fullName', e.target.value)}
+                      readOnly
                     />
                   </div>
                 </div>
@@ -184,7 +166,7 @@ export default function ProfileView({
                       type="text"
                       className="field-input"
                       value={formData.designation}
-                      onChange={(e) => handleChange('designation', e.target.value)}
+                      readOnly
                     />
                   </div>
                 </div>
@@ -198,7 +180,7 @@ export default function ProfileView({
                       type="text"
                       className="field-input"
                       value={formData.department}
-                      onChange={(e) => handleChange('department', e.target.value)}
+                      readOnly
                     />
                   </div>
                 </div>
@@ -212,7 +194,7 @@ export default function ProfileView({
                       type="text"
                       className="field-input code-font"
                       value={formData.officerId}
-                      onChange={(e) => handleChange('officerId', e.target.value)}
+                      readOnly
                     />
                   </div>
                 </div>
@@ -226,7 +208,7 @@ export default function ProfileView({
                       type="email"
                       className="field-input"
                       value={formData.email}
-                      onChange={(e) => handleChange('email', e.target.value)}
+                      readOnly
                       placeholder="officer@tn.gov.in"
                     />
                   </div>
@@ -241,7 +223,7 @@ export default function ProfileView({
                       type="text"
                       className="field-input"
                       value={formData.phone}
-                      onChange={(e) => handleChange('phone', e.target.value)}
+                      readOnly
                       placeholder="+91 94431 00000"
                     />
                   </div>
@@ -251,31 +233,17 @@ export default function ProfileView({
             </div>
           </section>
 
-          {/* Card 2: Role & Office */}
+          {/* Card 2: Assigned Office & Department */}
           <section className="profile-card">
             <div className="profile-card-header">
               <div className="profile-card-title-group">
-                <ShieldCheck size={18} className="card-header-icon" />
-                <h3 className="profile-card-title">Role & Office</h3>
+                <Building2 size={18} className="card-header-icon" />
+                <h3 className="profile-card-title">Assigned Office & Department</h3>
               </div>
             </div>
 
             <div className="profile-card-body">
               <div className="profile-field-grid">
-
-                <div className="profile-field-item">
-                  <label htmlFor="field-role" className="field-label">Role</label>
-                  <div className="field-value-group">
-                    <Briefcase size={15} className="field-icon" />
-                    <input
-                      id="field-role"
-                      type="text"
-                      className="field-input"
-                      value={formData.role}
-                      onChange={(e) => handleChange('role', e.target.value)}
-                    />
-                  </div>
-                </div>
 
                 <div className="profile-field-item span-full">
                   <label htmlFor="field-assignedOffice" className="field-label">Assigned Department / Office</label>
@@ -286,7 +254,7 @@ export default function ProfileView({
                       type="text"
                       className="field-input"
                       value={formData.assignedOffice}
-                      onChange={(e) => handleChange('assignedOffice', e.target.value)}
+                      readOnly
                     />
                   </div>
                 </div>
@@ -297,7 +265,7 @@ export default function ProfileView({
 
         </div>
 
-      </form>
+      </div>
     </div>
   );
 }

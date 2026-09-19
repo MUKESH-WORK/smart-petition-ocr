@@ -1,7 +1,6 @@
 import { useState } from 'react';
-import { Eye, EyeOff, Plus, Search, Trash2, AlertTriangle, RefreshCw } from 'lucide-react';
+import { Eye, EyeOff, Plus, Search, Trash2, AlertTriangle, RefreshCw, ShieldAlert, CheckCircle2 } from 'lucide-react';
 import AdminDialog, { DialogActions } from './AdminDialog';
-import { ROLES } from './adminModel';
 import { createAdminUser, updateAdminUser, deleteAdminUser } from '../../services/apiService';
 
 function PasswordField({ label, value, onChange, required }) {
@@ -59,11 +58,11 @@ function UserDialog({ user, users, sections, onSaveSuccess, onDeleteSuccess, onC
   });
 
   async function submit(event) {
-    event.preventDefault();
+    if (event) event.preventDefault();
     setError('');
 
     // Form validations
-    if (!form.name.trim()) {
+    if (!edit && !form.name.trim()) {
       setError('Please enter a full name.');
       return;
     }
@@ -71,7 +70,7 @@ function UserDialog({ user, users, sections, onSaveSuccess, onDeleteSuccess, onC
       setError('Please specify a department/section.');
       return;
     }
-    if (!form.email.trim() || !form.email.includes('@')) {
+    if (!edit && (!form.email.trim() || !form.email.includes('@'))) {
       setError('Please enter a valid official email address.');
       return;
     }
@@ -93,7 +92,6 @@ function UserDialog({ user, users, sections, onSaveSuccess, onDeleteSuccess, onC
           mobile: form.mobile.trim(),
           email: form.email.trim().toLowerCase(),
           department: form.department.trim(),
-          role: form.role,
           status: form.status
         };
         if (form.password && form.password.trim()) {
@@ -107,7 +105,7 @@ function UserDialog({ user, users, sections, onSaveSuccess, onDeleteSuccess, onC
           mobile: form.mobile.trim(),
           email: form.email.trim().toLowerCase(),
           department: form.department.trim(),
-          role: form.role,
+          role: form.role || 'Department User',
           status: form.status,
           password: form.password ? form.password.trim() : 'Govt@2024'
         };
@@ -138,6 +136,13 @@ function UserDialog({ user, users, sections, onSaveSuccess, onDeleteSuccess, onC
     }
   }
 
+  const handleToggleSuspend = () => {
+    // If suspended, toggling unsuspend transitions to Inactive.
+    // When the user logs in, their status will become Active automatically.
+    const nextStatus = form.status === 'Suspended' ? 'Inactive' : 'Suspended';
+    setForm((prev) => ({ ...prev, status: nextStatus }));
+  };
+
   return (
     <AdminDialog title={edit ? `Edit User: ${user.name}` : 'Add Official Account'} onClose={onClose}>
       <form onSubmit={submit}>
@@ -146,19 +151,43 @@ function UserDialog({ user, users, sections, onSaveSuccess, onDeleteSuccess, onC
           <div className="admin-form-grid">
             <label className="admin-field admin-span-2">
               Full Name (English)
-              <input {...field('name')} autoComplete="name" required maxLength={100} placeholder="e.g. S. Ramanathan" />
+              <input
+                {...field('name')}
+                autoComplete="name"
+                required
+                maxLength={100}
+                placeholder="e.g. S. Ramanathan"
+              />
             </label>
             <label className="admin-field admin-span-2">
               Full Name (Tamil - optional)
-              <input {...field('nameTamil')} maxLength={100} placeholder="எ.கா. சு. இராமநாதன்" />
+              <input
+                {...field('nameTamil')}
+                maxLength={100}
+                placeholder="எ.கா. சு. இராமநாதன்"
+              />
             </label>
             <label className="admin-field">
               Mobile Number
-              <input {...field('mobile')} type="tel" autoComplete="tel" required maxLength={20} placeholder="9842011001" />
+              <input
+                {...field('mobile')}
+                type="tel"
+                autoComplete="tel"
+                required
+                maxLength={20}
+                placeholder="9842011001"
+              />
             </label>
             <label className="admin-field">
               Official Email
-              <input {...field('email')} type="email" autoComplete="email" required maxLength={254} placeholder="officer@tn.gov.in" />
+              <input
+                {...field('email')}
+                type="email"
+                autoComplete="email"
+                required
+                maxLength={254}
+                placeholder="officer@tn.gov.in"
+              />
             </label>
             <label className="admin-field admin-span-2">
               Department / Section
@@ -169,19 +198,12 @@ function UserDialog({ user, users, sections, onSaveSuccess, onDeleteSuccess, onC
                 <option key={sec} value={sec} />
               ))}
             </datalist>
-            <label className="admin-field">
-              Administrative Role
-              <select {...field('role')} disabled={isProtectedAdmin}>
-                {ROLES.map((role) => (
-                  <option key={role} value={role}>{role}</option>
-                ))}
-              </select>
-            </label>
-            <label className="admin-field">
+            <label className="admin-field admin-span-2">
               Account Status
               <select {...field('status')} disabled={isProtectedAdmin}>
-                <option value="Active">Active</option>
-                <option value="Inactive">Inactive</option>
+                <option value="Active">Active (Live Logged In)</option>
+                <option value="Inactive">Inactive (Logged Out)</option>
+                <option value="Suspended">Suspended (Admin Only - Login Blocked)</option>
               </select>
             </label>
           </div>
@@ -233,15 +255,54 @@ function UserDialog({ user, users, sections, onSaveSuccess, onDeleteSuccess, onC
         <div className="admin-dialog-actions" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
             {edit && !confirmDelete && !isProtectedAdmin && (
-              <button
-                type="button"
-                className="admin-button admin-button-danger"
-                style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-                onClick={() => setConfirmDelete(true)}
-                disabled={submitting}
-              >
-                <Trash2 size={16} /> Delete User
-              </button>
+              <div style={{ display: 'inline-flex', gap: '8px', alignItems: 'center' }}>
+                <button
+                  type="button"
+                  className="admin-button admin-button-danger"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                  onClick={() => setConfirmDelete(true)}
+                  disabled={submitting}
+                >
+                  <Trash2 size={16} /> Delete
+                </button>
+                {form.status === 'Suspended' ? (
+                  <button
+                    type="button"
+                    className="admin-button"
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '5px',
+                      backgroundColor: '#dcfce7',
+                      color: '#15803d',
+                      border: '1px solid #86efac'
+                    }}
+                    onClick={handleToggleSuspend}
+                    disabled={submitting}
+                    title="Unsuspend this account (sets to Inactive until user logs in)"
+                  >
+                    <CheckCircle2 size={15} /> Unsuspend (Set Inactive)
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="admin-button"
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '5px',
+                      backgroundColor: '#fee2e2',
+                      color: '#b91c1c',
+                      border: '1px solid #fca5a5'
+                    }}
+                    onClick={handleToggleSuspend}
+                    disabled={submitting}
+                    title="Suspend this user account immediately"
+                  >
+                    <ShieldAlert size={15} /> Suspend Account
+                  </button>
+                )}
+              </div>
             )}
             {isProtectedAdmin && (
               <span className="admin-note" style={{ color: '#047857', fontWeight: 600 }}>
@@ -270,7 +331,7 @@ export default function UserManagement({
   onRefreshUsers,
   onReconnectDb
 }) {
-  const [filters, setFilters] = useState({ search: '', department: '', role: '', status: '' });
+  const [filters, setFilters] = useState({ search: '', department: '', status: '' });
   const [dialog, setDialog] = useState(null);
 
   // Common official sections
@@ -297,9 +358,8 @@ export default function UserManagement({
       (u.mobile && u.mobile.includes(query)) ||
       (u.id && u.id.toLowerCase().includes(query));
     const matchDept = !filters.department || u.department === filters.department;
-    const matchRole = !filters.role || u.role === filters.role;
     const matchStatus = !filters.status || u.status === filters.status;
-    return matchQuery && matchDept && matchRole && matchStatus;
+    return matchQuery && matchDept && matchStatus;
   });
 
   const filter = (key) => ({
@@ -375,16 +435,11 @@ export default function UserManagement({
             <option key={sec} value={sec}>{sec}</option>
           ))}
         </select>
-        <select aria-label="Filter by role" {...filter('role')}>
-          <option value="">All Roles</option>
-          {ROLES.map((role) => (
-            <option key={role} value={role}>{role}</option>
-          ))}
-        </select>
         <select aria-label="Filter by status" {...filter('status')}>
           <option value="">All Status</option>
           <option value="Active">Active</option>
           <option value="Inactive">Inactive</option>
+          <option value="Suspended">Suspended</option>
         </select>
       </div>
 
@@ -394,7 +449,6 @@ export default function UserManagement({
             <tr>
               <th scope="col">Official Account</th>
               <th scope="col">Department / Section</th>
-              <th scope="col">Role</th>
               <th scope="col">Status</th>
               <th scope="col">Last Login</th>
             </tr>
@@ -436,12 +490,7 @@ export default function UserManagement({
                   </td>
                   <td>{user.department || '—'}</td>
                   <td>
-                    <span style={{ fontWeight: user.isAdmin ? '600' : 'normal', color: user.isAdmin ? 'var(--primary-brand)' : 'inherit' }}>
-                      {user.role || (user.isAdmin ? 'Admin' : 'Department User')}
-                    </span>
-                  </td>
-                  <td>
-                    <span className={`admin-status ${user.status === 'Active' ? 'is-success' : ''}`}>
+                    <span className={`admin-status ${user.status === 'Active' ? 'is-success' : user.status === 'Suspended' ? 'is-suspended' : 'is-inactive'}`}>
                       {user.status || 'Active'}
                     </span>
                   </td>

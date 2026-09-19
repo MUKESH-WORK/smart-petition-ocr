@@ -34,8 +34,24 @@ def _is_postgres_available(url: str) -> bool:
         return False
 
 
+# Helper to locate existing SQLite DB files across cwd/backend
+_backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_repo_root = os.path.dirname(_backend_dir)
+
+def _find_sqlite_path(db_name: str) -> str:
+    for candidate in [
+        os.path.join(_backend_dir, "temp_cache", db_name),
+        os.path.join(_repo_root, "temp_cache", db_name),
+        os.path.join(os.getcwd(), "temp_cache", db_name),
+        os.path.join(os.getcwd(), "backend", "temp_cache", db_name),
+    ]:
+        if os.path.isfile(candidate) and os.path.getsize(candidate) > 0:
+            return os.path.abspath(candidate).replace("\\", "/")
+    return os.path.abspath(os.path.join(_backend_dir, "temp_cache", db_name)).replace("\\", "/")
+
 # Determine database URLs with automatic SQLite fallback
-pg_configured = bool(settings.DATABASE_URL and ("postgres" in settings.DATABASE_URL or "asyncpg" in settings.DATABASE_URL))
+use_sqlite = getattr(settings, "USE_SQLITE", True) or os.getenv("USE_SQLITE", "true").lower() in ("true", "1", "yes")
+pg_configured = not use_sqlite and bool(settings.DATABASE_URL and ("postgres" in settings.DATABASE_URL or "asyncpg" in settings.DATABASE_URL))
 pg_online = _is_postgres_available(settings.DATABASE_URL) if pg_configured else False
 
 if pg_configured and pg_online:
@@ -47,10 +63,13 @@ if pg_configured and pg_online:
 else:
     if pg_configured and not pg_online:
         logger.warning("PostgreSQL (port 5432) is offline or unreachable. Seamlessly activating high-performance SQLite dual databases.")
-    user_db_url = "sqlite+aiosqlite:///temp_cache/dro_user.db"
-    admin_db_url = "sqlite+aiosqlite:///temp_cache/dro_admin.db"
+    user_sqlite_path = _find_sqlite_path("dro_user.db")
+    admin_sqlite_path = _find_sqlite_path("dro_admin.db")
+    user_db_url = f"sqlite+aiosqlite:///{user_sqlite_path}"
+    admin_db_url = f"sqlite+aiosqlite:///{admin_sqlite_path}"
     is_sqlite = True
     is_admin_sqlite = True
+    logger.info(f"Active SQLite dual databases: user={user_sqlite_path}, admin={admin_sqlite_path}")
 
 effective_db_url = user_db_url
 
@@ -177,7 +196,9 @@ async def init_db_schema():
             "ALTER TABLE officers ADD COLUMN mobile VARCHAR(20);",
             "ALTER TABLE officers ADD COLUMN is_admin BOOLEAN DEFAULT 0;",
             "ALTER TABLE officers ADD COLUMN status VARCHAR(20) DEFAULT 'Inactive';",
-            "ALTER TABLE officers ADD COLUMN last_login TIMESTAMP;"
+            "ALTER TABLE officers ADD COLUMN last_login TIMESTAMP;",
+            "ALTER TABLE officers ADD COLUMN designation VARCHAR(100);",
+            "ALTER TABLE officers ADD COLUMN department VARCHAR(100);"
         ]:
             try:
                 await conn.execute(text(col_sql))
@@ -185,12 +206,14 @@ async def init_db_schema():
                 pass
 
     # 2. Initialize Admin Database
+    if not is_admin_sqlite:
+        try:
+            async with admin_engine.connect() as conn:
+                await conn.execution_options(isolation_level="AUTOCOMMIT").execute(text("CREATE EXTENSION IF NOT EXISTS vector;"))
+        except Exception as e:
+            logger.debug(f"Could not enable pgvector on admin db: {e}")
+
     async with admin_engine.begin() as conn:
-        if not is_admin_sqlite:
-            try:
-                await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector;"))
-            except Exception as e:
-                logger.debug(f"Could not enable pgvector on admin db: {e}")
 
         # Ensure admin tables exist
         if is_admin_sqlite:

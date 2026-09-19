@@ -552,6 +552,53 @@ export async function deleteAdminUser(userId) {
 }
 
 /**
+ * Fetch authenticated officer's own profile
+ */
+export async function fetchMyProfile() {
+  const res = await fetch(`${API_BASE}/admin/profile/me`, {
+    headers: authHeaders()
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || `Failed to fetch profile (HTTP ${res.status})`);
+  }
+  return await res.json();
+}
+
+/**
+ * Update authenticated officer's own profile
+ */
+export async function updateMyProfile(profileData) {
+  const res = await fetch(`${API_BASE}/admin/profile/me`, {
+    method: 'PUT',
+    headers: authHeaders(),
+    body: JSON.stringify(profileData)
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || `Failed to update profile (HTTP ${res.status})`);
+  }
+  return await res.json();
+}
+
+/**
+ * Mark user session as Inactive upon logout
+ */
+export async function logoutAdminSession(officerId) {
+  try {
+    const res = await fetch(`${API_BASE}/admin/session/logout`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ officer_id: officerId })
+    });
+    if (res.ok) return await res.json();
+  } catch (err) {
+    console.debug('Logout status sync notice:', err);
+  }
+  return { status: 'success' };
+}
+
+/**
  * Fetch live activity logs from Admin DB
  */
 export async function fetchAdminActivity(limit = 50) {

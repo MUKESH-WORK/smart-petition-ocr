@@ -11,7 +11,7 @@ from sqlalchemy import text
 
 from models.database import get_db, get_admin_db, is_admin_sqlite
 from models.schemas import QueueStatusResponse, MasterLocationCreate
-from app.dependencies import get_current_officer
+from app.dependencies import get_current_officer, get_optional_officer
 
 logger = logging.getLogger(__name__)
 
@@ -85,21 +85,40 @@ async def admin_session_login(req: LoginRequest, db: AsyncSession = Depends(get_
             "status": "success"
         }
 
+    user_status = user.get("status") or "Active"
+    if user_status == "Suspended":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This account has been suspended by District Administration. Sign in is blocked."
+        )
+
     stored_hash = user.get("password_hash")
     if stored_hash and req.password:
         input_hash = _hash_password(req.password)
         if input_hash != stored_hash and req.password != "Govt@2024":
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid password.")
     
-    # Update last_login
+    # Update status to Active and set last_login
     try:
         await db.execute(
-            text("UPDATE admin_users SET last_login = CURRENT_TIMESTAMP WHERE id = :id"),
+            text("UPDATE admin_users SET status = 'Active', last_login = CURRENT_TIMESTAMP WHERE id = :id"),
             {"id": user["id"]}
         )
         await db.commit()
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Admin DB login update notice: {e}")
+
+    # Synchronize Active status to User DB officers
+    try:
+        from models.database import UserAsyncSessionLocal
+        async with UserAsyncSessionLocal() as u_db:
+            await u_db.execute(
+                text("UPDATE officers SET status = 'Active', last_login = CURRENT_TIMESTAMP WHERE officer_id = :id"),
+                {"id": user["id"]}
+            )
+            await u_db.commit()
+    except Exception as e:
+        logger.debug(f"User DB officers login update notice: {e}")
 
     is_adm = bool(user.get("is_admin"))
     user_dict = {
@@ -113,7 +132,7 @@ async def admin_session_login(req: LoginRequest, db: AsyncSession = Depends(get_
         "role": "District Administrator" if is_adm else (user.get("role") or "Department User"),
         "isAdmin": is_adm,
         "is_admin": is_adm,
-        "status": user.get("status") or "Active"
+        "status": "Active"
     }
 
     # Issue verified signed JWT token for session
@@ -134,6 +153,197 @@ async def admin_session_login(req: LoginRequest, db: AsyncSession = Depends(get_
         "user": user_dict,
         "status": "success"
     }
+
+
+class LogoutRequest(BaseModel):
+    officer_id: Optional[str] = None
+
+
+@router.post("/session/logout")
+async def admin_session_logout(
+    req: Optional[LogoutRequest] = None,
+    current_officer: Optional[Dict[str, Any]] = Depends(get_optional_officer),
+    db: AsyncSession = Depends(get_admin_db)
+):
+    """
+    Marks the user's status as Inactive upon logout.
+    Does not override Suspended status.
+    """
+    officer_id = (req.officer_id if req and req.officer_id else None) or (current_officer.get("officer_id") if current_officer else None)
+    if not officer_id:
+        return {"status": "Inactive", "message": "Logged out."}
+
+    try:
+        await db.execute(
+            text("UPDATE admin_users SET status = 'Inactive' WHERE id = :id AND status != 'Suspended'"),
+            {"id": officer_id}
+        )
+        await db.commit()
+    except Exception as e:
+        logger.debug(f"Admin DB logout update notice: {e}")
+
+    try:
+        from models.database import UserAsyncSessionLocal
+        async with UserAsyncSessionLocal() as u_db:
+            await u_db.execute(
+                text("UPDATE officers SET status = 'Inactive' WHERE officer_id = :id AND status != 'Suspended'"),
+                {"id": officer_id}
+            )
+            await u_db.commit()
+    except Exception as e:
+        logger.debug(f"User DB officers logout update notice: {e}")
+
+    return {"status": "Inactive", "message": f"User {officer_id} is now inactive."}
+
+
+class ProfileUpdateRequest(BaseModel):
+    fullName: Optional[str] = None
+    name_tamil: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    designation: Optional[str] = None
+    department: Optional[str] = None
+
+
+@router.get("/profile/me")
+async def get_my_profile(
+    current_officer: Dict[str, Any] = Depends(get_current_officer),
+    db: AsyncSession = Depends(get_admin_db)
+):
+    """
+    Returns the authenticated user's own profile.
+    """
+    officer_id = current_officer.get("officer_id")
+    if not officer_id:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required.")
+
+    res = await db.execute(
+        text("SELECT id, name, name_tamil, mobile, email, department, role, is_admin, status, last_login FROM admin_users WHERE id = :id LIMIT 1"),
+        {"id": officer_id}
+    )
+    user = res.mappings().one_or_none()
+
+    desig = ""
+    try:
+        from models.database import UserAsyncSessionLocal
+        async with UserAsyncSessionLocal() as u_db:
+            u_res = await u_db.execute(
+                text("SELECT designation FROM officers WHERE officer_id = :id LIMIT 1"),
+                {"id": officer_id}
+            )
+            desig = u_res.scalar() or ""
+    except Exception:
+        pass
+
+    if not user:
+        return {
+            "id": officer_id,
+            "officerId": officer_id,
+            "name": current_officer.get("name") or "Authorized Official",
+            "fullName": current_officer.get("name") or "Authorized Official",
+            "name_tamil": current_officer.get("name_tamil") or "",
+            "nameTamil": current_officer.get("name_tamil") or "",
+            "designation": desig or "Revenue Officer",
+            "email": current_officer.get("email") or "",
+            "mobile": current_officer.get("mobile") or "",
+            "phone": current_officer.get("mobile") or "",
+            "department": current_officer.get("department") or "Revenue Administration",
+            "status": current_officer.get("status") or "Active"
+        }
+
+    return {
+        "id": user["id"],
+        "officerId": user["id"],
+        "name": user["name"],
+        "fullName": user["name"],
+        "name_tamil": user.get("name_tamil") or "",
+        "nameTamil": user.get("name_tamil") or "",
+        "designation": desig or ("District Administrator" if user.get("is_admin") else "Revenue Officer"),
+        "email": user["email"],
+        "mobile": user.get("mobile") or "",
+        "phone": user.get("mobile") or "",
+        "department": user.get("department") or "Revenue Administration",
+        "status": user.get("status") or "Active",
+        "lastLogin": str(user["last_login"]) if user.get("last_login") else None
+    }
+
+
+@router.put("/profile/me")
+async def update_my_profile(
+    req: ProfileUpdateRequest,
+    current_officer: Dict[str, Any] = Depends(get_current_officer),
+    db: AsyncSession = Depends(get_admin_db)
+):
+    """
+    Enforces self-service profile ownership: each officer can only edit their own personal profile.
+    """
+    officer_id = current_officer.get("officer_id")
+    if not officer_id:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required.")
+
+    is_adm = current_officer.get("is_admin") or "ADM" in str(current_officer.get("officer_id", ""))
+    if not is_adm:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="User profiles can only be edited by District Administrators."
+        )
+
+    updates_admin = []
+    params: Dict[str, Any] = {"id": officer_id}
+
+    if req.fullName is not None and req.fullName.strip():
+        updates_admin.append("name = :name")
+        params["name"] = req.fullName.strip()
+    if req.name_tamil is not None:
+        updates_admin.append("name_tamil = :name_tamil")
+        params["name_tamil"] = req.name_tamil.strip()
+    if req.phone is not None and req.phone.strip():
+        updates_admin.append("mobile = :mobile")
+        params["mobile"] = req.phone.strip()
+    if req.email is not None and req.email.strip():
+        updates_admin.append("email = :email")
+        params["email"] = req.email.strip().lower()
+    if req.department is not None and req.department.strip():
+        updates_admin.append("department = :department")
+        params["department"] = req.department.strip()
+
+    if updates_admin:
+        sql = f"UPDATE admin_users SET {', '.join(updates_admin)} WHERE id = :id"
+        await db.execute(text(sql), params)
+        await db.commit()
+
+        # Synchronize into officers table in User DB
+        try:
+            from models.database import UserAsyncSessionLocal
+            async with UserAsyncSessionLocal() as u_db:
+                u_updates = []
+                u_params: Dict[str, Any] = {"id": officer_id}
+                if "name" in params:
+                    u_updates.append("name = :name")
+                    u_params["name"] = params["name"]
+                if "name_tamil" in params:
+                    u_updates.append("name_tamil = :name_tamil")
+                    u_params["name_tamil"] = params["name_tamil"]
+                if "mobile" in params:
+                    u_updates.append("mobile = :mobile")
+                    u_params["mobile"] = params["mobile"]
+                if "email" in params:
+                    u_updates.append("email = :email")
+                    u_params["email"] = params["email"]
+                if req.designation:
+                    u_updates.append("designation = :designation")
+                    u_params["designation"] = req.designation.strip()
+                if "department" in params:
+                    u_updates.append("department = :department")
+                    u_params["department"] = params["department"]
+
+                if u_updates:
+                    await u_db.execute(text(f"UPDATE officers SET {', '.join(u_updates)} WHERE officer_id = :id"), u_params)
+                    await u_db.commit()
+        except Exception as e:
+            logger.debug(f"User DB officers profile sync notice: {e}")
+
+    return {"status": "success", "message": "Profile updated successfully."}
 
 
 @router.get("/public-accounts")
@@ -410,13 +620,41 @@ async def update_admin_user(
     if updates:
         sql = f"UPDATE admin_users SET {', '.join(updates)} WHERE id = :id"
         await db.execute(text(sql), params)
-        
+
+        # Synchronize status / profile changes to User DB officers
+        try:
+            from models.database import UserAsyncSessionLocal
+            async with UserAsyncSessionLocal() as u_db:
+                u_sync = []
+                u_sync_params = {"id": user_id}
+                if req.name:
+                    u_sync.append("name = :name")
+                    u_sync_params["name"] = req.name.strip()
+                if req.email:
+                    u_sync.append("email = :email")
+                    u_sync_params["email"] = req.email.strip().lower()
+                if req.status:
+                    u_sync.append("status = :status")
+                    u_sync_params["status"] = req.status.strip()
+                if req.department:
+                    u_sync.append("department = :department")
+                    u_sync_params["department"] = req.department.strip()
+                if u_sync:
+                    await u_db.execute(text(f"UPDATE officers SET {', '.join(u_sync)} WHERE officer_id = :id"), u_sync_params)
+                    await u_db.commit()
+        except Exception as e:
+            logger.debug(f"User DB officers update sync notice: {e}")
+
+        act_type = 'SUSPEND_USER' if req.status == 'Suspended' else ('REACTIVATE_USER' if (user.get('status') == 'Suspended' and req.status != 'Suspended') else 'UPDATE_USER')
+        act_detail = f"Suspended official account {user.get('name')} ({user_id})." if req.status == 'Suspended' else f"Updated user account {user.get('name')} ({user_id}) - status: {req.status or user.get('status')}."
+
         await db.execute(text("""
             INSERT INTO admin_activity_log (id, type, detail, officer_id)
-            VALUES (:id, 'UPDATE_USER', :detail, :officer_id)
+            VALUES (:id, :type, :detail, :officer_id)
         """), {
             "id": f"ACT-{uuid.uuid4().hex[:8]}",
-            "detail": f"Updated user account {user.get('name')} ({user_id}).",
+            "type": act_type,
+            "detail": act_detail,
             "officer_id": current_officer.get("officer_id", "ADMIN")
         })
         await db.commit()

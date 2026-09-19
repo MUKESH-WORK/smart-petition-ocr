@@ -22,6 +22,24 @@ async def get_current_officer(
         token = authorization[7:].strip()
         payload = decode_access_token(token)
         if payload and "officer_id" in payload:
+            oid = payload["officer_id"]
+            from models.database import AdminAsyncSessionLocal
+            try:
+                async with AdminAsyncSessionLocal() as a_db:
+                    res = await a_db.execute(
+                        text("SELECT status FROM admin_users WHERE id = :id LIMIT 1"),
+                        {"id": oid}
+                    )
+                    st = res.scalar()
+                    if st == "Suspended":
+                        raise HTTPException(
+                            status_code=status.HTTP_403_FORBIDDEN,
+                            detail="This account has been suspended by District Administration. Access is blocked."
+                        )
+            except HTTPException:
+                raise
+            except Exception:
+                pass
             return payload
 
     if x_officer_id and x_officer_id.strip():
@@ -30,11 +48,16 @@ async def get_current_officer(
         try:
             async with AdminAsyncSessionLocal() as a_db:
                 res = await a_db.execute(
-                    text("SELECT id, name, name_tamil, email, department, role, is_admin FROM admin_users WHERE id = :id OR LOWER(email) = :id_lower LIMIT 1"),
+                    text("SELECT id, name, name_tamil, email, department, role, is_admin, status FROM admin_users WHERE id = :id OR LOWER(email) = :id_lower LIMIT 1"),
                     {"id": oid, "id_lower": oid.lower()}
                 )
                 u = res.mappings().one_or_none()
                 if u:
+                    if u.get("status") == "Suspended":
+                        raise HTTPException(
+                            status_code=status.HTTP_403_FORBIDDEN,
+                            detail="This account has been suspended by District Administration. Access is blocked."
+                        )
                     return {
                         "officer_id": u["id"],
                         "name": u["name"],
@@ -42,8 +65,11 @@ async def get_current_officer(
                         "email": u.get("email") or "",
                         "department": u.get("department") or "",
                         "role": u.get("role") or ("Admin" if u.get("is_admin") else "Department User"),
-                        "is_admin": bool(u.get("is_admin"))
+                        "is_admin": bool(u.get("is_admin")),
+                        "status": u.get("status") or "Active"
                     }
+        except HTTPException:
+            raise
         except Exception as e:
             logger.debug(f"Admin DB lookup error in get_current_officer: {e}")
 
@@ -63,6 +89,19 @@ async def get_current_officer(
         detail="Authentication required: missing or invalid credentials",
         headers={"WWW-Authenticate": "Bearer"}
     )
+
+
+async def get_optional_officer(
+    authorization: Optional[str] = Header(None),
+    x_officer_id: Optional[str] = Header(None)
+) -> Optional[Dict[str, Any]]:
+    """
+    Non-blocking version of get_current_officer that returns None instead of raising 401.
+    """
+    try:
+        return await get_current_officer(authorization=authorization, x_officer_id=x_officer_id)
+    except Exception:
+        return None
 
 
 async def log_audit_event(

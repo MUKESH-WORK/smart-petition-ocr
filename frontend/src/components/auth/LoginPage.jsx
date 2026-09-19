@@ -129,7 +129,7 @@ export default function LoginPage({ onLogin }) {
         body: JSON.stringify({
           email: trimmedEmail,
           password: password || '',
-          role: role
+          role: matchedAccount?.is_admin ? 'admin' : 'user'
         })
       });
 
@@ -139,11 +139,16 @@ export default function LoginPage({ onLogin }) {
           const errData = await res.json();
           errDetail = errData.detail || errDetail;
         } catch {
-          if (res.status === 404) {
+          if (res.status === 403) {
+            errDetail = 'This account has been suspended by District Administration. Sign-in is blocked.';
+          } else if (res.status === 404) {
             errDetail = 'Official account not found. Please verify your email or select an official account.';
           } else if (res.status === 503) {
             errDetail = 'Authentication service is initializing. Please try again in a moment.';
           }
+        }
+        if (res.status === 403) {
+          errDetail = 'This account has been suspended by District Administration. Sign-in is blocked.';
         }
         throw new Error(errDetail);
       }
@@ -219,8 +224,8 @@ export default function LoginPage({ onLogin }) {
             <fieldset className="login-roles">
               <legend className="visually-hidden">Sign in as</legend>
               {[
-                { value: 'user', label: 'Department Officers' },
-                { value: 'admin', label: 'District Admin' }
+                { value: 'user', label: 'Officers' },
+                { value: 'admin', label: 'Admin' }
               ].map(({ value, label }) => (
                 <label key={value} className="login-role">
                   <input
