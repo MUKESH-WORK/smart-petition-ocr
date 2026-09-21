@@ -9,7 +9,7 @@
   flex-direction: column;
   background-color: var(--bg-canvas);
   color: var(--text-primary);
-  font-family: var(--font-main, 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif);
+  font-family: var(--font-main, 'Bookman Old Style', 'URW Bookman', 'Bookman', serif);
   box-sizing: border-box;
 }
 

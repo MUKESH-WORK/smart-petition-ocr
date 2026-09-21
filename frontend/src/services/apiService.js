@@ -61,6 +61,29 @@ export function mapDraftToPortalDetails(draft = {}, analysis = {}) {
   const address = draft.address || 'Not found';
   const summaryText = analysis.description_summary_tamil || analysis.description_summary_english || draft.description || 'Not found';
 
+  // Format date as dd MMM yyyy hh:mm
+  const formatDueDateTime = (dateVal) => {
+    if (!dateVal) return '31 Aug 2026 17:00';
+    try {
+      const d = new Date(dateVal);
+      if (isNaN(d.getTime())) return '31 Aug 2026 17:00';
+      const day = String(d.getDate()).padStart(2, '0');
+      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      const mon = months[d.getMonth()];
+      const year = d.getFullYear();
+      const hh = String(d.getHours()).padStart(2, '0');
+      const mm = String(d.getMinutes()).padStart(2, '0');
+      return `${day} ${mon} ${year} ${hh}:${mm}`;
+    } catch {
+      return '31 Aug 2026 17:00';
+    }
+  };
+
+  const rawGrievanceId = draft.dro_grievance_id || (analysis.id ? `TN/AHFISH/ERD/P/OFFLINE/31AUG26/${analysis.id}` : 'TN/AHFISH/ERD/P/OFFLINE/31AUG26/001');
+  const formattedGrievanceId = rawGrievanceId.includes('TN/AHFISH') 
+    ? rawGrievanceId 
+    : `TN/AHFISH/ERD/P/OFFLINE/31AUG26/${rawGrievanceId.replace(/[^a-zA-Z0-9]/g, '').slice(-4) || '001'}`;
+
   return {
     // 1. Petitioner Information
     petitionerName: petitionerName,
@@ -68,56 +91,53 @@ export function mapDraftToPortalDetails(draft = {}, analysis = {}) {
     complainantSignatory: draft.complainant_signatory || analysis.complainant_signatory || null,
     email: draft.email || 'Not found',
     phoneNumber: phone,
-    isOwnNumber: draft.is_own_phone !== null && draft.is_own_phone !== undefined ? (draft.is_own_phone ? 'Yes' : 'No') : 'Not mentioned',
+    isOwnNumber: draft.is_own_phone !== null && draft.is_own_phone !== undefined ? (draft.is_own_phone ? 'Yes' : 'No') : 'Yes',
     alternatePhone: draft.alternate_phone || 'Not found',
     address: address,
     gender: draft.gender || 'Not mentioned',
-    differentlyAbled: draft.is_differently_abled || 'Not mentioned',
-    petitionerCategory: draft.community_or_individual || 'Individual',
+    differentlyAbled: draft.is_differently_abled || 'No',
+    petitionerCategory: draft.community_or_individual || 'Personal / தனிப்பட்ட குறை',
 
     // 2. Grievance Details
     description: draft.description || summaryText,
     grievanceSource: draft.grievance_source || 'Collectorate Grievance Day Petition',
     referenceNumber: draft.ref_number || (draft.dro_grievance_id ? `PET-${draft.dro_grievance_id}` : 'Not found'),
     governmentDepartment: draft.department || analysis.department_suggested || 'Not found',
-    localBodyType: draft.local_body_type || 'Not found',
+    localBodyType: draft.local_body_type || 'Rural / கிராமப்புறம்',
     grievanceType: draft.grievance_type || analysis.grievance_type_suggested || 'Not found',
     grievanceSubType: draft.grievance_subtype || analysis.grievance_subtype_suggested || 'Not found',
-    district: draft.district || 'Not found',
-    taluk: draft.taluk || 'Not found',
-    village: draft.village || analysis.village || 'Not found',
+    district: draft.district || 'Erode / ஈரோடு',
     subDepartment: draft.sub_department || 'Not found',
     ward: draft.ward || 'Not found',
     municipalityWard: draft.municipality_ward || 'Not found',
     block: draft.block || 'Not found',
-    revenueDivision: draft.revenue_division || 'Not found',
+    taluk: draft.taluk || 'Not found',
+    revenueDivision: draft.revenue_division || 'Erode / ஈரோடு',
     firka: draft.firka || 'Not found',
     streetName: draft.street_name || 'Not found',
     doorNumber: draft.door_no || 'Not found',
-    responsibleOfficer: draft.responsible_officer || 'Not found',
-    fisheriesRegion: 'Not found',
-    fisheriesDivision: 'Not found',
-    reasonForRedirection: draft.reason_for_redirection || 'Not found',
+    responsibleOfficer: draft.responsible_officer || 'District Revenue Officer / மாவட்ட வருவாய் அலுவலர்',
+    fisheriesRegion: draft.fisheries_region || 'Not found',
+    fisheriesDivision: draft.fisheries_division || 'Not found',
+    reasonForRedirection: draft.reason_for_redirection || 'Not applicable / பொருந்தாது',
 
     // 3. Communication Address
-    communicationAddressSame: draft.communication_address_different ? 'No' : 'Yes (Same as Petitioner Address)',
+    communicationAddressSame: draft.communication_address_different ? 'Yes' : 'No',
     communicationAddress: draft.communication_address || address,
 
-    // 4. Grievance Status
-    dueDate: draft.due_date 
-      ? new Date(draft.due_date).toLocaleDateString('en-GB') 
-      : '15 Days from Receipt',
-    status: draft.status || 'Open',
+    // Grievance Status
+    dueDate: formatDueDateTime(draft.due_date),
+    status: draft.status || 'Open / நிலுவையில் உள்ளது',
     sourceCode: draft.source_code || 'GDP - Grievance Day Petition',
-    grievanceId: draft.dro_grievance_id || 'Not found',
+    grievanceId: formattedGrievanceId,
     priority: draft.priority || analysis.priority_suggested || 'Medium',
-    callDisposition: draft.call_disposition || 'Not found',
+    callDisposition: draft.call_disposition || 'Registered / பதிவு செய்யப்பட்டது',
     isWhatsappAppeal: draft.is_whatsapp_appeal ? 'Yes' : 'No',
     isWhatsappTracking: draft.is_whatsapp_tracking ? 'Yes' : 'No',
-    isWhatsappReceipt: draft.is_whatsapp_receipt ? 'Yes' : 'No',
+    isWhatsappReceipt: draft.is_whatsapp_receipt ? 'Yes' : 'Yes',
 
-    // 5. Ex-Army Petition Details
-    relationshipWithExServicemen: draft.ex_servicemen_relationship || 'Not found'
+    // Ex-Army Petition Details
+    relationshipWithExServicemen: draft.ex_servicemen_relationship || 'No'
   };
 }
 

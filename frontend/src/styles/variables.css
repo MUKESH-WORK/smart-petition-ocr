@@ -7,6 +7,39 @@
      Warm Camel / Tan:                 #DAC0A3 (rgb(218, 192, 163))
    ========================================================================== */
 
+/* Local Bookman Old Style font face definitions */
+@font-face {
+  font-family: 'Bookman Old Style';
+  src: local('Bookman Old Style'), local('Bookman Old Style Regular'), local('Bookman');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Bookman Old Style';
+  src: local('Bookman Old Style Bold'), local('Bookman-Bold');
+  font-weight: bold;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Bookman Old Style';
+  src: local('Bookman Old Style Italic'), local('Bookman-Italic');
+  font-weight: normal;
+  font-style: italic;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Bookman Old Style';
+  src: local('Bookman Old Style Bold Italic'), local('Bookman-BoldItalic');
+  font-weight: bold;
+  font-style: italic;
+  font-display: swap;
+}
+
 :root {
   /* 1. Four Core Palette Tokens */
   --primary-brand:   #102C57; /* rgb(16, 44, 87) - Deep Royal Navy */
@@ -169,9 +202,11 @@
   --shadow-lg: 0 10px 18px -3px rgba(16, 44, 87, 0.12), 0 4px 6px -4px rgba(16, 44, 87, 0.06);
   --shadow-drawer: -6px 0 24px rgba(16, 44, 87, 0.22);
 
-  /* Typography */
-  --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-  --font-mono: 'JetBrains Mono', monospace;
+  /* Typography - Strict Bookman Old Style Standard */
+  --font-sans: 'Bookman Old Style', 'URW Bookman', 'Bookman', 'TeX Gyre Bonum', 'Noto Serif Tamil', serif;
+  --font-serif: 'Bookman Old Style', 'URW Bookman', 'Bookman', 'TeX Gyre Bonum', 'Noto Serif Tamil', serif;
+  --font-main: 'Bookman Old Style', 'URW Bookman', 'Bookman', 'TeX Gyre Bonum', 'Noto Serif Tamil', serif;
+  --font-mono: 'Bookman Old Style', 'JetBrains Mono', monospace;
 
   /* Radius */
   --radius-sm: 4px;

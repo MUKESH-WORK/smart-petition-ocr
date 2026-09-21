@@ -80,141 +80,139 @@ export default function FullDetailsFormResponse({ initialDetails }) {
       </div>
 
       {/* =========================================================================
-          1. PETITIONER INFORMATION
+          I) .Petitioner/மனுதாரர்
           ========================================================================= */}
       <div className="portal-sub-section">
         <div className="portal-sub-section-header">
-          <span className="portal-section-badge">1</span>
-          <h5 className="portal-section-title">PETITIONER INFORMATION</h5>
+          <span className="portal-section-badge">I</span>
+          <h5 className="portal-section-title">I) .Petitioner/மனுதாரர்</h5>
         </div>
 
         <div className="full-details-form-grid">
-          <FieldDisplayBox label="Petitioner Name" value={data.petitionerName} />
-          <FieldDisplayBox label="Father / Husband Name" value={data.fatherHusbandName} />
-          {data.complainantSignatory && data.complainantSignatory !== 'Not found' && (
-            <FieldDisplayBox label="Complainant / Signatory" value={data.complainantSignatory} />
-          )}
-          <FieldDisplayBox label="Email" value={data.email} />
-          
-          <FieldDisplayBox label="Phone Number" value={data.phoneNumber} />
-          <FieldDisplayBox label="Is this your own number" value={data.isOwnNumber} />
-          
-          <FieldDisplayBox label="Alternate Phone Number" value={data.alternatePhone} />
-          <FieldDisplayBox label="Gender" value={data.gender} />
+          {/* Row 1: Left: 1.Name/பெயர்*, Right: 2.Email/மின்னஞ்சல் */}
+          <FieldDisplayBox label="1.Name/பெயர்*" value={data.petitionerName} />
+          <FieldDisplayBox label="2.Email/மின்னஞ்சல்" value={data.email} />
 
-          <FieldDisplayBox label="Address" value={data.address} isFullWidth isMultiline />
+          {/* Row 2: Left: 3.Phone/தொலைபேசி*, Right: 4 .Is this your own number/இது தங்களது கைப்பேசி எண்ணா(yes or no) */}
+          <FieldDisplayBox label="3.Phone/தொலைபேசி*" value={data.phoneNumber} />
+          <FieldDisplayBox label="4 .Is this your own number/இது தங்களது கைப்பேசி எண்ணா(yes or no)" value={data.isOwnNumber} />
 
-          <FieldDisplayBox label="Differently Abled Person" value={data.differentlyAbled} />
-          <FieldDisplayBox label="Petitioner Category" value={data.petitionerCategory} />
+          {/* Row 3: Left: 5.Alternate Phone Number/மாற்று தொலைபேசி எண், Right: 6.Address* */}
+          <FieldDisplayBox label="5.Alternate Phone Number/மாற்று தொலைபேசி எண்" value={data.alternatePhone} />
+          <FieldDisplayBox label="6.Address*" value={data.address} isMultiline />
+
+          {/* Row 4: Left: 7.Please enter your gender*, Right: 8.Are You a Differently Abled Person*(yes/no/-None-) */}
+          <FieldDisplayBox label="7.Please enter your gender*" value={data.gender} />
+          <FieldDisplayBox label="8.Are You a Differently Abled Person*(yes/no/-None-)" value={data.differentlyAbled} />
+
+          {/* Row 5: Left: 9.சமூகம்/தனிப்பட்ட குறை*(Public/personal) */}
+          <FieldDisplayBox label="9.சமூகம்/தனிப்பட்ட குறை*(Public/personal)" value={data.petitionerCategory} />
         </div>
       </div>
 
       {/* =========================================================================
-          2. GRIEVANCE DETAILS
+          II) Grievance Details
           ========================================================================= */}
       <div className="portal-sub-section">
         <div className="portal-sub-section-header">
-          <span className="portal-section-badge">2</span>
-          <h5 className="portal-section-title">GRIEVANCE DETAILS</h5>
+          <span className="portal-section-badge">II</span>
+          <h5 className="portal-section-title">II) Grievance Details</h5>
         </div>
 
         <div className="full-details-form-grid">
-          <FieldDisplayBox label="Description" value={data.description} isFullWidth isMultiline />
-          
-          <FieldDisplayBox label="Grievance Source" value={data.grievanceSource} />
-          <FieldDisplayBox label="Reference Number" value={data.referenceNumber} />
+          {/* Row 1: Left: 10 .Description *, Right: 12.Grievance Source/குறைக்கான ஆதாரம்* */}
+          <FieldDisplayBox label="10 .Description *" value={data.description} isMultiline />
+          <FieldDisplayBox label="12.Grievance Source/குறைக்கான ஆதாரம்*" value={data.grievanceSource} />
 
-          <FieldDisplayBox label="Government Department" value={data.governmentDepartment} />
-          <FieldDisplayBox label="Local Body Type" value={data.localBodyType} />
+          {/* Row 2: Left: 13.Ref Number, Right: 14. Government Department / குறை தொடர்புடைய அரசு துறை* */}
+          <FieldDisplayBox label="13.Ref Number" value={data.referenceNumber} />
+          <FieldDisplayBox label="14. Government Department / குறை தொடர்புடைய அரசு துறை*" value={data.governmentDepartment} />
 
-          <FieldDisplayBox label="Grievance Type" value={data.grievanceType} />
-          <FieldDisplayBox label="Grievance Sub Type" value={data.grievanceSubType} />
+          {/* Row 3: Left: 15 .Local Body Type*, Right: 16 .Grievance Type/குறையின் வகை* */}
+          <FieldDisplayBox label="15 .Local Body Type*" value={data.localBodyType} />
+          <FieldDisplayBox label="16 .Grievance Type/குறையின் வகை*" value={data.grievanceType} />
 
-          <FieldDisplayBox label="District" value={data.district} />
-          <FieldDisplayBox label="Sub Department" value={data.subDepartment} />
+          {/* Row 4: Left: 17 .Grievance SubType / குறையின்துணை வகை*, Right: 18.District/ மாவட்டம்* */}
+          <FieldDisplayBox label="17 .Grievance SubType / குறையின்துணை வகை*" value={data.grievanceSubType} />
+          <FieldDisplayBox label="18.District/ மாவட்டம்*" value={data.district} />
 
-          <FieldDisplayBox label="Ward" value={data.ward} />
-          <FieldDisplayBox label="Municipality Ward" value={data.municipalityWard} />
+          {/* Row 5: Left: 19.Sub Department/குறை தொடர்புடைய துணைத்துறை*, Right: 20.Ward/வார்டு */}
+          <FieldDisplayBox label="19.Sub Department/குறை தொடர்புடைய துணைத்துறை*" value={data.subDepartment} />
+          <FieldDisplayBox label="20.Ward/வார்டு" value={data.ward} />
 
-          <FieldDisplayBox label="Taluk" value={data.taluk} />
-          <FieldDisplayBox label="Revenue Village / Village" value={data.village} />
+          {/* Row 6: Left: 21 .Municipality Ward/நகராட்சி வார்டு, Right: 22.Block/வட்டாரம்* */}
+          <FieldDisplayBox label="21 .Municipality Ward/நகராட்சி வார்டு" value={data.municipalityWard} />
+          <FieldDisplayBox label="22.Block/வட்டாரம்*" value={data.block} />
 
-          <FieldDisplayBox label="Revenue Division" value={data.revenueDivision} />
-          <FieldDisplayBox label="Firka" value={data.firka} />
+          {/* Row 7: Left: 23.Taluk/வட்டம், Right: 24 .Revenue Division/உட்கோட்டம்* */}
+          <FieldDisplayBox label="23.Taluk/வட்டம்" value={data.taluk} />
+          <FieldDisplayBox label="24 .Revenue Division/உட்கோட்டம்*" value={data.revenueDivision} />
 
-          <FieldDisplayBox label="Street Name" value={data.streetName} />
-          <FieldDisplayBox label="Door Number" value={data.doorNumber} />
+          {/* Row 8: Left: 25 .Firka/ குறுவட்டம், Right: 26 .Street Name/தெருவின் பெயர் */}
+          <FieldDisplayBox label="25 .Firka/ குறுவட்டம்" value={data.firka} />
+          <FieldDisplayBox label="26 .Street Name/தெருவின் பெயர்" value={data.streetName} />
 
-          <FieldDisplayBox label="Responsible Officer" value={data.responsibleOfficer} isFullWidth />
+          {/* Row 9: Left: 27.Door No/கதவு எண், Right: 28.Responsible Officer/பொறுப்பு அதிகாரி* */}
+          <FieldDisplayBox label="27.Door No/கதவு எண்" value={data.doorNumber} />
+          <FieldDisplayBox label="28.Responsible Officer/பொறுப்பு அதிகாரி*" value={data.responsibleOfficer} />
 
-          <FieldDisplayBox label="Fisheries Region" value={data.fisheriesRegion} />
-          <FieldDisplayBox label="Fisheries Division" value={data.fisheriesDivision} />
+          {/* Row 10: Left: 29.Fisheries Region, Right: 30 .Fisheries Division * */}
+          <FieldDisplayBox label="29.Fisheries Region" value={data.fisheriesRegion} />
+          <FieldDisplayBox label="30 .Fisheries Division *" value={data.fisheriesDivision} />
 
-          <FieldDisplayBox label="Reason for Redirection" value={data.reasonForRedirection} isFullWidth isMultiline />
+          {/* Row 11: Left: 31.Reason for Redirection */}
+          <FieldDisplayBox label="31.Reason for Redirection" value={data.reasonForRedirection} isMultiline />
         </div>
       </div>
 
       {/* =========================================================================
-          3. COMMUNICATION ADDRESS
+          III) Communication Address
           ========================================================================= */}
       <div className="portal-sub-section">
         <div className="portal-sub-section-header">
-          <span className="portal-section-badge">3</span>
-          <h5 className="portal-section-title">COMMUNICATION ADDRESS</h5>
+          <span className="portal-section-badge">III</span>
+          <h5 className="portal-section-title">III) Communication Address</h5>
         </div>
 
         <div className="full-details-form-grid">
+          {/* 32.Select if different from above/மேலே உள்ள முகவரியில் தங்கவில்லை என்றால்(yes/no) */}
           <FieldDisplayBox 
-            label="Communication Address Same as Petitioner Address" 
-            value={data.communicationAddressSame} 
+            label="32.Select if different from above/மேலே உள்ள முகவரியில் தங்கவில்லை என்றால்(yes/no)" 
+            value={data.communicationAddressSame}
             isFullWidth
           />
-          <FieldDisplayBox 
-            label="Communication Address" 
-            value={data.communicationAddress} 
-            isFullWidth 
-            isMultiline
-          />
         </div>
       </div>
 
       {/* =========================================================================
-          4. PORTAL PROCESSING & STATUS (SYSTEM GENERATED)
+          Grievance Status/குறையின் நிலை
           ========================================================================= */}
       <div className="portal-sub-section">
         <div className="portal-sub-section-header">
-          <span className="portal-section-badge">4</span>
-          <h5 className="portal-section-title">PORTAL PROCESSING / STATUS (SYSTEM GENERATED)</h5>
+          <span className="portal-section-badge">IV</span>
+          <h5 className="portal-section-title">Grievance Status/குறையின் நிலை</h5>
         </div>
 
         <div className="full-details-form-grid">
-          <FieldDisplayBox label="Due Date" value={data.dueDate} />
-          <FieldDisplayBox label="Status" value={data.status} />
+          {/* Row 1: Left: 33. Due Date, Right: 35. Status */}
+          <FieldDisplayBox label="33.Due Date/தீர்வு நாள் dd MMM yyyy hh:mm" value={data.dueDate} />
+          <FieldDisplayBox label="35. Status */நிலை*" value={data.status} />
 
-          <FieldDisplayBox label="Source Code" value={data.sourceCode} />
-          <FieldDisplayBox label="Grievance ID" value={data.grievanceId} />
+          {/* Row 2: Left: 36 .Source Code, Right: 37.Grievance ID-TN/AHFISH/ERD/P/{Mode}/31AUG26/g */}
+          <FieldDisplayBox label="36 .Source Code" value={data.sourceCode} />
+          <FieldDisplayBox label="37.Grievance ID-TN/AHFISH/ERD/P/{Mode}/31AUG26/g" value={data.grievanceId} />
 
-          <FieldDisplayBox label="Priority" value={data.priority} />
-          <FieldDisplayBox label="Call Disposition" value={data.callDisposition} />
+          {/* Row 3: Left: 38.Priority, Right: 39. Call Disposition */}
+          <FieldDisplayBox label="38.Priority" value={data.priority} />
+          <FieldDisplayBox label="39. Call Disposition" value={data.callDisposition} />
 
-          <FieldDisplayBox label="Is WhatsApp Appeal" value={data.isWhatsappAppeal} />
-          <FieldDisplayBox label="Is WhatsApp Tracking" value={data.isWhatsappTracking} />
+          {/* Row 4: Left: 40.Is Whatsapp Appeal (yes/no), Right: 41.Is Whatsapp Tracking (yes/no) */}
+          <FieldDisplayBox label="40.Is Whatsapp Appeal (yes/no)" value={data.isWhatsappAppeal} />
+          <FieldDisplayBox label="41.Is Whatsapp Tracking (yes/no)" value={data.isWhatsappTracking} />
 
-          <FieldDisplayBox label="Is WhatsApp Receipt" value={data.isWhatsappReceipt} />
-        </div>
-      </div>
-
-      {/* =========================================================================
-          5. EX-ARMY PETITION DETAILS
-          ========================================================================= */}
-      <div className="portal-sub-section">
-        <div className="portal-sub-section-header">
-          <span className="portal-section-badge">5</span>
-          <h5 className="portal-section-title">EX-ARMY PETITION DETAILS</h5>
-        </div>
-
-        <div className="full-details-form-grid">
-          <FieldDisplayBox label="Relationship with Ex-Servicemen" value={data.relationshipWithExServicemen} />
+          {/* Row 5: Left: 42.Is Whatsapp Receipt (yes/no), Right: 43 .Ex-Army Petition Details Relationship with Ex-servicemen(yes/no) */}
+          <FieldDisplayBox label="42.Is Whatsapp Receipt (yes/no)" value={data.isWhatsappReceipt} />
+          <FieldDisplayBox label="43 .Ex-Army Petition Details Relationship with Ex-servicemen(yes/no)" value={data.relationshipWithExServicemen} />
         </div>
       </div>
 

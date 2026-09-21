@@ -29,7 +29,7 @@ st.markdown("""
     .stApp {
         background-color: #f8fafc;
         color: #1e293b;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        font-family: "Bookman Old Style", "URW Bookman", "Bookman", serif;
     }
     
     /* Top Orange Header */
