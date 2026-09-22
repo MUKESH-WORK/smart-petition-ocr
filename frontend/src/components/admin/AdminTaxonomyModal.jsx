@@ -16,7 +16,9 @@ import {
   Check,
   AlertCircle,
   Filter,
-  Sparkles
+  Sparkles,
+  Layers,
+  Radio
 } from 'lucide-react';
 import {
   fetchTaxonomyStats,
@@ -24,11 +26,26 @@ import {
   fetchTaxonomyList,
   createTaxonomyItem,
   updateTaxonomyItem,
-  deleteTaxonomyItem
+  deleteTaxonomyItem,
+  fetchIntakeChannels,
+  createIntakeChannel,
+  updateIntakeChannel,
+  deleteIntakeChannel
 } from '../../services/apiService';
 import './AdminTaxonomyModal.css';
 
+const VECTOR_CATEGORIES = [
+  { key: 'digital_direct', label: '1. Digital Direct Channels', icon: Radio, desc: 'Toll-free 1100 Call Center, Citizen Web Portal, and direct inbound e-mail' },
+  { key: 'executive_leadership', label: '2. Executive Leadership Grievance Desks', icon: ShieldCheck, desc: 'CM Special Cell, CM Camp Office, Chief Secretary Office, CM Secretaries, Ministers Office' },
+  { key: 'legislative', label: '3. Legislative Representation', icon: Users, desc: 'State MLA Constituency Grievances and MP Reference Petitions' },
+  { key: 'district_grievance_days', label: '4. District Grievance Days', icon: Building2, desc: 'Weekly Monday Collectorate Grievance Day, Differently Abled, Agriculture, Jamabandhi, Mass Contact' },
+  { key: 'field_outreach_camps', label: '5. Field Outreach Camps & Walk-in Counters', icon: Sparkles, desc: 'Makkaludan Mudhalvar Rural/Urban/Special Camps, e-Sevai Centers, and Taluk Office Counters', extraKeys: ['counters_walkin'] }
+];
+
 export default function AdminTaxonomyModal({ onClose }) {
+  // Navigation Sub-Tab State: 'mappings' | 'channels'
+  const [activeTab, setActiveTab] = useState('mappings');
+
   // Live server state - zero hardcoded data
   const [stats, setStats] = useState({
     total_mappings: 0,
@@ -44,6 +61,21 @@ export default function AdminTaxonomyModal({ onClose }) {
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
 
+  // Intake Channels State
+  const [channels, setChannels] = useState([]);
+  const [channelsLoading, setChannelsLoading] = useState(false);
+  const [channelFilter, setChannelFilter] = useState('all');
+
+  // Channel Edit / Create / Delete State
+  const [editingChannel, setEditingChannel] = useState(null);
+  const [isCreatingChannel, setIsCreatingChannel] = useState(false);
+  const [deletingChannel, setDeletingChannel] = useState(null);
+  const [channelFormName, setChannelFormName] = useState('');
+  const [channelFormCode, setChannelFormCode] = useState('');
+  const [channelFormCategory, setChannelFormCategory] = useState('digital_direct');
+  const [channelFormDesc, setChannelFormDesc] = useState('');
+  const [channelFormActive, setChannelFormActive] = useState(true);
+
   // Filters
   const [selectedDept, setSelectedDept] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
@@ -58,7 +90,7 @@ export default function AdminTaxonomyModal({ onClose }) {
   const [deletingItem, setDeletingItem] = useState(null);
   const [saving, setSaving] = useState(false);
 
-  // Form State for Add / Edit
+  // Form State for Add / Edit Mapping
   const [formDept, setFormDept] = useState('');
   const [formCode, setFormCode] = useState('');
   const [formSubDept, setFormSubDept] = useState('');
@@ -75,17 +107,26 @@ export default function AdminTaxonomyModal({ onClose }) {
     return () => clearTimeout(handler);
   }, [searchQuery]);
 
-  // Load stats and departments once on mount
+  // Derived: filtered channels by active/inactive/all
+  const filteredChannels = useMemo(() => {
+    if (channelFilter === 'all') return channels;
+    if (channelFilter === 'active') return channels.filter(c => c.is_active);
+    return channels.filter(c => !c.is_active);
+  }, [channels, channelFilter]);
+
+  // Load stats, departments, and intake channels once on mount
   const loadInitialData = useCallback(async () => {
     try {
       setLoading(true);
-      const [statsData, deptData] = await Promise.all([
+      const [statsData, deptData, channelsData] = await Promise.all([
         fetchTaxonomyStats(),
-        fetchTaxonomyDepartments()
+        fetchTaxonomyDepartments(),
+        fetchIntakeChannels().catch(() => ({ channels: [] }))
       ]);
       setStats(statsData);
       const list = Array.isArray(deptData) ? deptData : (deptData?.departments || []);
       setDepartments(list);
+      setChannels(channelsData?.channels || []);
     } catch (err) {
       console.error('Failed to load initial taxonomy stats:', err);
       setFeedback({ type: 'error', message: err.message || 'Failed to load taxonomy metadata.' });
@@ -97,6 +138,92 @@ export default function AdminTaxonomyModal({ onClose }) {
   useEffect(() => {
     loadInitialData();
   }, [loadInitialData]);
+
+  // Toggle channel active status in DB
+  const handleToggleChannel = async (channel) => {
+    try {
+      const nextActive = !channel.is_active;
+      await updateIntakeChannel(channel.id, { is_active: nextActive });
+      setChannels((prev) => prev.map((c) => c.id === channel.id ? { ...c, is_active: nextActive } : c));
+      setFeedback({ type: 'success', message: `Updated channel "${channel.channel_name}" to ${nextActive ? 'Active' : 'Inactive'}.` });
+    } catch (err) {
+      setFeedback({ type: 'error', message: err.message || 'Failed to update channel status.' });
+    }
+  };
+
+  // Open Create Channel Dialog
+  const handleOpenCreateChannel = () => {
+    setChannelFormName('');
+    setChannelFormCode('');
+    setChannelFormCategory('digital_direct');
+    setChannelFormDesc('');
+    setChannelFormActive(true);
+    setIsCreatingChannel(true);
+    setEditingChannel(null);
+  };
+
+  // Open Edit Channel Dialog
+  const handleOpenEditChannel = (ch) => {
+    setEditingChannel(ch);
+    setIsCreatingChannel(false);
+    setChannelFormName(ch.channel_name || '');
+    setChannelFormCode(ch.channel_code || '');
+    setChannelFormCategory(ch.category || 'digital_direct');
+    setChannelFormDesc(ch.description || '');
+    setChannelFormActive(Boolean(ch.is_active));
+  };
+
+  // Save Channel (Create or Update)
+  const handleSaveChannel = async (e) => {
+    e.preventDefault();
+    if (!channelFormName.trim() || !channelFormCode.trim()) {
+      setFeedback({ type: 'error', message: 'Channel name and channel code are required.' });
+      return;
+    }
+
+    try {
+      setSaving(true);
+      const payload = {
+        channel_name: channelFormName.trim(),
+        channel_code: channelFormCode.trim().toUpperCase(),
+        category: channelFormCategory,
+        description: channelFormDesc.trim(),
+        is_active: channelFormActive
+      };
+
+      if (isCreatingChannel) {
+        await createIntakeChannel(payload);
+        setFeedback({ type: 'success', message: `Created new intake channel "${payload.channel_name}".` });
+      } else if (editingChannel) {
+        await updateIntakeChannel(editingChannel.id, payload);
+        setFeedback({ type: 'success', message: `Updated intake channel "${payload.channel_name}".` });
+      }
+
+      setIsCreatingChannel(false);
+      setEditingChannel(null);
+      await loadInitialData();
+    } catch (err) {
+      setFeedback({ type: 'error', message: err.message || 'Failed to save intake channel.' });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Delete Channel Action
+  const handleDeleteChannelConfirm = async () => {
+    if (!deletingChannel) return;
+    try {
+      setSaving(true);
+      await deleteIntakeChannel(deletingChannel.id);
+      setFeedback({ type: 'success', message: `Deleted intake channel "${deletingChannel.channel_name}".` });
+      setDeletingChannel(null);
+      await loadInitialData();
+    } catch (err) {
+      setFeedback({ type: 'error', message: err.message || 'Failed to delete intake channel.' });
+    } finally {
+      setSaving(false);
+    }
+  };
 
   // Load paginated list when filters or page change
   const loadTaxonomyPage = useCallback(async () => {
@@ -221,11 +348,11 @@ export default function AdminTaxonomyModal({ onClose }) {
         <header className="taxonomy-header">
           <div className="taxonomy-header-title-area">
             <div className="taxonomy-badge-pill">
-              <span>CM Helpline Master Grievance Dataset</span>
+              <span>CM Helpline Master Redressal System</span>
             </div>
-            <h2>Authoritative Government Taxonomy</h2>
+            <h2>CM Grievance Mappings & Intake Channels</h2>
             <p className="taxonomy-subtitle">
-              Comprehensive Tamil Nadu grievance routing table across 40 department groups, 1,861 sub-types, and responsible field officers.
+              Comprehensive Tamil Nadu deterministic routing table across {stats.total_departments || 40} department groups, {stats.total_mappings ? stats.total_mappings.toLocaleString() : '1,861'} sub-types, and {channels.length || 21} intake channels.
             </p>
           </div>
           <div className="taxonomy-header-actions">
@@ -238,13 +365,23 @@ export default function AdminTaxonomyModal({ onClose }) {
               <RefreshCw size={15} className={loading || tableLoading ? 'spin' : ''} />
               <span>Refresh</span>
             </button>
-            <button
-              className="taxonomy-action-btn primary"
-              onClick={handleOpenCreate}
-            >
-              <Plus size={16} />
-              <span>Add Mapping</span>
-            </button>
+            {activeTab === 'mappings' ? (
+              <button
+                className="taxonomy-action-btn primary"
+                onClick={handleOpenCreate}
+              >
+                <Plus size={16} />
+                <span>Add Mapping</span>
+              </button>
+            ) : (
+              <button
+                className="taxonomy-action-btn primary"
+                onClick={handleOpenCreateChannel}
+              >
+                <Plus size={16} />
+                <span>Add Channel</span>
+              </button>
+            )}
             <button
               className="taxonomy-close-btn"
               onClick={onClose}
@@ -295,6 +432,28 @@ export default function AdminTaxonomyModal({ onClose }) {
           </div>
         </section>
 
+        {/* Navigation Sub-Tabs */}
+        <nav className="taxonomy-tabs-nav" aria-label="Section tabs">
+          <button
+            type="button"
+            className={`taxonomy-tab-btn ${activeTab === 'mappings' ? 'active' : ''}`}
+            onClick={() => setActiveTab('mappings')}
+          >
+            <GitFork size={15} />
+            <span>CM Grievance Mappings</span>
+            <span className="tab-counter-pill">{stats.total_mappings ? stats.total_mappings.toLocaleString() : 1861}</span>
+          </button>
+          <button
+            type="button"
+            className={`taxonomy-tab-btn ${activeTab === 'channels' ? 'active' : ''}`}
+            onClick={() => setActiveTab('channels')}
+          >
+            <Layers size={15} />
+            <span>Intake Channels ({channels.length} Sources)</span>
+            <span className="tab-counter-pill">{channels.length}</span>
+          </button>
+        </nav>
+
         {/* Feedback Alert Banner */}
         {feedback && (
           <div className={`taxonomy-alert-banner ${feedback.type}`}>
@@ -308,199 +467,320 @@ export default function AdminTaxonomyModal({ onClose }) {
           </div>
         )}
 
-        {/* Search & Department Filter Toolbar */}
-        <section className="taxonomy-toolbar">
-          <div className="toolbar-search">
-            <Search size={18} className="search-icon" />
-            <input
-              type="text"
-              placeholder="Search by Grievance Type, Sub-Type, Officer, or Sub-Department..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="taxonomy-search-input"
-            />
-            {searchQuery && (
-              <button className="search-clear-btn" onClick={() => setSearchQuery('')}>
-                <X size={14} />
-              </button>
-            )}
-          </div>
+        {/* TAB 1: CM Grievance Mappings */}
+        {activeTab === 'mappings' && (
+          <>
+            {/* Search & Department Filter Toolbar */}
+            <section className="taxonomy-toolbar">
+              <div className="toolbar-search">
+                <Search size={18} className="search-icon" />
+                <input
+                  type="text"
+                  placeholder="Search by Grievance Type, Sub-Type, Officer, or Sub-Department..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="taxonomy-search-input"
+                />
+                {searchQuery && (
+                  <button className="search-clear-btn" onClick={() => setSearchQuery('')}>
+                    <X size={14} />
+                  </button>
+                )}
+              </div>
 
-          <div className="toolbar-filters">
-            <div className="dept-select-wrapper">
-              <Filter size={15} className="select-icon" />
-              <select
-                className="taxonomy-dept-select"
-                value={selectedDept}
-                onChange={(e) => {
-                  setSelectedDept(e.target.value);
-                  setCurrentPage(1);
-                }}
-              >
-                <option value="">All Departments ({stats.total_mappings || 0})</option>
-                {departments.map((d) => (
-                  <option key={d.department} value={d.department}>
-                    {d.department} ({d.count})
-                  </option>
-                ))}
-              </select>
-            </div>
+              <div className="toolbar-filters">
+                <div className="dept-select-wrapper">
+                  <Filter size={15} className="select-icon" />
+                  <select
+                    className="taxonomy-dept-select"
+                    value={selectedDept}
+                    onChange={(e) => {
+                      setSelectedDept(e.target.value);
+                      setCurrentPage(1);
+                    }}
+                  >
+                    <option value="">All Departments ({stats.total_mappings || 0})</option>
+                    {departments.map((d) => (
+                      <option key={d.department} value={d.department}>
+                        {d.department} ({d.count})
+                      </option>
+                    ))}
+                  </select>
+                </div>
 
-            <div className="page-size-wrapper">
-              <label>Rows:</label>
-              <select
-                className="taxonomy-size-select"
-                value={pageSize}
-                onChange={(e) => {
-                  setPageSize(Number(e.target.value));
-                  setCurrentPage(1);
-                }}
-              >
-                <option value={10}>10</option>
-                <option value={25}>25</option>
-                <option value={50}>50</option>
-                <option value={100}>100</option>
-              </select>
-            </div>
-          </div>
-        </section>
+                <div className="page-size-wrapper">
+                  <label>Rows:</label>
+                  <select
+                    className="taxonomy-size-select"
+                    value={pageSize}
+                    onChange={(e) => {
+                      setPageSize(Number(e.target.value));
+                      setCurrentPage(1);
+                    }}
+                  >
+                    <option value={10}>10</option>
+                    <option value={25}>25</option>
+                    <option value={50}>50</option>
+                    <option value={100}>100</option>
+                  </select>
+                </div>
+              </div>
+            </section>
 
-        {/* Main Table Container */}
-        <main className="taxonomy-table-container">
-          {tableLoading && (
-            <div className="table-loading-overlay">
-              <RefreshCw size={24} className="spin" />
-              <span>Querying live database mappings...</span>
-            </div>
-          )}
+            {/* Main Table Container */}
+            <main className="taxonomy-table-container">
+              {tableLoading && (
+                <div className="table-loading-overlay">
+                  <RefreshCw size={24} className="spin" />
+                  <span>Querying live database mappings...</span>
+                </div>
+              )}
 
-          <table className="taxonomy-data-table">
-            <thead>
-              <tr>
-                <th style={{ width: '60px' }}>ID</th>
-                <th style={{ width: '220px' }}>Department</th>
-                <th style={{ width: '200px' }}>Grievance Type</th>
-                <th style={{ width: '250px' }}>Grievance Sub-Type</th>
-                <th style={{ width: '180px' }}>Sub-Department</th>
-                <th>Responsible Officer</th>
-                <th style={{ width: '90px', textAlign: 'center' }}>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.length === 0 && !tableLoading ? (
-                <tr>
-                  <td colSpan={7} className="taxonomy-empty-state">
-                    <AlertCircle size={32} />
-                    <p>No taxonomy mappings match the current query or department filter.</p>
-                    <button
-                      className="taxonomy-action-btn secondary"
-                      onClick={() => { setSelectedDept(''); setSearchQuery(''); }}
-                    >
-                      Clear Filters
-                    </button>
-                  </td>
-                </tr>
-              ) : (
-                items.map((item) => {
-                  const code = extractCode(item.department, item.department_code);
-                  return (
-                    <tr key={item.id} className="taxonomy-row">
-                      <td className="cell-id">#{item.id}</td>
-                      <td className="cell-dept">
-                        <div className="dept-cell-content">
-                          {code && <span className="dept-code-tag">{code}</span>}
-                          <span className="dept-full-name" title={item.department}>
-                            {item.department.replace(/\s*\([A-Z0-9]+\)\s*$/, '')}
-                          </span>
-                        </div>
-                      </td>
-                      <td className="cell-gtype">
-                        <span className="gtype-text" title={item.grievance_type}>
-                          {item.grievance_type}
-                        </span>
-                      </td>
-                      <td className="cell-gsub">
-                        <span className="gsub-highlight" title={item.grievance_sub_type}>
-                          {item.grievance_sub_type}
-                        </span>
-                      </td>
-                      <td className="cell-sdept">
-                        {item.sub_department ? (
-                          <span className="subdept-badge" title={item.sub_department}>
-                            {item.sub_department}
-                          </span>
-                        ) : (
-                          <span className="na-text">—</span>
-                        )}
-                      </td>
-                      <td className="cell-officer">
-                        {item.responsible_officer ? (
-                          <div className="officer-badge" title={item.responsible_officer}>
-                            <ShieldCheck size={13} className="officer-badge-icon" />
-                            <span>{item.responsible_officer}</span>
-                          </div>
-                        ) : (
-                          <span className="na-text">Unassigned</span>
-                        )}
-                      </td>
-                      <td className="cell-actions">
-                        <div className="row-action-group">
-                          <button
-                            className="action-icon-btn edit"
-                            onClick={() => handleOpenEdit(item)}
-                            title="Edit Mapping"
-                          >
-                            <Pencil size={14} />
-                          </button>
-                          <button
-                            className="action-icon-btn delete"
-                            onClick={() => setDeletingItem(item)}
-                            title="Delete Mapping"
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                        </div>
+              <table className="taxonomy-data-table">
+                <thead>
+                  <tr>
+                    <th style={{ width: '60px' }}>ID</th>
+                    <th style={{ width: '220px' }}>Department</th>
+                    <th style={{ width: '200px' }}>Grievance Type</th>
+                    <th style={{ width: '250px' }}>Grievance Sub-Type</th>
+                    <th style={{ width: '180px' }}>Sub-Department</th>
+                    <th>Responsible Officer</th>
+                    <th style={{ width: '90px', textAlign: 'center' }}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {items.length === 0 && !tableLoading ? (
+                    <tr>
+                      <td colSpan={7} className="taxonomy-empty-state">
+                        <AlertCircle size={32} />
+                        <p>No taxonomy mappings match the current query or department filter.</p>
+                        <button
+                          className="taxonomy-action-btn secondary"
+                          onClick={() => { setSelectedDept(''); setSearchQuery(''); }}
+                        >
+                          Clear Filters
+                        </button>
                       </td>
                     </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </main>
+                  ) : (
+                    items.map((item) => {
+                      const code = extractCode(item.department, item.department_code);
+                      return (
+                        <tr key={item.id} className="taxonomy-row">
+                          <td className="cell-id">#{item.id}</td>
+                          <td className="cell-dept">
+                            <div className="dept-cell-content">
+                              {code && <span className="dept-code-tag">{code}</span>}
+                              <span className="dept-full-name" title={item.department}>
+                                {item.department.replace(/\s*\([A-Z0-9]+\)\s*$/, '')}
+                              </span>
+                            </div>
+                          </td>
+                          <td className="cell-gtype">
+                            <span className="gtype-text" title={item.grievance_type}>
+                              {item.grievance_type}
+                            </span>
+                          </td>
+                          <td className="cell-gsub">
+                            <span className="gsub-highlight" title={item.grievance_sub_type}>
+                              {item.grievance_sub_type}
+                            </span>
+                          </td>
+                          <td className="cell-sdept">
+                            {item.sub_department ? (
+                              <span className="subdept-badge" title={item.sub_department}>
+                                {item.sub_department}
+                              </span>
+                            ) : (
+                              <span className="na-text">—</span>
+                            )}
+                          </td>
+                          <td className="cell-officer">
+                            {item.responsible_officer ? (
+                              <div className="officer-badge" title={item.responsible_officer}>
+                                <ShieldCheck size={13} className="officer-badge-icon" />
+                                <span>{item.responsible_officer}</span>
+                              </div>
+                            ) : (
+                              <span className="na-text">Unassigned</span>
+                            )}
+                          </td>
+                          <td className="cell-actions">
+                            <div className="row-action-group">
+                              <button
+                                className="action-icon-btn edit"
+                                onClick={() => handleOpenEdit(item)}
+                                title="Edit Mapping"
+                              >
+                                <Pencil size={14} />
+                              </button>
+                              <button
+                                className="action-icon-btn delete"
+                                onClick={() => setDeletingItem(item)}
+                                title="Delete Mapping"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </main>
 
-        {/* Footer Pagination Bar */}
-        <footer className="taxonomy-footer">
-          <div className="pagination-info">
-            Showing <strong>{totalItems === 0 ? 0 : (currentPage - 1) * pageSize + 1}</strong> to{' '}
-            <strong>{Math.min(currentPage * pageSize, totalItems)}</strong> of{' '}
-            <strong>{totalItems.toLocaleString()}</strong> official mappings
-          </div>
+            {/* Footer Pagination Bar */}
+            <footer className="taxonomy-footer">
+              <div className="pagination-info">
+                Showing <strong>{totalItems === 0 ? 0 : (currentPage - 1) * pageSize + 1}</strong> to{' '}
+                <strong>{Math.min(currentPage * pageSize, totalItems)}</strong> of{' '}
+                <strong>{totalItems.toLocaleString()}</strong> official mappings
+              </div>
 
-          <div className="pagination-controls">
-            <button
-              className="page-nav-btn"
-              disabled={currentPage <= 1 || tableLoading}
-              onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-            >
-              <ChevronLeft size={16} />
-              <span>Previous</span>
-            </button>
-            <span className="page-current-indicator">
-              Page <strong>{currentPage}</strong> of <strong>{totalPages}</strong>
-            </span>
-            <button
-              className="page-nav-btn"
-              disabled={currentPage >= totalPages || tableLoading}
-              onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-            >
-              <span>Next</span>
-              <ChevronRight size={16} />
-            </button>
-          </div>
-        </footer>
+              <div className="pagination-controls">
+                <button
+                  className="page-nav-btn"
+                  disabled={currentPage <= 1 || tableLoading}
+                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                >
+                  <ChevronLeft size={16} />
+                  <span>Previous</span>
+                </button>
+                <span className="page-current-indicator">
+                  Page <strong>{currentPage}</strong> of <strong>{totalPages}</strong>
+                </span>
+                <button
+                  className="page-nav-btn"
+                  disabled={currentPage >= totalPages || tableLoading}
+                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                >
+                  <span>Next</span>
+                  <ChevronRight size={16} />
+                </button>
+              </div>
+            </footer>
+          </>
+        )}
 
-        {/* Create / Edit Dialog Modal */}
+        {/* TAB 2: Intake Channels */}
+        {activeTab === 'channels' && (
+          <section className="channels-tab-content">
+            {/* Channels Filter Toolbar */}
+            <div className="channels-header-strip">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <Layers size={18} style={{ color: '#2563eb' }} />
+                <span style={{ fontWeight: 700, fontSize: '0.95rem', color: '#0f172a' }}>
+                  {filteredChannels.length} of {channels.length} Intake Channels
+                </span>
+                <span className="channel-status-pill active" style={{ marginLeft: '0.5rem' }}>
+                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#047857', display: 'inline-block' }} />
+                  {channels.filter(c => c.is_active).length} Active
+                </span>
+                <span className="channel-status-pill inactive">
+                  {channels.filter(c => !c.is_active).length} Inactive
+                </span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <div className="dept-select-wrapper">
+                  <Filter size={15} className="select-icon" />
+                  <select
+                    className="taxonomy-dept-select"
+                    value={channelFilter}
+                    onChange={(e) => setChannelFilter(e.target.value)}
+                    style={{ minWidth: '160px' }}
+                  >
+                    <option value="all">All Channels</option>
+                    <option value="active">Active Only</option>
+                    <option value="inactive">Inactive Only</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            {/* Grouped Channel Cards */}
+            {VECTOR_CATEGORIES.map((cat) => {
+              const matchKeys = [cat.key, ...(cat.extraKeys || [])];
+              const catChannels = filteredChannels.filter(c => matchKeys.includes(c.category));
+              if (catChannels.length === 0) return null;
+              const CatIcon = cat.icon;
+              return (
+                <div key={cat.key} className="channels-vector-group">
+                  <div className="vector-group-title">
+                    <CatIcon size={18} style={{ color: '#2563eb' }} />
+                    <span>{cat.label}</span>
+                    <span className="tab-counter-pill" style={{ marginLeft: 'auto' }}>{catChannels.length}</span>
+                  </div>
+                  <p style={{ margin: 0, fontSize: '0.8rem', color: '#64748b', marginTop: '-0.5rem' }}>{cat.desc}</p>
+                  <div className="channels-grid">
+                    {catChannels.map((ch) => (
+                      <div key={ch.id} className={`channel-card ${ch.is_active ? '' : 'inactive-card'}`}>
+                        <div className="channel-card-top">
+                          <h4 className="channel-name">{ch.channel_name}</h4>
+                          <span className="channel-code-badge">{ch.channel_code}</span>
+                        </div>
+                        <p className="channel-desc">{ch.description || 'No description available.'}</p>
+                        <div className="channel-footer">
+                          <span className={`channel-status-pill ${ch.is_active ? 'active' : 'inactive'}`}>
+                            <span style={{
+                              width: 7, height: 7, borderRadius: '50%',
+                              background: ch.is_active ? '#047857' : '#94a3b8',
+                              display: 'inline-block'
+                            }} />
+                            {ch.is_active ? 'Active' : 'Inactive'}
+                          </span>
+                          <div className="channel-footer-actions">
+                            <button
+                              className="action-icon-btn edit"
+                              onClick={() => handleOpenEditChannel(ch)}
+                              title="Edit Channel"
+                            >
+                              <Pencil size={14} />
+                            </button>
+                            <button
+                              className="action-icon-btn delete"
+                              onClick={() => setDeletingChannel(ch)}
+                              title="Delete Channel"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                            <button
+                              className={`taxonomy-action-btn ${ch.is_active ? 'secondary' : 'primary'}`}
+                              style={{ padding: '0.35rem 0.75rem', fontSize: '0.78rem' }}
+                              onClick={() => handleToggleChannel(ch)}
+                              title={ch.is_active ? 'Deactivate this channel' : 'Activate this channel'}
+                            >
+                              {ch.is_active ? <X size={13} /> : <Check size={13} />}
+                              <span>{ch.is_active ? 'Deactivate' : 'Activate'}</span>
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+
+            {/* Empty State */}
+            {filteredChannels.length === 0 && (
+              <div className="taxonomy-empty-state" style={{ padding: '3rem 2rem' }}>
+                <Layers size={36} />
+                <p>No intake channels match the current filter.</p>
+                <button
+                  className="taxonomy-action-btn secondary"
+                  onClick={() => setChannelFilter('all')}
+                >
+                  Show All Channels
+                </button>
+              </div>
+            )}
+          </section>
+        )}
+
+
+        {/* Create / Edit Mapping Dialog Modal */}
         {(isCreating || editingItem) && (
           <div className="taxonomy-submodal-overlay" role="dialog">
             <div className="taxonomy-submodal-card">
@@ -628,7 +908,7 @@ export default function AdminTaxonomyModal({ onClose }) {
           </div>
         )}
 
-        {/* Delete Confirmation Dialog */}
+        {/* Delete Mapping Confirmation Dialog */}
         {deletingItem && (
           <div className="taxonomy-submodal-overlay" role="dialog">
             <div className="taxonomy-submodal-card delete-card">
@@ -674,7 +954,157 @@ export default function AdminTaxonomyModal({ onClose }) {
             </div>
           </div>
         )}
+
+        {/* Create / Edit Channel Dialog Modal */}
+        {(isCreatingChannel || editingChannel) && (
+          <div className="taxonomy-submodal-overlay" role="dialog">
+            <div className="taxonomy-submodal-card">
+              <div className="submodal-header">
+                <h3>{isCreatingChannel ? 'Add Intake Channel' : `Edit Intake Channel: ${editingChannel?.channel_name}`}</h3>
+                <button
+                  className="submodal-close-btn"
+                  onClick={() => { setIsCreatingChannel(false); setEditingChannel(null); }}
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <form onSubmit={handleSaveChannel} className="submodal-form">
+                <div className="form-grid">
+                  <div className="form-group full-width">
+                    <label>Channel Name *</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. CM Helpline 1100, Makkaludan Mudhalvar Camp"
+                      value={channelFormName}
+                      onChange={(e) => setChannelFormName(e.target.value)}
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label>Channel Code *</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. CALL_1100, MM_CAMP"
+                      value={channelFormCode}
+                      onChange={(e) => setChannelFormCode(e.target.value.toUpperCase())}
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label>Category Vector *</label>
+                    <select
+                      required
+                      className="taxonomy-submodal-select"
+                      value={channelFormCategory}
+                      onChange={(e) => setChannelFormCategory(e.target.value)}
+                    >
+                      <option value="digital_direct">1. Digital Direct Channels</option>
+                      <option value="executive_leadership">2. Executive Leadership Desks</option>
+                      <option value="legislative">3. Legislative Representation</option>
+                      <option value="district_grievance_days">4. District Grievance Days</option>
+                      <option value="field_outreach_camps">5. Field Outreach Camps</option>
+                      <option value="counters_walkin">5. Walk-in Counters</option>
+                    </select>
+                  </div>
+
+                  <div className="form-group full-width">
+                    <label>Description</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Centralized 24x7 voice helpline with computer telephony integration"
+                      value={channelFormDesc}
+                      onChange={(e) => setChannelFormDesc(e.target.value)}
+                    />
+                  </div>
+
+                  <div className="form-group full-width" style={{ flexDirection: 'row', alignItems: 'center', gap: '0.6rem', marginTop: '0.25rem' }}>
+                    <input
+                      type="checkbox"
+                      id="channelFormActive"
+                      checked={channelFormActive}
+                      onChange={(e) => setChannelFormActive(e.target.checked)}
+                      style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                    />
+                    <label htmlFor="channelFormActive" style={{ cursor: 'pointer', margin: 0, fontWeight: 600 }}>
+                      Active Intake Channel (Enabled for Petition Intake & Analytics)
+                    </label>
+                  </div>
+                </div>
+
+                <div className="submodal-actions">
+                  <button
+                    type="button"
+                    className="taxonomy-action-btn secondary"
+                    onClick={() => { setIsCreatingChannel(false); setEditingChannel(null); }}
+                    disabled={saving}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="taxonomy-action-btn primary"
+                    disabled={saving}
+                  >
+                    {saving ? <RefreshCw size={15} className="spin" /> : <Check size={15} />}
+                    <span>{saving ? 'Saving...' : 'Save Channel'}</span>
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* Delete Channel Confirmation Dialog */}
+        {deletingChannel && (
+          <div className="taxonomy-submodal-overlay" role="dialog">
+            <div className="taxonomy-submodal-card delete-card">
+              <div className="submodal-header">
+                <h3 className="delete-title">Confirm Intake Channel Deletion</h3>
+                <button
+                  className="submodal-close-btn"
+                  onClick={() => setDeletingChannel(null)}
+                >
+                  <X size={18} />
+                </button>
+              </div>
+              <div className="delete-body">
+                <AlertCircle size={36} className="delete-warning-icon" />
+                <p>Are you sure you want to delete this intake channel?</p>
+                <div className="delete-details-card">
+                  <div><strong>Channel Name:</strong> {deletingChannel.channel_name}</div>
+                  <div><strong>Channel Code:</strong> {deletingChannel.channel_code}</div>
+                  <div><strong>Category:</strong> {deletingChannel.category}</div>
+                  <div><strong>Status:</strong> {deletingChannel.is_active ? 'Active' : 'Inactive'}</div>
+                </div>
+                <p className="delete-subtext">This will remove the channel definition from the intake routing registry.</p>
+              </div>
+              <div className="submodal-actions">
+                <button
+                  type="button"
+                  className="taxonomy-action-btn secondary"
+                  onClick={() => setDeletingChannel(null)}
+                  disabled={saving}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="taxonomy-action-btn danger"
+                  onClick={handleDeleteChannelConfirm}
+                  disabled={saving}
+                >
+                  {saving ? <RefreshCw size={15} className="spin" /> : <Trash2 size={15} />}
+                  <span>{saving ? 'Deleting...' : 'Confirm Delete'}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
 }
+

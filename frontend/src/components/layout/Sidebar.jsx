@@ -8,6 +8,7 @@ import {
   ChevronLeft, 
   ChevronRight 
 } from 'lucide-react';
+import { getTranslation } from '../../utils/translations';
 import './Sidebar.css';
 
 export default function Sidebar({
@@ -15,7 +16,8 @@ export default function Sidebar({
   activeModule = 'gdp',
   onSelectModule,
   isCollapsed = false,
-  onToggleCollapse
+  onToggleCollapse,
+  currentLanguage = 'en'
 }) {
   return (
     <aside 
@@ -27,24 +29,27 @@ export default function Sidebar({
       <div className="sidebar-top-section">
         <nav className="sidebar-nav-list" aria-label="Main Modules">
           {isAdmin && [
-            { id: 'dashboard', label: 'Dashboard', Icon: LayoutDashboard },
-            { id: 'users', label: 'User Management', Icon: Users },
-            { id: 'backup', label: 'Backup', Icon: DatabaseBackup }
-          ].map(({ id, label, Icon }) => (
-            <button key={id} type="button" title={label} aria-label={label}
-              className={`sidebar-nav-item ${activeModule === id ? 'active' : ''}`}
-              aria-current={activeModule === id ? 'page' : undefined}
-              onClick={() => onSelectModule(id)}>
-              <div className="sidebar-item-icon"><Icon size={18} /></div>
-              {!isCollapsed && <div className="sidebar-item-text"><span className="sidebar-item-label">{label}</span></div>}
-            </button>
-          ))}
+            { id: 'dashboard', labelKey: 'dashboard', fallback: 'Dashboard', Icon: LayoutDashboard },
+            { id: 'users', labelKey: 'userManagement', fallback: 'User Management', Icon: Users },
+            { id: 'backup', labelKey: 'backup', fallback: 'Backup', Icon: DatabaseBackup }
+          ].map(({ id, labelKey, fallback, Icon }) => {
+            const label = getTranslation(currentLanguage, labelKey, fallback);
+            return (
+              <button key={id} type="button" title={label} aria-label={label}
+                className={`sidebar-nav-item ${activeModule === id ? 'active' : ''}`}
+                aria-current={activeModule === id ? 'page' : undefined}
+                onClick={() => onSelectModule(id)}>
+                <div className="sidebar-item-icon"><Icon size={18} /></div>
+                {!isCollapsed && <div className="sidebar-item-text"><span className="sidebar-item-label">{label}</span></div>}
+              </button>
+            );
+          })}
           {/* GDP Assistant - Primary Module */}
           <button
             type="button"
             className={`sidebar-nav-item ${activeModule === 'gdp' ? 'active' : ''}`}
             onClick={() => onSelectModule('gdp')}
-            title="GDP Assistant (Grievance Document Processing)"
+            title={getTranslation(currentLanguage, 'gdpAssistant', 'GDP Assistant')}
             aria-current={activeModule === 'gdp' ? 'page' : undefined}
           >
             <div className="sidebar-item-icon">
@@ -52,8 +57,8 @@ export default function Sidebar({
             </div>
             {!isCollapsed && (
               <div className="sidebar-item-text">
-                <span className="sidebar-item-label">GDP Assistant</span>
-                <span className="sidebar-item-sub">Grievance Processing</span>
+                <span className="sidebar-item-label">{getTranslation(currentLanguage, 'gdpAssistant', 'GDP Assistant')}</span>
+                <span className="sidebar-item-sub">{getTranslation(currentLanguage, 'grievanceProcessing', 'Grievance Processing')}</span>
               </div>
             )}
           </button>
@@ -72,7 +77,7 @@ export default function Sidebar({
             type="button"
             className={`sidebar-nav-item ${activeModule === 'audit' ? 'active' : ''}`}
             onClick={() => onSelectModule('audit')}
-            title="Audit Logs (Processed Petitions History)"
+            title={getTranslation(currentLanguage, 'auditLogs', 'Audit Logs')}
             aria-current={activeModule === 'audit' ? 'page' : undefined}
           >
             <div className="sidebar-item-icon">
@@ -80,7 +85,7 @@ export default function Sidebar({
             </div>
             {!isCollapsed && (
               <div className="sidebar-item-text">
-                <span className="sidebar-item-label">Audit Logs</span>
+                <span className="sidebar-item-label">{getTranslation(currentLanguage, 'auditLogs', 'Audit Logs')}</span>
               </div>
             )}
           </button>
@@ -90,15 +95,15 @@ export default function Sidebar({
             type="button"
             className="sidebar-nav-item collapse-item"
             onClick={onToggleCollapse}
-            title={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-            aria-label={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+            title={isCollapsed ? getTranslation(currentLanguage, 'expand', 'Expand sidebar') : getTranslation(currentLanguage, 'collapse', 'Collapse sidebar')}
+            aria-label={isCollapsed ? getTranslation(currentLanguage, 'expand', 'Expand sidebar') : getTranslation(currentLanguage, 'collapse', 'Collapse sidebar')}
           >
             <div className="sidebar-item-icon">
               {isCollapsed ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
             </div>
             {!isCollapsed && (
               <div className="sidebar-item-text">
-                <span className="sidebar-item-label">Collapse</span>
+                <span className="sidebar-item-label">{getTranslation(currentLanguage, 'collapse', 'Collapse')}</span>
               </div>
             )}
           </button>

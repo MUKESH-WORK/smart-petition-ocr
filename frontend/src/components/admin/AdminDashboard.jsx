@@ -28,7 +28,7 @@ function ConfigurationDialog({ kind, state, commit, onClose }) {
       setForm(blank); setError('');
     } else setError('Could not save this change. Browser storage is unavailable or full.');
   }
-  return <AdminDialog title={hierarchy ? 'Administrative Hierarchy' : 'Taxonomy Mapping'} onClose={onClose}>
+  return <AdminDialog title={hierarchy ? 'Administrative Hierarchy' : 'CM Grievance Mappings'} onClose={onClose}>
     <p className="admin-note">Local preview · Configuration is saved in this browser tab.</p>
     <form onSubmit={submit}>
       <div className="admin-form-grid">
@@ -147,14 +147,14 @@ export default function AdminDashboard({ state, dbHealth, commit, onNavigate }) 
         <dl className="admin-counts">{LOCATION_TYPES.map(type => <div key={type}><dt>{type}</dt><dd>{hierarchyStats?.counts?.[type] ?? (state.locations.filter(item => item.type === type).length || '—')}</dd></div>)}</dl>
         <button type="button" className="admin-button" onClick={() => setConfiguration('hierarchy')}>Manage Hierarchy</button>
       </section>
-      <section className="admin-config-section"><h2>Taxonomy Mapping</h2><p>Manage departments, grievance types, sub-types and responsible officers.</p>
+      <section className="admin-config-section"><h2>CM Grievance Mappings</h2><p>Manage departments, grievance types, sub-types and responsible officers.</p>
         <dl className="admin-counts">{taxonomyCounts.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
         <button type="button" className="admin-button" onClick={() => setConfiguration('mapping')}>Manage Mapping</button>
       </section>
       </div>
     </div>
     <section className="admin-panel"><h2>Recent Activity</h2>
-      {state.activity.length ? <ul className="admin-activity">{state.activity.slice(0, 6).map(item => <li key={item.id}><span className="admin-activity-type">{item.type}</span><span>{item.detail}</span><time dateTime={item.date}>{formatDate(item.date)}</time></li>)}</ul> : <p className="admin-empty">No admin activity yet.</p>}
+      {state.activity.length ? <ul className="admin-activity">{state.activity.slice(0, 6).map(item => <li key={item.id}><span className={`admin-activity-badge badge-${(item.type || 'update').toLowerCase()}`}>{item.type}</span><span>{item.detail}</span><time dateTime={item.date}>{formatDate(item.date)}</time></li>)}</ul> : <p className="admin-empty">No admin activity yet.</p>}
     </section>
     {configuration === 'hierarchy' && <AdminHierarchyModal onClose={() => { setConfiguration(null); fetchHierarchyStats().then(setHierarchyStats).catch(() => {}); }} />}
     {configuration === 'mapping' && <AdminTaxonomyModal onClose={() => { setConfiguration(null); fetchTaxonomyStats().then(setTaxStats).catch(() => {}); }} />}

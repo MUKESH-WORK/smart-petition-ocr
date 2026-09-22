@@ -158,7 +158,7 @@ export async function uploadAndAnalyzePetition(file, onProgress, signal) {
   formData.append('process_now', 'false');
 
   // 1. Upload & trigger backend pipeline with automatic restart recovery
-  if (onProgress) onProgress(0); // Document uploaded
+  if (onProgress) onProgress({ stepIndex: 0, stageName: 'uploaded', stageLabel: 'Document Uploaded', pageCount: 1, chunkCount: 0, entityCount: 0, ocrConfidence: null });
   let uploadRes = null;
   let uploadAttempts = 0;
   while (uploadAttempts < 3) {
@@ -197,11 +197,6 @@ export async function uploadAndAnalyzePetition(file, onProgress, signal) {
   let fullOcrText = '';
   let avgConfidence = 96;
 
-  // If already recognized and draft loaded from database
-  if (uploadData.status === 'draft_ready' || uploadData.status === 'officer_approved') {
-    if (onProgress) onProgress(4);
-  }
-
   let attempts = 0;
   const maxAttempts = 250; // ~200 seconds total polling budget with 800ms intervals
   let pollBreak = false;
@@ -228,23 +223,40 @@ export async function uploadAndAnalyzePetition(file, onProgress, signal) {
       throw new Error('Petition processing failed in the background worker. Please try again.');
     }
 
-    // Success: draft is fully ready and AI taxonomy analysis completed
+    // Determine exact stage based on real server fields
+    let stepIdx = 1;
+    let stageLabel = 'Optical Character Recognition';
     if (sData.status === 'draft_ready' || sData.status === 'officer_approved' || (sData.draft_ready && sData.ai_analysis_ready)) {
-      if (onProgress) onProgress(5);
+      stepIdx = 5;
+      stageLabel = 'Ready for Officer Review';
       pollBreak = true;
-      break;
+    } else if (sData.ai_analysis_ready || sData.status === 'ai_analyzing') {
+      stepIdx = 4;
+      stageLabel = 'CM Grievance RAG Mapping';
+    } else if (sData.entity_count > 0 || sData.status === 'entity_extracting') {
+      stepIdx = 3;
+      stageLabel = 'Entity & Location Extraction';
+    } else if (sData.chunk_count > 0 || sData.status === 'vector_indexing') {
+      stepIdx = 2;
+      stageLabel = 'Semantic Vector Indexing';
+    } else if (sData.page_count > 0 || sData.status === 'ocr_complete') {
+      stepIdx = 1;
+      stageLabel = 'OCR Recognition Complete';
     }
 
-    // Intermediate progress stage mapping
-    if (sData.ai_analysis_ready) {
-      if (onProgress) onProgress(4);
-    } else if (sData.chunk_count > 0 || sData.entity_count > 0) {
-      if (onProgress) onProgress(3);
-    } else if (sData.page_count > 0 || sData.status === 'ocr_complete' || sData.status === 'ocr_review') {
-      if (onProgress) onProgress(2);
-    } else {
-      if (onProgress) onProgress(1);
+    if (onProgress) {
+      onProgress({
+        stepIndex: stepIdx,
+        stageName: sData.status,
+        stageLabel,
+        pageCount: sData.page_count || 1,
+        chunkCount: sData.chunk_count || 0,
+        entityCount: sData.entity_count || 0,
+        ocrConfidence: sData.ocr_confidence ? Math.round(sData.ocr_confidence * 100) : null
+      });
     }
+
+    if (pollBreak) break;
   }
 
   // Brief stabilization pause for database commit
@@ -741,4 +753,115 @@ export async function deleteTaxonomyItem(itemId) {
   }
   return await res.json();
 }
+
+/**
+ * Fetch all 21 official CM Grievance Ingestion Channels
+ */
+export async function fetchIntakeChannels() {
+  const res = await fetch(`${API_BASE}/admin/channels`, {
+    headers: authHeaders()
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to fetch intake channels (HTTP ${res.status})`);
+  }
+  return await res.json();
+}
+
+/**
+ * Create a new intake channel
+ */
+export async function createIntakeChannel(payload) {
+  const res = await fetch(`${API_BASE}/admin/channels`, {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify(payload)
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || `Failed to create intake channel (HTTP ${res.status})`);
+  }
+  return await res.json();
+}
+
+/**
+ * Update an intake channel
+ */
+export async function updateIntakeChannel(channelId, payload) {
+  const res = await fetch(`${API_BASE}/admin/channels/${channelId}`, {
+    method: 'PUT',
+    headers: authHeaders(),
+    body: JSON.stringify(payload)
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || `Failed to update intake channel (HTTP ${res.status})`);
+  }
+  return await res.json();
+}
+
+/**
+ * Delete an intake channel
+ */
+export async function deleteIntakeChannel(channelId) {
+  const res = await fetch(`${API_BASE}/admin/channels/${channelId}`, {
+    method: 'DELETE',
+    headers: authHeaders()
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || `Failed to delete intake channel (HTTP ${res.status})`);
+  }
+  return await res.json();
+}
+
+
+/**
+ * Translate a single text string
+ */
+export async function translateText(text, targetLang = 'ta', sourceLang = 'auto') {
+  if (!text || !text.trim()) return text;
+  try {
+    const res = await fetch(`${API_BASE}/translate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify({
+        text,
+        target_language: targetLang,
+        source_language: sourceLang
+      })
+    });
+    if (!res.ok) return text;
+    const data = await res.json();
+    return data.translated_text || text;
+  } catch (err) {
+    console.warn('Translation request warning:', err);
+    return text;
+  }
+}
+
+/**
+ * Translate multiple text strings
+ */
+export async function translateTexts(texts = [], targetLang = 'ta', sourceLang = 'auto') {
+  if (!texts || texts.length === 0) return texts;
+  try {
+    const res = await fetch(`${API_BASE}/translate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify({
+        texts,
+        target_language: targetLang,
+        source_language: sourceLang
+      })
+    });
+    if (!res.ok) return texts;
+    const data = await res.json();
+    return data.translated_texts || texts;
+  } catch (err) {
+    console.warn('Batch translation request warning:', err);
+    return texts;
+  }
+}
+
+
 

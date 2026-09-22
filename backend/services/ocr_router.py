@@ -226,9 +226,15 @@ class HybridOCRRouter:
 
         return blocks
 
-    async def _process_with_datalab(self, file_path: str, file_type: str) -> Optional[List[Dict[str, Any]]]:
+    async def _process_with_datalab(
+        self,
+        file_path: str,
+        file_type: str,
+        mode: Optional[str] = None,
+        timeout_sec: Optional[int] = None
+    ) -> Optional[List[Dict[str, Any]]]:
         """
-        Processes document via Datalab Chandra OCR Cloud API.
+        Processes document via Datalab Chandra OCR Cloud API with dynamic mode (accurate vs balanced) and timeout.
         Returns a list of structured page dictionaries:
         [
             {
@@ -243,10 +249,10 @@ class HybridOCRRouter:
         """
         api_key = getattr(settings, "DATALAB_API_KEY", "")
         api_url = getattr(settings, "DATALAB_API_URL", "https://www.datalab.to/api/v1/convert")
-        mode = str(getattr(settings, "DATALAB_MODE", "accurate")).strip().lower()
-        if mode not in ["fast", "balanced", "accurate"]:
-            mode = "accurate"
-        timeout_sec = getattr(settings, "DATALAB_TIMEOUT", 120)
+        eff_mode = str(mode or getattr(settings, "DATALAB_MODE", "accurate")).strip().lower()
+        if eff_mode not in ["fast", "balanced", "accurate"]:
+            eff_mode = "accurate"
+        eff_timeout = timeout_sec or getattr(settings, "DATALAB_TIMEOUT", 45)
 
         if not api_key:
             logger.warning("DATALAB_API_KEY is not configured; skipping Datalab OCR.")
@@ -279,7 +285,7 @@ class HybridOCRRouter:
             }
             form_data = {
                 "output_format": "json",
-                "mode": mode,
+                "mode": eff_mode,
                 "paginate": "true"
             }
 
@@ -296,11 +302,11 @@ class HybridOCRRouter:
                     logger.error(f"Datalab response missing 'request_check_url': {submit_data}")
                     return None
 
-                logger.info(f"⏳ Polling Datalab Chandra task: {check_url}")
+                logger.info(f"⏳ Polling Datalab Chandra task ({eff_mode} mode, max {eff_timeout}s): {check_url}")
                 start_poll = time.time()
                 poll_result = None
 
-                while (time.time() - start_poll) < timeout_sec:
+                while (time.time() - start_poll) < eff_timeout:
                     await asyncio.sleep(1.5)
                     poll_resp = await client.get(check_url, headers=headers)
                     if poll_resp.status_code == 200:
@@ -316,7 +322,7 @@ class HybridOCRRouter:
                         logger.warning(f"Polling HTTP {poll_resp.status_code}: {poll_resp.text}")
 
                 if not poll_result:
-                    logger.error(f"Datalab Chandra OCR timed out after {timeout_sec}s")
+                    logger.error(f"Datalab Chandra OCR ({eff_mode}) timed out after {eff_timeout}s")
                     return None
 
             # Parse the Datalab Chandra JSON structure
@@ -602,40 +608,87 @@ class HybridOCRRouter:
             except Exception as pdf_ex:
                 logger.debug(f"Direct PDF text extraction notice: {pdf_ex}")
 
-        # 3. OCR Processing (Primary: Datalab Chandra API, Fallback: Local PaddleOCR)
+        # Compute and persist perceptual hash (dHash) for duplicate detection
+        if images:
+            try:
+                from services.local_chandra_engine import compute_dhash
+                phash_val = compute_dhash(images[0])
+                if phash_val:
+                    await db.execute(text("""
+                        UPDATE sources SET phash = :phash WHERE source_id = CAST(:sid AS UUID)
+                    """), {"phash": phash_val, "sid": source_id})
+                    await db.commit()
+            except Exception as ex_phash:
+                logger.debug(f"Perceptual hash update notice: {ex_phash}")
+
+        # 3. Multi-Tier OCR Processing Pipeline:
+        # Tier 1: Local Chandra OCR V2 5.6B Engine (if local is enabled or configured)
+        # Tier 2: Cloud Chandra OCR API in Accurate Mode
+        # Tier 3: Cloud Chandra OCR API in Balanced Mode (automatic fallback on timeout/failure)
         if not pages_data:
             ocr_provider = getattr(settings, "OCR_PROVIDER", "datalab").lower()
+            local_enabled = getattr(settings, "LOCAL_CHANDRA_ENABLED", False) or ocr_provider == "chandra_local"
 
-            if ocr_provider == "datalab":
-                pages_data = await self._process_with_datalab(file_path, file_type)
+            # Check Local Chandra OCR V2 first if enabled
+            if local_enabled:
+                if not images:
+                    images = await file_store.convert_document_to_images(source_id, file_path, file_type)
+                if images:
+                    logger.info("⚡ Executing Local Chandra OCR V2 (5.6B) inference engine...")
+                    from services.local_chandra_engine import local_chandra
+                    local_pages = await local_chandra.process_pages_batch(images)
+                    if local_pages:
+                        pages_data = local_pages
+                        engine_used = "local_chandra_v2"
+                    else:
+                        logger.warning("Local Chandra OCR did not return pages; falling back to Cloud Chandra OCR API...")
+
+            # Cloud Chandra OCR Execution (Accurate -> Balanced Fallback)
+            if not pages_data:
+                logger.info("🌐 Calling Cloud Chandra OCR in Accurate Mode...")
+                pages_data = await self._process_with_datalab(
+                    file_path,
+                    file_type,
+                    mode=getattr(settings, "DATALAB_MODE", "accurate"),
+                    timeout_sec=getattr(settings, "DATALAB_TIMEOUT", 45)
+                )
+
+                # Fallback to Balanced Mode if Accurate timed out or failed
                 if not pages_data:
-                    logger.warning("⚠️ Datalab Chandra OCR unavailable or failed; falling back to local PaddleOCR...")
-                    engine_used = "paddleocr_v5"
+                    fallback_mode = getattr(settings, "DATALAB_FALLBACK_MODE", "balanced")
+                    fallback_timeout = getattr(settings, "DATALAB_FALLBACK_TIMEOUT", 25)
+                    logger.warning(
+                        f"⚠️ Chandra OCR Accurate Mode failed or timed out. "
+                        f"Engaging automatic fallback to Cloud Chandra OCR [{fallback_mode}] Mode (timeout={fallback_timeout}s)..."
+                    )
+                    pages_data = await self._process_with_datalab(
+                        file_path,
+                        file_type,
+                        mode=fallback_mode,
+                        timeout_sec=fallback_timeout
+                    )
+                    if pages_data:
+                        engine_used = f"datalab_chandra_{fallback_mode}"
                 else:
-                    engine_used = "datalab_chandra"
+                    engine_used = "datalab_chandra_accurate"
 
-        # Fallback to local PaddleOCR if Datalab was skipped or failed
+        # Safe fallback if all OCR attempts failed
         if not pages_data:
-            engine_used = "paddleocr_v5"
+            engine_used = "ocr_fallback_unavailable"
             pages_data = []
-            # Ensure we have page images to run paddle on
             if not images:
-                images = await file_store.convert_document_to_images(source_id, file_path, file_type)
-
-            for page_num, image_path in enumerate(images, 1):
-                p_start = time.time()
-                paddle_blocks = await self._paddle_process(image_path, page_num)
-                paddle_blocks.sort(key=lambda b: (b["bbox"][0][1], b["bbox"][0][0]))
-
-                page_full_text = "\n".join([b["text"] for b in paddle_blocks])
-                avg_conf = float(np.mean([b["confidence"] for b in paddle_blocks])) if paddle_blocks else 0.0
+                try:
+                    images = await file_store.convert_document_to_images(source_id, file_path, file_type)
+                except Exception:
+                    images = []
+            for page_num in range(1, max(len(images) + 1, 2)):
                 pages_data.append({
                     "page_number": page_num,
-                    "full_text": page_full_text,
-                    "blocks": paddle_blocks,
+                    "full_text": "[ஆவண உரை கண்டறியப்படவில்லை / OCR முடிவுகள் நிலுவையில் உள்ளன]",
+                    "blocks": [],
                     "tables": [],
-                    "avg_confidence": avg_conf,
-                    "ocr_engine": "paddleocr_v5"
+                    "avg_confidence": 0.0,
+                    "ocr_engine": engine_used
                 })
 
         # 4. Persist per-page results into ocr_results

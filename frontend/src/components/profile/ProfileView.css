@@ -71,38 +71,120 @@
   gap: 10px;
 }
 
+.profile-edit-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: #102C57;
+  background-color: #FFFFFF;
+  border: 1.5px solid #102C57;
+  padding: 7px 16px;
+  border-radius: var(--radius-md, 6px);
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(16, 44, 87, 0.08);
+  transition: all var(--transition-fast, 0.15s ease);
+}
+
+.profile-edit-btn:hover {
+  background-color: #102C57;
+  color: #FEFAF6;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(16, 44, 87, 0.2);
+}
+
+.profile-editing-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.profile-cancel-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: #64748b;
+  background-color: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  padding: 7px 14px;
+  border-radius: var(--radius-md, 6px);
+  cursor: pointer;
+  transition: all var(--transition-fast, 0.15s ease);
+}
+
+.profile-cancel-btn:hover:not(:disabled) {
+  background-color: #e2e8f0;
+  color: #334155;
+}
+
 .profile-save-btn {
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  font-size: 0.9rem;
+  font-size: 0.88rem;
   font-weight: 600;
   color: #FEFAF6;
-  background-color: #102C57;
-  border: 1px solid #091A34;
-  padding: 8px 20px;
+  background-color: #047857;
+  border: 1px solid #065f46;
+  padding: 7px 18px;
   border-radius: var(--radius-md, 6px);
   cursor: pointer;
-  box-shadow: 0 3px 10px rgba(16, 44, 87, 0.25);
+  box-shadow: 0 3px 10px rgba(4, 120, 87, 0.25);
   transition: all var(--transition-fast, 0.15s ease);
+}
+
+.profile-save-btn:hover:not(:disabled) {
+  background-color: #059669;
+  transform: translateY(-1px);
+  box-shadow: 0 5px 14px rgba(4, 120, 87, 0.35);
+}
+
+.profile-save-btn:disabled,
+.profile-cancel-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Feedback Alert Banner */
+.profile-feedback-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  border-radius: 8px;
+  font-size: 0.88rem;
+  font-weight: 500;
   animation: saveBtnFadeIn 0.2s ease-out;
 }
 
-.profile-save-btn:hover {
-  background-color: #163C73;
-  transform: translateY(-1px);
-  box-shadow: 0 5px 14px rgba(16, 44, 87, 0.35);
+.profile-feedback-banner.success {
+  background-color: #ecfdf5;
+  color: #065f46;
+  border: 1px solid #a7f3d0;
 }
 
-@keyframes saveBtnFadeIn {
-  from {
-    opacity: 0;
-    transform: scale(0.95);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1);
-  }
+.profile-feedback-banner.error {
+  background-color: #fef2f2;
+  color: #991b1b;
+  border: 1px solid #fecaca;
+}
+
+.feedback-dismiss {
+  margin-left: auto;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: inherit;
+  opacity: 0.7;
+  display: flex;
+  align-items: center;
+}
+
+.feedback-dismiss:hover {
+  opacity: 1;
 }
 
 /* 2. Cards Grid */
@@ -123,6 +205,11 @@
 
 .profile-card:hover {
   border-color: #DAC0A3;
+}
+
+.profile-card.restricted-card {
+  background-color: #FCFDFE;
+  border-style: dashed;
 }
 
 .profile-card-header {
@@ -149,6 +236,38 @@
   font-weight: 700;
   color: #102C57;
   margin: 0;
+}
+
+.mode-pill {
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 9999px;
+}
+
+.mode-pill.editable-mode {
+  background-color: #dbeafe;
+  color: #1e40af;
+  border: 1px solid #bfdbfe;
+}
+
+.mode-pill.view-mode {
+  background-color: #f1f5f9;
+  color: #64748b;
+  border: 1px solid #e2e8f0;
+}
+
+.restricted-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #475569;
+  background-color: #f1f5f9;
+  padding: 3px 10px;
+  border-radius: 9999px;
+  border: 1px solid #cbd5e1;
 }
 
 .profile-card-body {
@@ -191,15 +310,32 @@
   transition: all var(--transition-fast, 0.15s ease);
 }
 
-.field-value-group:focus-within {
-  border-color: #102C57;
+.field-value-group.is-editable {
   background-color: #FFFFFF;
-  box-shadow: 0 0 0 3px rgba(16, 44, 87, 0.12);
+  border-color: #102C57;
+  box-shadow: 0 1px 4px rgba(16, 44, 87, 0.08);
+}
+
+.field-value-group.is-editable:focus-within {
+  border-color: #2563eb;
+  background-color: #FFFFFF;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+}
+
+.field-value-group.is-restricted {
+  background-color: #f8fafc;
+  border-color: #e2e8f0;
 }
 
 .field-icon {
   color: #102C57;
   flex-shrink: 0;
+}
+
+.lock-icon {
+  color: #94a3b8;
+  flex-shrink: 0;
+  margin-left: auto;
 }
 
 .field-input {
@@ -214,8 +350,14 @@
   padding: 2px 0;
 }
 
-.field-input:focus {
+.field-input:read-only {
+  color: #475569;
+  cursor: default;
+}
+
+.field-input:not(:read-only) {
   color: #081730;
+  font-weight: 600;
 }
 
 .field-input.highlight {
@@ -230,7 +372,36 @@
   letter-spacing: 0.03em;
 }
 
-.field-input.badge-access {
-  color: #102C57;
-  font-weight: 600;
+/* Tamil / Unicode Script Input Fix */
+.field-input-tamil {
+  font-family: 'Noto Sans Tamil', 'Latha', 'Tamil Sangam MN', system-ui, sans-serif;
+  direction: ltr;
+  unicode-bidi: plaintext;
+  text-align: left;
+  line-height: 1.6;
+  letter-spacing: normal;
+  text-transform: none;
 }
+
+.field-input-tamil::placeholder {
+  font-family: 'Noto Sans Tamil', 'Latha', 'Tamil Sangam MN', system-ui, sans-serif;
+  direction: ltr;
+  unicode-bidi: plaintext;
+}
+
+/* Prevent parent label uppercase from leaking into Tamil labels */
+.profile-field-item .field-label {
+  unicode-bidi: isolate;
+}
+
+@keyframes saveBtnFadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+

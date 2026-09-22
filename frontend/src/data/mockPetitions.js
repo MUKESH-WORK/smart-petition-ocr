@@ -39,14 +39,14 @@ export function extractPetitionDetails(petition) {
     municipalityWard: 'Not found',
     block: 'Not found',
     taluk: 'Not found',
-    revenueDivision: 'Erode / ஈரோடு',
+    revenueDivision: 'Not found',
     firka: 'Not found',
     streetName: 'Not found',
     doorNumber: 'Not found',
-    responsibleOfficer: 'District Revenue Officer / மாவட்ட வருவாய் அலுவலர்',
+    responsibleOfficer: 'Not found',
     fisheriesRegion: 'Not found',
     fisheriesDivision: 'Not found',
-    reasonForRedirection: 'Not applicable / பொருந்தாது',
+    reasonForRedirection: 'Not found',
 
     communicationAddressSame: 'No',
     communicationAddress: petition.details?.address || 'Not found',
@@ -58,8 +58,8 @@ export function extractPetitionDetails(petition) {
     priority: 'Medium',
     callDisposition: 'Registered / பதிவு செய்யப்பட்டது',
     isWhatsappAppeal: 'No',
-    isWhatsappTracking: 'Yes',
-    isWhatsappReceipt: 'Yes',
+    isWhatsappTracking: 'No',
+    isWhatsappReceipt: 'No',
 
     relationshipWithExServicemen: 'No'
   };
@@ -146,7 +146,7 @@ export function getContextualSuggestions(lastQuery, usedQueries = new Set()) {
  */
 export function getSmartAssistantReply(userText, currentPetition) {
   const lower = userText.toLowerCase().trim();
-  
+
   if (!currentPetition) {
     return "Please upload a petition document first.";
   }

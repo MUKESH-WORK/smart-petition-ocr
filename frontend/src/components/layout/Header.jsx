@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { UserCheck, ChevronDown, User, LogOut } from 'lucide-react';
+import { UserCheck, ChevronDown, User, LogOut, Languages } from 'lucide-react';
+import { getTranslation } from '../../utils/translations';
 import './Header.css';
 
 export default function Header({
@@ -72,9 +73,9 @@ export default function Header({
 
         <div className="brand-title-group" onClick={onLogoClick} role="button" tabIndex={0}>
           <div className="brand-title-row">
-            <h1 className="brand-title">AI Administrative Co-Pilot</h1>
+            <h1 className="brand-title">{getTranslation(currentLanguage, 'appTitle', 'AI Administrative Co-Pilot')}</h1>
           </div>
-          <span className="brand-subtitle">Government Grievance Pre-Processing</span>
+          <span className="brand-subtitle">{getTranslation(currentLanguage, 'appSubtitle', 'Government Grievance Pre-Processing')}</span>
         </div>
       </div>
 
@@ -82,24 +83,18 @@ export default function Header({
       <div className="header-right">
         {loginRole === 'admin' && notifications}
 
-        {/* Language Toggle: EN / தமிழ் */}
-        <div className="header-lang-toggle notranslate" translate="no" title="Select Interface Language / மொழி">
-          <button
-            type="button"
-            className={`lang-option-btn ${currentLanguage === 'en' ? 'active' : ''}`}
-            onClick={() => onLanguageChange && onLanguageChange('en')}
-          >
-            English
-          </button>
-          <span className="lang-sep">|</span>
-          <button
-            type="button"
-            className={`lang-option-btn ${currentLanguage === 'ta' ? 'active' : ''}`}
-            onClick={() => onLanguageChange && onLanguageChange('ta')}
-          >
-            தமிழ்
-          </button>
-        </div>
+        {/* Language Translation Icon Toggle */}
+        <button
+          type="button"
+          className="header-lang-icon-btn notranslate"
+          translate="no"
+          onClick={() => onLanguageChange && onLanguageChange(currentLanguage === 'en' ? 'ta' : 'en')}
+          title={currentLanguage === 'en' ? 'Translate Interface to தமிழ் (Tamil)' : 'Translate Interface to English'}
+          aria-label="Toggle language translation"
+        >
+          <Languages size={17} className="lang-icon" />
+          <span className="lang-active-tag">{currentLanguage === 'en' ? 'English' : 'தமிழ்'}</span>
+        </button>
 
         <div className="header-divider" aria-hidden="true"></div>
 
@@ -117,8 +112,8 @@ export default function Header({
               <UserCheck size={16} />
             </div>
             <div className="officer-info">
-              <span className="officer-name">{displayName}</span>
-              <span className="officer-role">{loginRole ? (loginRole === 'admin' ? 'Admin' : 'User') : displayRole}</span>
+              <span className="officer-name">{currentLanguage === 'ta' && (officerProfile?.nameTamil || officerProfile?.name_tamil) ? (officerProfile.nameTamil || officerProfile.name_tamil) : displayName}</span>
+              <span className="officer-role">{loginRole ? (loginRole === 'admin' ? getTranslation(currentLanguage, 'admin', 'Admin') : getTranslation(currentLanguage, 'user', 'User')) : displayRole}</span>
             </div>
             <ChevronDown
               size={14}
@@ -136,7 +131,7 @@ export default function Header({
                 onClick={handleProfileClick}
               >
                 <User size={15} className="dropdown-item-icon" />
-                <span>My Profile</span>
+                <span>{getTranslation(currentLanguage, 'myProfile', 'My Profile')}</span>
               </button>
 
               <button
@@ -146,7 +141,7 @@ export default function Header({
                 onClick={handleLogoutClick}
               >
                 <LogOut size={15} className="dropdown-item-icon" />
-                <span>Log Out</span>
+                <span>{getTranslation(currentLanguage, 'logOut', 'Log Out')}</span>
               </button>
             </div>
           )}

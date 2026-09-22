@@ -1,9 +1,46 @@
+"""
+Schema Update Script
+=====================
+Adds new columns to the grievance_drafts table for TN portal fields.
+All credentials sourced from environment variables (.env file).
+"""
 import asyncio
-# pyrefly: ignore [missing-import]
-import asyncpg
+import os
+import sys
+
+# Ensure .env is loaded before anything else
+backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+try:
+    from dotenv import load_dotenv
+    env_path = os.path.join(backend_dir, ".env")
+    if os.path.exists(env_path):
+        load_dotenv(env_path)
+except ImportError:
+    pass
+
 
 async def update_schema():
-    conn = await asyncpg.connect(user='dro_user', password='dro_password_2026', host='localhost', port=5432, database='dro_grievance_db')
+    # pyrefly: ignore [missing-import]
+    import asyncpg
+
+    # Read credentials from environment — never hardcoded
+    app_user = os.environ.get("POSTGRES_USER", "dro_user")
+    app_password = os.environ.get("POSTGRES_PASSWORD", "")
+    pg_host = os.environ.get("POSTGRES_HOST", "localhost")
+    pg_port = int(os.environ.get("POSTGRES_PORT", "5432"))
+    app_db = os.environ.get("POSTGRES_DB", "dro_grievance_db")
+
+    if not app_password:
+        print("ERROR: POSTGRES_PASSWORD is not set in .env. Aborting.")
+        sys.exit(1)
+
+    conn = await asyncpg.connect(
+        user=app_user,
+        password=app_password,
+        host=pg_host,
+        port=pg_port,
+        database=app_db
+    )
     queries = [
         "ALTER TABLE grievance_drafts ADD COLUMN IF NOT EXISTS is_own_phone BOOLEAN DEFAULT TRUE;",
         "ALTER TABLE grievance_drafts ADD COLUMN IF NOT EXISTS alternate_phone VARCHAR(20);",

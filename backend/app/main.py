@@ -20,7 +20,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy import text
 
 from app.config import settings
-from app.routers import grievance, search, admin, translate
+from app.routers import grievance, search, admin, translate, petitions
 from models.database import engine, AsyncSessionLocal, init_db_schema, is_sqlite
 from services.job_queue import job_queue
 
@@ -52,19 +52,40 @@ async def lifespan(app: FastAPI):
             await seed_master_data_if_needed()
             await asyncio.to_thread(vector_store.warmup)
             await llm_client._verify_or_discover_model()
-            logger.info("AI models, embedder, and master data initialized and ready.")
+            await llm_client.keep_alive_ping()
+            logger.info("AI models, embedder, and master data initialized and warmed in VRAM.")
         except Exception as e:
             logger.warning(f"Non-blocking model warmup notice: {e}")
 
     asyncio.create_task(_async_warmup())
 
-    # 4. Start background job queue worker
-    worker_task = asyncio.create_task(job_queue.run_worker_loop(worker_id="worker-primary-01"))
+    # 3. Always-Warm LLM Background Heartbeat Daemon
+    async def _keep_alive_daemon():
+        interval = getattr(settings, "LLM_KEEP_ALIVE_INTERVAL", 120)
+        while True:
+            try:
+                await asyncio.sleep(interval)
+                await llm_client.keep_alive_ping()
+            except asyncio.CancelledError:
+                break
+            except Exception as ex:
+                logger.debug(f"Keep-alive ping notice: {ex}")
+
+    keep_alive_task = asyncio.create_task(_keep_alive_daemon())
+
+    # 4. Start concurrent worker pool (Postgres SKIP LOCKED queue)
+    worker_task = asyncio.create_task(job_queue.run_worker_pool())
     
     yield
 
     # Teardown
+    job_queue.stop()
     worker_task.cancel()
+    keep_alive_task.cancel()
+    try:
+        await asyncio.wait_for(asyncio.gather(worker_task, keep_alive_task, return_exceptions=True), timeout=2.0)
+    except Exception:
+        pass
     await engine.dispose()
     logger.info("DRO Grievance Backend shutdown complete.")
 
@@ -100,6 +121,7 @@ app.include_router(grievance.router, prefix=settings.API_V1_STR)
 app.include_router(search.router, prefix=settings.API_V1_STR)
 app.include_router(admin.router, prefix=settings.API_V1_STR)
 app.include_router(translate.router, prefix=settings.API_V1_STR)
+app.include_router(petitions.router, prefix=settings.API_V1_STR)
 
 # Locate pre-built frontend distribution
 frontend_dist = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "frontend", "dist"))

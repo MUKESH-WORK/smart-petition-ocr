@@ -79,8 +79,9 @@ def _get_engine_kwargs(sqlite_flag: bool) -> dict:
     if sqlite_flag:
         kwargs["connect_args"] = {"check_same_thread": False}
     else:
-        kwargs["pool_size"] = 20
-        kwargs["max_overflow"] = 10
+        kwargs["pool_size"] = getattr(settings, "DB_POOL_SIZE", 25)
+        kwargs["max_overflow"] = getattr(settings, "DB_MAX_OVERFLOW", 20)
+        kwargs["pool_timeout"] = getattr(settings, "DB_POOL_TIMEOUT", 30)
         kwargs["pool_pre_ping"] = True
     return kwargs
 
@@ -189,7 +190,7 @@ async def init_db_schema():
             except Exception as e:
                 logger.debug(f"Could not add complainant_signatory column: {e}")
 
-        # Ensure dynamic officer columns exist across SQLite and Postgres
+        # Ensure dynamic officer columns & sources.phash exist across SQLite and Postgres
         for col_sql in [
             "ALTER TABLE officers ADD COLUMN name VARCHAR(100);",
             "ALTER TABLE officers ADD COLUMN email VARCHAR(150);",
@@ -198,12 +199,45 @@ async def init_db_schema():
             "ALTER TABLE officers ADD COLUMN status VARCHAR(20) DEFAULT 'Inactive';",
             "ALTER TABLE officers ADD COLUMN last_login TIMESTAMP;",
             "ALTER TABLE officers ADD COLUMN designation VARCHAR(100);",
-            "ALTER TABLE officers ADD COLUMN department VARCHAR(100);"
+            "ALTER TABLE officers ADD COLUMN department VARCHAR(100);",
+            "ALTER TABLE sources ADD COLUMN phash VARCHAR(64);",
+            "ALTER TABLE semantic_cache ADD COLUMN expires_at TIMESTAMP;",
+            "ALTER TABLE semantic_cache ADD COLUMN prompt_text TEXT;"
         ]:
             try:
                 await conn.execute(text(col_sql))
             except Exception:
                 pass
+
+        # Ensure AI Semantic Cache table exists in User DB
+        if is_sqlite:
+            await conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS semantic_cache (
+                    id VARCHAR(50) PRIMARY KEY,
+                    prompt_hash VARCHAR(64) NOT NULL,
+                    prompt_text TEXT NOT NULL,
+                    embedding JSON,
+                    response_json TEXT NOT NULL,
+                    hit_count INTEGER DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    expires_at TIMESTAMP
+                );
+            """))
+            await conn.execute(text("CREATE INDEX IF NOT EXISTS idx_sem_cache_hash ON semantic_cache(prompt_hash);"))
+        else:
+            await conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS semantic_cache (
+                    id VARCHAR(50) PRIMARY KEY,
+                    prompt_hash VARCHAR(64) NOT NULL,
+                    prompt_text TEXT NOT NULL,
+                    embedding vector(384),
+                    response_json JSONB NOT NULL,
+                    hit_count INTEGER DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    expires_at TIMESTAMP
+                );
+            """))
+            await conn.execute(text("CREATE INDEX IF NOT EXISTS idx_sem_cache_hash ON semantic_cache(prompt_hash);"))
 
     # 2. Initialize Admin Database
     if not is_admin_sqlite:
@@ -292,6 +326,16 @@ async def init_db_schema():
                     responsible_officer VARCHAR(255),
                     search_text TEXT,
                     embedding JSON
+                );
+            """))
+            await conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS cm_grievance_channels (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    category VARCHAR(100) NOT NULL,
+                    channel_name VARCHAR(255) NOT NULL,
+                    channel_code VARCHAR(50) UNIQUE,
+                    is_active BOOLEAN DEFAULT 1,
+                    description TEXT
                 );
             """))
             # Ensure sub_departments, department, role and password_hash exist on existing sqlite db
@@ -384,6 +428,16 @@ async def init_db_schema():
                     responsible_officer VARCHAR(255),
                     search_text TEXT,
                     embedding vector(384)
+                );
+            """))
+            await conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS cm_grievance_channels (
+                    id SERIAL PRIMARY KEY,
+                    category VARCHAR(100) NOT NULL,
+                    channel_name VARCHAR(255) NOT NULL,
+                    channel_code VARCHAR(50) UNIQUE,
+                    is_active BOOLEAN DEFAULT TRUE,
+                    description TEXT
                 );
             """))
             for col_stmt in [

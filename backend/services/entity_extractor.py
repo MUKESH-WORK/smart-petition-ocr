@@ -257,10 +257,20 @@ def is_same_person_or_invalid(sig: Optional[str], app: Optional[str]) -> bool:
         if tam in sig and eng in app.lower():
             return True
 
-    # Strip single-letter initial + dot
-    core_s = re.sub(r'^[A-Za-z\u0B80-\u0BFF][\.\s]+', '', sig_lower).strip()
-    core_a = re.sub(r'^[A-Za-z\u0B80-\u0BFF][\.\s]+', '', app.lower()).strip()
+    # Strip all leading and trailing initials (e.g. "ச. க. பிரித்தி" -> "பிரித்தி", "பிரித்தி . க" -> "பிரித்தி")
+    core_s = re.sub(r'^(?:[A-Za-z\u0B80-\u0BFF][\.\s]+)+', '', sig_lower).strip()
+    core_s = re.sub(r'(?:[\.\s]+[A-Za-z\u0B80-\u0BFF])+$', '', core_s).strip()
+
+    core_a = re.sub(r'^(?:[A-Za-z\u0B80-\u0BFF][\.\s]+)+', '', app.lower()).strip()
+    core_a = re.sub(r'(?:[\.\s]+[A-Za-z\u0B80-\u0BFF])+$', '', core_a).strip()
+
     if core_s and core_a and (core_s == core_a or core_s in core_a or core_a in core_s):
+        return True
+
+    # Token overlap check for substantial name tokens (>=3 chars)
+    words_s = set(re.findall(r'[A-Za-z\u0B80-\u0BFF]{3,}', sig_lower))
+    words_a = set(re.findall(r'[A-Za-z\u0B80-\u0BFF]{3,}', app.lower()))
+    if words_s and words_a and (words_s & words_a):
         return True
 
     return False
@@ -509,9 +519,16 @@ def extract_header_entities(header_zone_text: str, full_ocr_text: str = "") -> D
                 cand_signatory = cs
                 break
 
-    if cand_signatory and not is_same_person_or_invalid(cand_signatory, cand_applicant):
-        # Keep complainant_signatory only if it is genuinely a distinct person
-        entities["complainant_signatory"] = cand_signatory
+    if cand_signatory:
+        if is_same_person_or_invalid(cand_signatory, cand_applicant):
+            # Same person: if signatory has fuller initials (e.g. ச. க. பிரித்தி vs பிரித்தி . க), use the fuller name
+            if not any(skip in cand_signatory for skip in banner_skip):
+                sig_has_init = bool(re.search(r'^[A-Za-z\u0B80-\u0BFF][\.\s]+', cand_signatory))
+                if sig_has_init or (len(cand_signatory) >= len(cand_applicant or "")):
+                    entities["petitioner_name"] = cand_signatory
+        else:
+            # Keep complainant_signatory only if it is genuinely a distinct person
+            entities["complainant_signatory"] = cand_signatory
 
     # 5. Dynamic Sender Address, Village, Taluk, and District extraction
     sender_m = re.search(r'(?:அனுப்புநர்|அனுப்புதல்|From)\s*[:,\.\-]?\s*\n+([\s\S]+?)(?=\n\s*(?:பெறுநர்|To|பொருள்|மதிப்பிற்குரிய|$))', combined_text, re.IGNORECASE)

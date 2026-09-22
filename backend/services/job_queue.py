@@ -3,7 +3,10 @@ import json
 import logging
 import uuid
 from typing import List, Dict, Any, Optional
-import asyncpg
+try:
+    import asyncpg
+except ImportError:
+    asyncpg = None
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
 from app.config import settings
@@ -28,8 +31,12 @@ class PostgresJobQueue:
     - Sub-1.5s responsive polling
     """
 
-    def __init__(self, pool: Optional[asyncpg.Pool] = None):
+    def __init__(self, pool: Optional[Any] = None):
         self.pool = pool
+        self._running = True
+
+    def stop(self):
+        self._running = False
 
     async def enqueue(self, db: AsyncSession, job_type: str, source_id: str, payload: Optional[Dict[str, Any]] = None) -> int:
         # Deduplication: check if an active job already exists for this source and job_type
@@ -260,7 +267,7 @@ class PostgresJobQueue:
         logger.info(f"PostgresJobQueue worker {worker_id} started with {interval}s poll interval")
         job_types = ["ocr", "vector_indexing", "entity_extraction", "ai_analysis"]
 
-        while True:
+        while self._running:
             try:
                 async with AsyncSessionLocal() as db:
                     job = await self.dequeue(db, worker_id, job_types)
@@ -269,19 +276,45 @@ class PostgresJobQueue:
                             await self.execute_job(db, job)
                             await self.complete(db, job["id"], success=True, job=job)
                         except Exception as e:
-                            logger.error(f"Worker failed executing job {job['id']}: {e}", exc_info=True)
+                            logger.error(f"Worker {worker_id} failed executing job {job['id']}: {e}", exc_info=True)
                             try:
                                 await db.rollback()
                             except Exception:
                                 pass
                             await self.complete(db, job["id"], success=False, error=str(e), job=job)
                     else:
+                        if not self._running:
+                            break
                         await asyncio.sleep(interval)
             except asyncio.CancelledError:
+                logger.info(f"Worker {worker_id} received shutdown signal.")
                 break
             except Exception as e:
-                logger.error(f"Worker queue iteration error: {e}")
+                if not self._running:
+                    break
+                logger.error(f"Worker {worker_id} queue iteration error: {e}")
                 await asyncio.sleep(interval)
+
+    async def run_worker_pool(self, num_workers: Optional[int] = None):
+        """
+        Runs multiple concurrent worker loops for 10-user simultaneous load.
+        Leverages PostgreSQL FOR UPDATE SKIP LOCKED to ensure zero lock contention.
+        """
+        count = num_workers or getattr(settings, "WORKER_CONCURRENCY", 4)
+        logger.info(f"🚀 Initializing PostgreSQL SKIP LOCKED Worker Pool with {count} concurrent workers...")
+        self._running = True
+        tasks = []
+        for i in range(1, count + 1):
+            w_id = f"worker-{i:02d}-{uuid.uuid4().hex[:4]}"
+            tasks.append(asyncio.create_task(self.run_worker_loop(worker_id=w_id)))
+        try:
+            await asyncio.gather(*tasks)
+        except asyncio.CancelledError:
+            self._running = False
+            for t in tasks:
+                t.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+            logger.info("Worker pool gracefully terminated.")
 
 
 job_queue = PostgresJobQueue()

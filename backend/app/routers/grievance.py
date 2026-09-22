@@ -2,6 +2,7 @@ import os
 import json
 import uuid
 import logging
+import datetime
 from datetime import datetime, timezone
 from typing import List, Optional
 from fastapi import APIRouter, Depends, UploadFile, File, Form, Header, HTTPException, Request, BackgroundTasks
@@ -124,6 +125,61 @@ async def upload_petition(
         row = res_insert.mappings().one()
         source_id = str(row["source_id"])
         await db.commit()
+
+        # Check if an identical document (SHA-256) already exists in sources table
+        existing_res = await db.execute(text("""
+            SELECT s.source_id, s.status, s.file_name, s.file_size_bytes, s.page_count, s.created_at,
+                   (SELECT COUNT(*) FROM grievance_drafts gd WHERE gd.source_id = s.source_id) as draft_count
+            FROM sources s
+            WHERE s.file_hash = :hash
+            ORDER BY s.created_at DESC
+            LIMIT 1
+        """), {"hash": file_hash})
+        existing_match = existing_res.mappings().one_or_none()
+
+        if existing_match and existing_match["source_id"] != row["source_id"]:
+            ext_status = existing_match["status"]
+            ext_draft_count = existing_match["draft_count"] or 0
+            if ext_status in ('draft_ready', 'officer_approved', 'pushed_to_dro') and ext_draft_count > 0:
+                logger.info(f"⚡ [IDEMPOTENT DEDUP] Identical petition ({file_hash[:8]}) already processed (source_id={existing_match['source_id']}). Reusing draft instantly.")
+                # Copy draft across to new source_id for current user session
+                await db.execute(text("""
+                    INSERT INTO grievance_drafts (
+                        id, source_id, petitioner_name, father_husband_name, complainant_signatory,
+                        phone, is_own_phone, alternate_phone, address, gender, age,
+                        applicant_category, description, grievance_channel, reference_number,
+                        department, sub_department, local_body_type, grievance_type, grievance_subtype,
+                        district, revenue_division, taluk, firka, block, village, ward, municipality_ward,
+                        street_name, door_no, responsible_officer, assigned_officer_id, priority,
+                        deadline_date, status, is_flagged_for_review, is_urgent, is_court_case,
+                        officer_notes, forward_acknowledged
+                    )
+                    SELECT
+                        'dft_' || SUBSTR(HEX(RANDOMBLOB(8)), 1, 16), CAST(:new_id AS UUID), petitioner_name, father_husband_name, complainant_signatory,
+                        phone, is_own_phone, alternate_phone, address, gender, age,
+                        applicant_category, description, grievance_channel, reference_number,
+                        department, sub_department, local_body_type, grievance_type, grievance_subtype,
+                        district, revenue_division, taluk, firka, block, village, ward, municipality_ward,
+                        street_name, door_no, responsible_officer, assigned_officer_id, priority,
+                        deadline_date, 'draft', is_flagged_for_review, is_urgent, is_court_case,
+                        officer_notes, forward_acknowledged
+                    FROM grievance_drafts
+                    WHERE source_id = CAST(:old_id AS UUID)
+                    LIMIT 1
+                """), {"new_id": source_id, "old_id": str(existing_match["source_id"])})
+                
+                await db.execute(text("UPDATE sources SET status = 'draft_ready', updated_at = NOW() WHERE source_id = CAST(:sid AS UUID)"), {"sid": source_id})
+                await db.commit()
+
+                return SourceUploadResponse(
+                    source_id=row["source_id"],
+                    file_name=row["file_name"],
+                    file_size_bytes=row["file_size_bytes"] or 0,
+                    page_count=row["page_count"] or 1,
+                    status="draft_ready",
+                    created_at=row["created_at"],
+                    message="Identical petition detected (previously processed). Reused instantly from verified cache with zero re-processing cost."
+                )
 
         # Check if an existing approved draft exists for this source
         existing_draft = await db.execute(text("""
@@ -267,6 +323,59 @@ async def get_status(source_id: str, db: AsyncSession = Depends(get_db)):
         officer_approved=bool(draft["officer_approved"]) if draft else False,
         dro_status=draft["dro_status"] if draft else None,
         created_at=src["created_at"]
+    )
+
+
+@router.get("/{source_id}/status/stream")
+async def stream_status(source_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    """
+    Real-Time Server-Sent Events (SSE) status stream for multi-user live tracking.
+    Enables up to 10 concurrent officers to track pipeline progress without polling storms.
+    """
+    async def event_generator():
+        last_status = None
+        consecutive_terminal = 0
+        for _ in range(120):  # Stream up to ~2 minutes
+            if await request.is_disconnected():
+                logger.debug(f"SSE client disconnected for source {source_id}")
+                break
+
+            try:
+                res = await db.execute(text("SELECT status FROM sources WHERE source_id = CAST(:sid AS UUID)"), {"sid": source_id})
+                row = res.mappings().one_or_none()
+                if not row:
+                    yield f"data: {json.dumps({'error': 'Source not found'})}\n\n"
+                    break
+
+                curr_status = row["status"]
+                if curr_status != last_status:
+                    last_status = curr_status
+                    payload = {
+                        "source_id": source_id,
+                        "status": curr_status,
+                        "timestamp": datetime.now(timezone.utc).isoformat()
+                    }
+                    yield f"event: status_change\ndata: {json.dumps(payload)}\n\n"
+
+                if curr_status in ('draft_ready', 'officer_approved', 'pushed_to_dro', 'completed', 'failed'):
+                    consecutive_terminal += 1
+                    if consecutive_terminal >= 2:
+                        yield f"event: complete\ndata: {json.dumps({'source_id': source_id, 'status': curr_status})}\n\n"
+                        break
+            except Exception as e:
+                logger.debug(f"SSE status stream notice: {e}")
+                break
+
+            await asyncio.sleep(0.8)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
     )
 
 
@@ -422,6 +531,18 @@ async def get_ai_analysis(source_id: str, db: AsyncSession = Depends(get_db)):
     if row:
         draft_res = await db.execute(text("SELECT petitioner_name, father_husband_name, complainant_signatory FROM grievance_drafts WHERE source_id = CAST(:source_id AS UUID)"), {"source_id": source_id})
         d_row = draft_res.mappings().one_or_none()
+        raw_actions = row["action_items"]
+        if isinstance(raw_actions, str):
+            try:
+                raw_actions = json.loads(raw_actions)
+            except Exception:
+                raw_actions = []
+        raw_claims = row["claims"]
+        if isinstance(raw_claims, str):
+            try:
+                raw_claims = json.loads(raw_claims)
+            except Exception:
+                raw_claims = []
         return AIAnalysisResponse(
             source_id=row["source_id"],
             petitioner_name=d_row["petitioner_name"] if d_row else None,
@@ -433,8 +554,8 @@ async def get_ai_analysis(source_id: str, db: AsyncSession = Depends(get_db)):
             priority_suggested=row["priority_suggested"] or "MEDIUM",
             description_summary_tamil=row["description_summary_tamil"],
             description_summary_english=row["description_summary_english"],
-            action_items=row["action_items"] or [],
-            claims=row["claims"] or [],
+            action_items=raw_actions or [],
+            claims=raw_claims or [],
             hallucination_score=row["hallucination_score"] or 0.0,
             grounding_score=row["grounding_score"] or 1.0
         )

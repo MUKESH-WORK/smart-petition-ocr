@@ -56,10 +56,56 @@ def extract_json_object(raw_text: str) -> Optional[Dict[str, Any]]:
         except Exception:
             pass
 
-    # 3. Automatic repair for truncated JSON (e.g. when LLM reaches max_tokens limit)
+    # 3. Dynamic stack-based bracket auto-balancing for truncated Tamil output
+    try:
+        first_brace = cleaned.find('{')
+        if first_brace != -1:
+            fragment = cleaned[first_brace:].strip()
+            trimmed = re.sub(r':\s*$', '', fragment).strip()
+            trimmed = re.sub(r',\s*$', '', trimmed).strip()
+            trimmed = re.sub(r',?\s*"[^":\{\}\[\]]+$', '', trimmed).strip()
+
+            # Stack to track unclosed open braces and brackets in order
+            stack = []
+            in_string = False
+            escape = False
+            for ch in trimmed:
+                if ch == '"' and not escape:
+                    in_string = not in_string
+                elif not in_string:
+                    if ch in ('{', '['):
+                        stack.append(ch)
+                    elif ch == '}' and stack and stack[-1] == '{':
+                        stack.pop()
+                    elif ch == ']' and stack and stack[-1] == '[':
+                        stack.pop()
+                if ch == '\\' and not escape:
+                    escape = True
+                else:
+                    escape = False
+
+            # If inside an unclosed string literal, close it first
+            balanced = trimmed + ('"' if in_string else '')
+            # Append matching closing delimiters in LIFO order
+            for delimiter in reversed(stack):
+                if delimiter == '{':
+                    balanced += '}'
+                elif delimiter == '[':
+                    balanced += ']'
+
+            try:
+                return json.loads(balanced)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    # 4. Automatic repair for truncated JSON (e.g. when LLM reaches max_tokens limit)
     candidates = [
         cleaned + '"}',
         cleaned + '}',
+        cleaned + '"]}',
+        cleaned + ']}',
         re.sub(r',?\s*"[^"]*":\s*"[^"]*$', '', cleaned).rstrip(' ,') + '}',
         re.sub(r',?\s*"[^"]*":\s*$', '', cleaned).rstrip(' ,') + '}',
         re.sub(r',?\s*"[^"]*$', '', cleaned).rstrip(' ,') + '}',
@@ -96,9 +142,38 @@ class LLMClient:
         self.temperature = temperature
         self.max_tokens = max_tokens
         self._llama_cpp_instance = None
-        self._model_verified = False
         self._async_client: Optional[httpx.AsyncClient] = None
         self._sync_client: Optional[httpx.Client] = None
+        self._semaphore: Optional[asyncio.Semaphore] = None
+        self._model_verified: bool = False
+
+    def _get_semaphore(self) -> asyncio.Semaphore:
+        if self._semaphore is None:
+            max_c = getattr(settings, "LLM_MAX_CONCURRENCY", 4)
+            self._semaphore = asyncio.Semaphore(max_c)
+        return self._semaphore
+
+    async def keep_alive_ping(self) -> bool:
+        """Keeps the LLM permanently warm and resident in GPU memory to eliminate cold starts."""
+        if not getattr(settings, "LLM_KEEP_ALIVE_ENABLED", True):
+            return False
+        if self.provider == "ollama":
+            try:
+                ollama_base = self._get_ollama_base()
+                client = await self._get_async_client()
+                active_model = await self._verify_or_discover_model()
+                payload = {
+                    "model": active_model,
+                    "keep_alive": -1,
+                    "prompt": ""
+                }
+                resp = await client.post(f"{ollama_base}/api/generate", json=payload, timeout=6.0)
+                if resp.status_code == 200:
+                    logger.debug(f"🔥 [LLM WARM] Ollama model '{active_model}' refreshed in VRAM.")
+                    return True
+            except Exception as ex:
+                logger.debug(f"LLM warm ping notice: {ex}")
+        return False
 
     def _get_ollama_base(self) -> str:
         url = self.base_url
@@ -171,7 +246,7 @@ class LLMClient:
     def _get_llama_cpp(self):
         if self._llama_cpp_instance is None:
             try:
-                from llama_cpp import Llama
+                from llama_cpp import Llama  # type: ignore[import]
                 self._llama_cpp_instance = Llama(
                     model_path=self.model,
                     n_ctx=4096,
@@ -226,8 +301,14 @@ class LLMClient:
             logger.error(f"Error calling LLM endpoint {endpoint}: {e}")
             raise
 
-    async def achat(self, prompt: str, system_prompt: Optional[str] = None, temperature: Optional[float] = None, max_tokens: Optional[int] = None, json_mode: bool = False) -> str:
-        """Asynchronous chat completion with auto-discovery and zero 404 errors"""
+    async def achat(self, prompt: str, system_prompt: Optional[str] = None, temperature: Optional[float] = None, max_tokens: Optional[int] = None, json_mode: bool = False, timeout: Optional[float] = None) -> str:
+        """Asynchronous chat completion with auto-discovery and zero 404 errors.
+        
+        Args:
+            timeout: HTTP-level timeout in seconds. Defaults to LLM_FULL_TIMEOUT (120s).
+                     Callers should use asyncio.wait_for() for operational timeouts;
+                     this HTTP timeout is a safety net and should be >= the caller's timeout.
+        """
         temp = temperature if temperature is not None else self.temperature
         max_t = max_tokens if max_tokens is not None else self.max_tokens
         sys_p = system_prompt or SYSTEM_PROMPT_TAMIL
@@ -248,30 +329,33 @@ class LLMClient:
         if json_mode:
             payload["response_format"] = {"type": "json_object"}
 
-        call_timeout = float(getattr(settings, "LLM_FAST_TIMEOUT", 300.0))
-        try:
-            client = await self._get_async_client()
-            resp = await client.post(endpoint, json=payload, timeout=call_timeout)
-        except RuntimeError as r_err:
-            if "Event loop is closed" in str(r_err) or "loop" in str(r_err).lower():
-                self._async_client = None
+        # Use caller-specified timeout, or LLM_FULL_TIMEOUT as a generous safety net.
+        # Operational timeout should be controlled by the caller via asyncio.wait_for().
+        call_timeout = timeout if timeout is not None else float(getattr(settings, "LLM_FULL_TIMEOUT", 120.0))
+        async with self._get_semaphore():
+            try:
                 client = await self._get_async_client()
                 resp = await client.post(endpoint, json=payload, timeout=call_timeout)
-            else:
-                raise
-        try:
-            if resp.status_code == 404:
-                self._model_verified = False
-                active_model = await self._verify_or_discover_model()
-                payload["model"] = active_model
-                resp = await client.post(endpoint, json=payload, timeout=call_timeout)
+            except RuntimeError as r_err:
+                if "Event loop is closed" in str(r_err) or "loop" in str(r_err).lower():
+                    self._async_client = None
+                    client = await self._get_async_client()
+                    resp = await client.post(endpoint, json=payload, timeout=call_timeout)
+                else:
+                    raise
+            try:
+                if resp.status_code == 404:
+                    self._model_verified = False
+                    active_model = await self._verify_or_discover_model()
+                    payload["model"] = active_model
+                    resp = await client.post(endpoint, json=payload, timeout=call_timeout)
 
-            resp.raise_for_status()
-            data = resp.json()
-            return data["choices"][0]["message"]["content"]
-        except Exception as e:
-            logger.error(f"Error calling async LLM {endpoint}: {repr(e)}", exc_info=True)
-            raise
+                resp.raise_for_status()
+                data = resp.json()
+                return data["choices"][0]["message"]["content"]
+            except Exception as e:
+                logger.error(f"Error calling async LLM {endpoint}: {repr(e)}", exc_info=True)
+                raise
 
     async def astream(self, prompt: str, system_prompt: Optional[str] = None) -> AsyncGenerator[str, None]:
         """Stream chunks from LLM for live interactive chat"""

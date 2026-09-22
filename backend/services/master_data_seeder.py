@@ -146,6 +146,19 @@ AUTHORITATIVE_HIERARCHY_DATA = [
         "firkas": [
             ("Thalavadi", "தாளவாடி")
         ]
+    },
+    {
+        "division_name_en": "Gobichettipalayam Division",
+        "division_name_tamil": "கோபிசெட்டிபாளையம் வருவாய் கோட்டம்",
+        "taluk_name_en": "Nambiyur",
+        "taluk_name_tamil": "நம்பியூர்",
+        "sub_departments": "Revenue Administration, Agricultural Extension, Rural Development",
+        "local_body_type": "Nambiyur Selection Grade Town Panchayat & Rural Village Panchayats",
+        "firkas": [
+            ("Nambiyur", "நம்பியூர்"),
+            ("Kadathur", "கடத்தூர்"),
+            ("Kosanam", "கோசணம்")
+        ]
     }
 ]
 

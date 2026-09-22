@@ -325,6 +325,7 @@ function Workstation({ session, onLogout }) {
           }}
           isCollapsed={isSidebarCollapsed}
           onToggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+          currentLanguage={currentLanguage}
         />
 
         {/* Main Application Content Area */}
@@ -420,6 +421,10 @@ function Workstation({ session, onLogout }) {
           {activeModule === 'profile' && (
             <ProfileView
               officerProfile={officerProfile}
+              loginRole={session?.role}
+              isAdmin={session?.role === 'admin'}
+              currentLanguage={currentLanguage}
+              onSaveProfile={handleSaveProfile}
             />
           )}
 

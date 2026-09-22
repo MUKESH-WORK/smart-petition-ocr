@@ -158,10 +158,16 @@ class Officer(Base):
     __tablename__ = "officers"
 
     officer_id = Column(String(50), primary_key=True)
-    name_tamil = Column(String(100))
-    designation = Column(String(100))
-    department = Column(String(50))
+    name = Column(String(100), nullable=True)
+    name_tamil = Column(String(100), nullable=True)
+    email = Column(String(150), nullable=True)
+    mobile = Column(String(20), nullable=True)
+    designation = Column(String(100), nullable=True)
+    department = Column(String(100), nullable=True)
+    is_admin = Column(Boolean, default=False)
+    status = Column(String(20), default="Active")
     taluk_access = Column(SafeArray(String(10)))
+    last_login = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 
@@ -174,12 +180,14 @@ class Source(Base):
     file_type = Column(String(20), nullable=False)
     file_size_bytes = Column(Integer)
     file_hash = Column(String(64), unique=True)
+    phash = Column(String(64), nullable=True)
     page_count = Column(Integer, default=0)
     status = Column(String(30), default="uploaded")
     content_fingerprint = Column(SafeJSON, nullable=True)
     file_data = Column(LargeBinary, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
 
 
 class OCRResult(Base):
@@ -340,4 +348,17 @@ class AuditLog(Base):
     action = Column(String(100), nullable=False)
     details = Column(SafeJSON)
     ip_address = Column(SafeINET, nullable=True)
+
+
+class SemanticCacheRecord(Base):
+    __tablename__ = "semantic_cache"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    prompt_hash = Column(String(64), index=True, nullable=False)
+    prompt_snippet = Column(Text, nullable=True)
+    embedding = Column(SafeVector(384), nullable=True)
+    response_json = Column(SafeJSON, nullable=False)
+    hit_count = Column(Integer, default=1)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    last_accessed_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 

@@ -550,6 +550,50 @@
   margin: 0;
 }
 
+/* Summary Translation Action Dock */
+.summary-translation-dock {
+  display: inline-flex;
+  align-items: center;
+}
+
+.summary-trans-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background-color: #FFFFFF;
+  border: 1.5px solid #102C57;
+  color: #102C57;
+  padding: 4px 10px;
+  border-radius: var(--radius-pill, 9999px);
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all var(--transition-fast, 0.15s ease);
+  box-shadow: 0 1px 4px rgba(16, 44, 87, 0.1);
+}
+
+.summary-trans-icon-btn:hover:not(:disabled) {
+  background-color: #102C57;
+  color: #FEFAF6;
+  transform: translateY(-1px);
+  box-shadow: 0 3px 8px rgba(16, 44, 87, 0.2);
+}
+
+.summary-trans-icon-btn .trans-icon {
+  color: inherit;
+  flex-shrink: 0;
+}
+
+.summary-trans-icon-btn .trans-lang-pill {
+  letter-spacing: 0.02em;
+}
+
+.summary-trans-icon-btn:disabled {
+  opacity: 0.7;
+  cursor: wait;
+}
+
+
 /* 2. CHAT MESSAGES */
 .conversation-messages-scroll-area {
   flex: 1;

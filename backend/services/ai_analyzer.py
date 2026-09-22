@@ -295,8 +295,14 @@ class AIAnalyzer:
             f_gsub = "Storm Water Drains - MAWS"
             f_subdept = "Commissionerate of Municipal Administration (CMA)"
             f_respoff = "Commissioner Municipality, Commissioner Municipal Corporation, Executive Officer - Town Panchayat"
+        elif "கல்வி" in (detected_category + " " + doc_text) or "scholarship" in doc_text.lower() or "கல்வி உதவி" in doc_text:
+            dept = "Higher Education Department (HIGHEDU)"
+            f_gtype = "Scholarship - High Edu"
+            f_gsub = "Scholarship - High Edu"
+            f_subdept = "Director Of Collegiate Education"
+            f_respoff = "Joint Director of Collegiate Education"
         else:
-            dept = "Higher Education Department (HIGHEDU)" if "கல்வி" in (detected_category + " " + doc_text) else "General Administration"
+            dept = "General Administration"
             f_gtype = detected_category
             f_gsub = f"{detected_category} கோரிக்கை"
 
@@ -484,23 +490,47 @@ class AIAnalyzer:
             candidates_json=candidates_json
         )
 
-        fast_timeout = float(getattr(settings, "LLM_FAST_TIMEOUT", 50.0))
+        fast_timeout = float(getattr(settings, "LLM_FAST_TIMEOUT", 75.0))
         llm_data: Dict[str, Any] = {}
         raw_response = ""
 
+        # 2a. Check AI Semantic Cache (bypasses LLM in ~30ms if >=0.92 cosine match found)
         try:
-            logger.info(f"🤖 Sending document ({len(doc_context)} chars) to LLM for extraction (timeout={fast_timeout}s)...")
-            raw_response = await asyncio.wait_for(
-                self.llm.achat(prompt, system_prompt=SYSTEM_PROMPT_COGNITIVE, temperature=0.1, max_tokens=250, json_mode=True),
-                timeout=fast_timeout
-            )
-            parsed = extract_json_object(raw_response)
-            if parsed and isinstance(parsed, dict):
-                llm_data = parsed
-                logger.info(f"✅ LLM successfully extracted details for petitioner: {llm_data.get('Petitioner_Name') or llm_data.get('petitioner_name')}")
-        except Exception as e:
-            logger.warning(f"Notice: LLM extraction timed out or returned error: {e}. Utilizing fallback grounding.", exc_info=True)
-            llm_data = fallback_analysis
+            from services.semantic_cache import semantic_cache
+            cache_hit = await semantic_cache.lookup(db, prompt)
+            if cache_hit and cache_hit.get("data"):
+                logger.info(f"⚡ [SEMANTIC CACHE HIT] Bypassing LLM: {cache_hit.get('cache_type')} (sim={cache_hit.get('similarity')})")
+                llm_data = cache_hit["data"]
+        except Exception as c_err:
+            logger.debug(f"Semantic cache lookup note: {c_err}")
+
+        if not llm_data:
+            try:
+                logger.info(f"🤖 Sending document ({len(doc_context)} chars) to LLM for extraction (timeout={fast_timeout}s)...")
+                llm_max_t = min(getattr(settings, "LLM_MAX_TOKENS", 1024), 1024)
+                # HTTP timeout must exceed asyncio.wait_for timeout so the coroutine
+                # cancellation (from wait_for) fires first, ensuring clean shutdown.
+                http_timeout = fast_timeout + 15.0
+                raw_response = await asyncio.wait_for(
+                    self.llm.achat(prompt, system_prompt=SYSTEM_PROMPT_COGNITIVE, temperature=0.1, max_tokens=llm_max_t, json_mode=True, timeout=http_timeout),
+                    timeout=fast_timeout
+                )
+                parsed = extract_json_object(raw_response)
+                if parsed and isinstance(parsed, dict):
+                    llm_data = parsed
+                    logger.info(f"✅ LLM successfully extracted details for petitioner: {llm_data.get('Petitioner_Name') or llm_data.get('petitioner_name')}")
+                    # Asynchronously populate semantic cache
+                    try:
+                        from services.semantic_cache import semantic_cache
+                        await semantic_cache.store(db, prompt, parsed)
+                    except Exception as s_err:
+                        logger.debug(f"Semantic cache store notice: {s_err}")
+            except asyncio.TimeoutError:
+                logger.warning(f"Notice: LLM extraction timed out after {fast_timeout}s. Utilizing fallback grounding.")
+                llm_data = fallback_analysis
+            except Exception as e:
+                logger.warning(f"Notice: LLM extraction returned error: {repr(e)}. Utilizing fallback grounding.", exc_info=True)
+                llm_data = fallback_analysis
 
         # Extract & prioritize Zone A applicant name / verified Stage-C entities, falling back to LLM values
         cand_llm_name = clean_field(llm_data.get("Petitioner_Name")) or clean_field(llm_data.get("petitioner_name"))
@@ -531,11 +561,16 @@ class AIAnalyzer:
         )
         if p_complainant:
             p_complainant = re.sub(r'[\(\)0-9#*]', '', p_complainant).strip(',.-: ')
-            if (
+            if is_same_person_or_invalid(p_complainant, p_name):
+                if p_complainant and not any(skip in p_complainant for skip in INVALID_VALUES):
+                    # If complainant/signatory has initials at the front (e.g. ச. க. பிரித்தி) and p_name has trailing (பிரித்தி . க)
+                    if re.search(r'^[A-Za-z\u0B80-\u0BFF][\.\s]+', p_complainant) or len(p_complainant) >= len(p_name or ""):
+                        p_name = p_complainant
+                p_complainant = None
+            elif (
                 len(p_complainant) < 2 or
                 p_complainant.lower() in INVALID_VALUES or
-                p_complainant == p_name or
-                is_same_person_or_invalid(p_complainant, p_name)
+                p_complainant == p_name
             ):
                 p_complainant = None
 
@@ -572,7 +607,7 @@ class AIAnalyzer:
             ):
                 f_name = None
 
-        p_gender = clean_field(llm_data.get("gender")) or None
+        p_gender = clean_field(llm_data.get("Gender")) or clean_field(llm_data.get("gender")) or None
 
         # 1. Disambiguate Petitioner vs Father/Husband relationships:
         cand_wife = None
@@ -638,6 +673,14 @@ class AIAnalyzer:
                 p_gender = "Male"
             elif not p_name and cand_son:
                 p_name = cand_son
+                p_gender = "Male"
+
+        if not p_gender and p_name:
+            clean_n = re.sub(r'^(?:[A-Za-z\u0B80-\u0BFF][\.\s]+)+', '', p_name).strip()
+            clean_n = re.sub(r'(?:[\.\s]+[A-Za-z\u0B80-\u0BFF])+$', '', clean_n).strip()
+            if any(clean_n.endswith(suffix) for suffix in ["தி", "வி", "தா", "யா", "மா", "ரி", "ள்", "அம்மாள்", "அம்மா", "மேரி", "பிரித்தி"]):
+                p_gender = "Female"
+            elif any(clean_n.endswith(suffix) for suffix in ["ன்", "ர்", "அன்", "குமார்", "ராஜா", "சாமி", "நாதன்", "வேல்"]):
                 p_gender = "Male"
 
         # Signature fallback: Scan closing block (near இப்படிக்கு or last lines)
@@ -882,8 +925,10 @@ class AIAnalyzer:
         elif any(k in (p_gtype + " " + p_gsub + " " + doc_context).lower() for k in ["scholarship", "கல்வி உதவி", "கல்வி உதவித்தொகை", "கல்லூரி படிப்பு", "பல்கலைக்கழக"]):
             if "higher education" not in p_dept.lower() and "social justice" not in p_dept.lower() and "minorities" not in p_dept.lower():
                 p_dept = "Higher Education Department (HIGHEDU)"
-                if "scholarship" not in p_gsub.lower():
-                    p_gsub = "Scholarship - High Edu"
+            p_gtype = "Scholarship - High Edu"
+            p_gsub = "Scholarship - High Edu"
+            p_subdept = "Director Of Collegiate Education"
+            p_resp_off = "Joint Director of Collegiate Education"
 
         # Domain routing: Information Technology / TACTV / Aadhaar Enrolment
         # NOTE: Only match if grievance itself is about Aadhaar/eSevai, NEVER on attachment notes (e.g. 3. ஆதார் நகல்)

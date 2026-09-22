@@ -1,8 +1,9 @@
+import json
 from enum import Enum
 from typing import List, Optional, Any, Dict, Union
 from uuid import UUID
 from datetime import datetime
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class SourceStatus(str, Enum):
@@ -135,6 +136,17 @@ class AIAnalysisResponse(BaseModel):
     hallucination_score: float = 0.0
     grounding_score: float = 1.0
     generated_at: Optional[datetime] = None
+
+    @field_validator("action_items", "claims", mode="before")
+    @classmethod
+    def parse_json_strings(cls, v):
+        if isinstance(v, str):
+            try:
+                parsed = json.loads(v)
+                return parsed if isinstance(parsed, list) else []
+            except Exception:
+                return []
+        return v or []
 
 
 # --- Chat & RAG Schemas ---

@@ -4,18 +4,26 @@ import { uploadAndAnalyzePetition } from '../../services/apiService';
 import './Upload.css';
 
 const PROCESSING_STEPS = [
-  { id: 1, label: 'Document uploaded', detail: 'Received securely into memory' },
-  { id: 2, label: 'Reading document', detail: 'Parsing document structure & pages' },
-  { id: 3, label: 'Detecting language', detail: 'Tamil (94%) & English bilingual recognized' },
-  { id: 4, label: 'Extracting text', detail: 'Optical character recognition complete' },
-  { id: 5, label: 'Generating petition summary', detail: 'Synthesizing core grievance and background' },
-  { id: 6, label: 'Ready for understanding', detail: 'Summary & conversation stream prepared' }
+  { id: 1, label: 'Document Received', detail: 'Received securely and validated into memory' },
+  { id: 2, label: 'Optical Character Recognition', detail: 'High-precision bilingual Tamil & English OCR' },
+  { id: 3, label: 'Semantic Vector Indexing', detail: 'Generating 384-d dense embeddings & chunking' },
+  { id: 4, label: 'Entity & Location Resolution', detail: 'Extracting petitioner info & mapping to official taluk/block' },
+  { id: 5, label: 'CM Grievance RAG Mapping', detail: 'Deterministic 3-tier routing across 40 departments' },
+  { id: 6, label: 'Dossier Ready for Review', detail: 'Structured grievance draft synthesized for officer sign-off' }
 ];
 
 export default function ProcessingOverlay({ petition, onComplete, onCancel }) {
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
   const [pipelineError, setPipelineError] = useState(null);
   const [retryNonce, setRetryNonce] = useState(0);
+  const [telemetry, setTelemetry] = useState({
+    stageName: 'uploaded',
+    stageLabel: 'Document Received',
+    pageCount: 1,
+    chunkCount: 0,
+    entityCount: 0,
+    ocrConfidence: null
+  });
 
   const handleRetry = useCallback(() => {
     setPipelineError(null);
@@ -27,15 +35,24 @@ export default function ProcessingOverlay({ petition, onComplete, onCancel }) {
     let isMounted = true;
     const abortController = new AbortController();
 
-    // Visual progression ticker so UI smoothly shows active steps
-    const t1 = setTimeout(() => { if (isMounted) setCurrentStepIndex((p) => Math.max(p, 1)); }, 400);
-    const t2 = setTimeout(() => { if (isMounted) setCurrentStepIndex((p) => Math.max(p, 2)); }, 1200);
-    const t3 = setTimeout(() => { if (isMounted) setCurrentStepIndex((p) => Math.max(p, 3)); }, 2200);
-    const t4 = setTimeout(() => { if (isMounted) setCurrentStepIndex((p) => Math.max(p, 4)); }, 3500);
-
-    const onProgressCallback = (stepIdx) => {
-      if (isMounted) {
-        setCurrentStepIndex((prev) => Math.max(prev, stepIdx));
+    // Pure server-driven progress callback — ZERO artificial timers
+    const onProgressCallback = (data) => {
+      if (!isMounted) return;
+      if (typeof data === 'object' && data !== null) {
+        if (typeof data.stepIndex === 'number') {
+          setCurrentStepIndex((prev) => Math.max(prev, data.stepIndex));
+        }
+        setTelemetry((prev) => ({
+          ...prev,
+          stageName: data.stageName || prev.stageName,
+          stageLabel: data.stageLabel || prev.stageLabel,
+          pageCount: data.pageCount || prev.pageCount,
+          chunkCount: data.chunkCount !== undefined ? data.chunkCount : prev.chunkCount,
+          entityCount: data.entityCount !== undefined ? data.entityCount : prev.entityCount,
+          ocrConfidence: data.ocrConfidence !== undefined ? data.ocrConfidence : prev.ocrConfidence
+        }));
+      } else if (typeof data === 'number') {
+        setCurrentStepIndex((prev) => Math.max(prev, data));
       }
     };
 
@@ -53,7 +70,7 @@ export default function ProcessingOverlay({ petition, onComplete, onCancel }) {
           if (isMounted) {
             onComplete(realAnalyzedDoc || petition);
           }
-        }, 600);
+        }, 500);
       })
       .catch((err) => {
         if (!isMounted || abortController.signal.aborted) return;
@@ -64,10 +81,6 @@ export default function ProcessingOverlay({ petition, onComplete, onCancel }) {
     return () => {
       isMounted = false;
       abortController.abort();
-      clearTimeout(t1);
-      clearTimeout(t2);
-      clearTimeout(t3);
-      clearTimeout(t4);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [petition, retryNonce]);
@@ -103,6 +116,42 @@ export default function ProcessingOverlay({ petition, onComplete, onCancel }) {
             className="processing-bar-fill" 
             style={{ width: `${progressPercent}%` }}
           ></div>
+        </div>
+
+        {/* Real-time Server Stage Telemetry Banner */}
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: '8px',
+          padding: '8px 12px',
+          background: 'rgba(16, 44, 87, 0.04)',
+          border: '1px solid var(--border-subtle)',
+          borderRadius: '6px',
+          margin: '10px 0 14px 0',
+          fontSize: '0.75rem',
+          color: 'var(--text-secondary)'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 600, color: '#102C57' }}>
+            <span style={{
+              width: '8px',
+              height: '8px',
+              borderRadius: '50%',
+              background: pipelineError ? '#ef4444' : '#10b981',
+              display: 'inline-block',
+              boxShadow: pipelineError ? 'none' : '0 0 6px #10b981'
+            }} />
+            <span>Server Stage: {telemetry.stageLabel}</span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <span>Pages: <strong>{telemetry.pageCount}</strong></span>
+            <span>Chunks: <strong>{telemetry.chunkCount}</strong></span>
+            <span>Entities: <strong>{telemetry.entityCount}</strong></span>
+            {telemetry.ocrConfidence !== null && (
+              <span style={{ color: '#047857', fontWeight: 600 }}>Confidence: <strong>{telemetry.ocrConfidence}%</strong></span>
+            )}
+          </div>
         </div>
 
         {/* Processing Steps List */}

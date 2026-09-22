@@ -502,8 +502,12 @@ class CMHelplineTaxonomyValidator:
         }
 
 
-# Singleton instance loaded dynamically from cm_helpline_taxonomy.json alone
-taxonomy_matcher = CMHelplineTaxonomyValidator()
+# Backward compatibility and new CM Grievance Mapper aliases
+CMGrievanceMapper = CMHelplineTaxonomyValidator
 TaxonomyMatcher = CMHelplineTaxonomyValidator
 CMHelplineTaxonomyMatcher = CMHelplineTaxonomyValidator
+
+# Singleton instance loaded dynamically from database alone
+taxonomy_matcher = CMHelplineTaxonomyValidator()
+cm_grievance_mapper = taxonomy_matcher
 

@@ -1434,3 +1434,141 @@ async def delete_taxonomy_mapping(
         logger.debug(f"Taxonomy matcher cache refresh: {e}")
 
     return {"status": "success", "deleted_id": item_id}
+
+
+# ── CM Grievance Ingestion Channels Endpoints ──────────────────────────────
+
+@router.get("/channels")
+async def list_intake_channels(
+    current_officer: dict = Depends(get_current_officer),
+    db: AsyncSession = Depends(get_admin_db)
+):
+    """
+    Returns all 21 official CM Grievance Ingestion Channels grouped by category.
+    """
+    rows = (await db.execute(text("""
+        SELECT id, category, channel_name, channel_code, is_active, description
+        FROM cm_grievance_channels
+        ORDER BY id ASC
+    """))).fetchall()
+
+    channels = [{
+        "id": r[0],
+        "category": r[1],
+        "channel_name": r[2],
+        "channel_code": r[3],
+        "is_active": bool(r[4]),
+        "description": r[5] or ""
+    } for r in rows]
+
+    return {"total": len(channels), "channels": channels}
+
+
+@router.post("/channels", status_code=status.HTTP_201_CREATED)
+async def create_intake_channel(
+    payload: dict,
+    current_officer: dict = Depends(get_current_officer),
+    db: AsyncSession = Depends(get_admin_db)
+):
+    """
+    Creates a new grievance ingestion channel.
+    Restricted to Administrators.
+    """
+    _require_admin(current_officer)
+    category = payload.get("category", "digital_direct").strip()
+    name = payload.get("channel_name", "").strip()
+    code = payload.get("channel_code", "").strip().upper()
+    desc = payload.get("description", "").strip()
+
+    if not name or not code:
+        raise HTTPException(status_code=400, detail="channel_name and channel_code are required.")
+
+    await db.execute(text("""
+        INSERT INTO cm_grievance_channels (category, channel_name, channel_code, is_active, description)
+        VALUES (:cat, :name, :code, 1, :desc)
+    """), {"cat": category, "name": name, "code": code, "desc": desc})
+
+    officer_id = current_officer.get("officer_id") or current_officer.get("id") or "ADMIN"
+    await db.execute(text("""
+        INSERT INTO admin_activity_log (id, type, detail, officer_id)
+        VALUES (:id, 'CREATE', :detail, :officer_id)
+    """), {
+        "id": f"ACT-CH-{uuid.uuid4().hex[:8].upper()}",
+        "detail": f"Created new intake channel: {name} ({code}) under {category}",
+        "officer_id": officer_id
+    })
+    await db.commit()
+
+    return {"status": "success", "channel_code": code}
+
+
+@router.put("/channels/{channel_id}")
+async def update_intake_channel(
+    channel_id: int,
+    payload: dict,
+    current_officer: dict = Depends(get_current_officer),
+    db: AsyncSession = Depends(get_admin_db)
+):
+    """
+    Updates an intake channel's active status, description, or title.
+    Restricted to Administrators.
+    """
+    _require_admin(current_officer)
+    exist = (await db.execute(text("SELECT * FROM cm_grievance_channels WHERE id = :id"), {"id": channel_id})).mappings().one_or_none()
+    if not exist:
+        raise HTTPException(status_code=404, detail="Channel not found.")
+
+    category = payload.get("category", exist["category"])
+    name = payload.get("channel_name", exist["channel_name"])
+    code = payload.get("channel_code", exist["channel_code"])
+    is_active = 1 if payload.get("is_active", exist["is_active"]) else 0
+    desc = payload.get("description", exist["description"])
+
+    await db.execute(text("""
+        UPDATE cm_grievance_channels
+        SET category = :cat, channel_name = :name, channel_code = :code, is_active = :act, description = :desc
+        WHERE id = :id
+    """), {"cat": category, "name": name, "code": code, "act": is_active, "desc": desc, "id": channel_id})
+
+    officer_id = current_officer.get("officer_id") or current_officer.get("id") or "ADMIN"
+    await db.execute(text("""
+        INSERT INTO admin_activity_log (id, type, detail, officer_id)
+        VALUES (:id, 'UPDATE', :detail, :officer_id)
+    """), {
+        "id": f"ACT-CH-{uuid.uuid4().hex[:8].upper()}",
+        "detail": f"Updated intake channel #{channel_id}: {name} ({code}) - Active: {bool(is_active)}",
+        "officer_id": officer_id
+    })
+    await db.commit()
+
+    return {"status": "success", "channel_id": channel_id}
+
+
+@router.delete("/channels/{channel_id}")
+async def delete_intake_channel(
+    channel_id: int,
+    current_officer: dict = Depends(get_current_officer),
+    db: AsyncSession = Depends(get_admin_db)
+):
+    """
+    Deletes an intake channel. Restricted to Administrators.
+    """
+    _require_admin(current_officer)
+    exist = (await db.execute(text("SELECT * FROM cm_grievance_channels WHERE id = :id"), {"id": channel_id})).mappings().one_or_none()
+    if not exist:
+        raise HTTPException(status_code=404, detail="Channel not found.")
+
+    await db.execute(text("DELETE FROM cm_grievance_channels WHERE id = :id"), {"id": channel_id})
+    officer_id = current_officer.get("officer_id") or current_officer.get("id") or "ADMIN"
+    await db.execute(text("""
+        INSERT INTO admin_activity_log (id, type, detail, officer_id)
+        VALUES (:id, 'DELETE', :detail, :officer_id)
+    """), {
+        "id": f"ACT-CH-{uuid.uuid4().hex[:8].upper()}",
+        "detail": f"Deleted intake channel #{channel_id}: {exist['channel_name']}",
+        "officer_id": officer_id
+    })
+    await db.commit()
+
+    return {"status": "success", "deleted_id": channel_id}
+

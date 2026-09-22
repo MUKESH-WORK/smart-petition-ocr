@@ -4,12 +4,14 @@ import crypto from 'crypto'
 import os from 'os'
 import net from 'net'
 
-// Dynamic backend port detection (auto-checks 8000, 8001, or process.env.BACKEND_PORT)
+// System-independent backend detection
+const backendHost = process.env.BACKEND_HOST || '127.0.0.1'
 let activeBackendPort = Number(process.env.BACKEND_PORT || process.env.VITE_BACKEND_PORT || 8000)
+const explicitBackendUrl = process.env.VITE_BACKEND_URL || process.env.BACKEND_URL || null
 
-function checkBackendPort(port) {
+function checkBackendPort(port, host = backendHost) {
   return new Promise((resolve) => {
-    const socket = net.createConnection({ port, host: '127.0.0.1', timeout: 500 }, () => {
+    const socket = net.createConnection({ port, host, timeout: 500 }, () => {
       socket.destroy()
       resolve(true)
     })
@@ -19,59 +21,62 @@ function checkBackendPort(port) {
 }
 
 async function updateActiveBackendPort() {
-  if (process.env.BACKEND_PORT) {
-    activeBackendPort = Number(process.env.BACKEND_PORT)
+  if (explicitBackendUrl || process.env.BACKEND_PORT) {
+    if (process.env.BACKEND_PORT) activeBackendPort = Number(process.env.BACKEND_PORT)
     return
   }
-  const is8000 = await checkBackendPort(8000)
+  const is8000 = await checkBackendPort(8000, backendHost)
   if (is8000) {
     activeBackendPort = 8000
     return
   }
-  const is8001 = await checkBackendPort(8001)
+  const is8001 = await checkBackendPort(8001, backendHost)
   if (is8001) {
     activeBackendPort = 8001
   }
 }
 
 updateActiveBackendPort()
-setInterval(updateActiveBackendPort, 3000)
-
+if (!explicitBackendUrl) {
+  setInterval(updateActiveBackendPort, 5000)
+}
 
 // In-memory store for upload sessions during dev server execution
 const sessions = new Map()
 
-// Helper to get local Wi-Fi / Hotspot IP address
+// Helper to get local network IP address (cross-platform: Linux, macOS, Windows, Docker)
 function getLocalIpAddress() {
+  if (process.env.VITE_PUBLIC_URL || process.env.PUBLIC_URL) {
+    return null
+  }
   try {
     const interfaces = os.networkInterfaces()
-    const allIps = []
+    const candidates = []
     
-    for (const name of Object.keys(interfaces)) {
-      for (const iface of interfaces[name]) {
-        if (iface.family === 'IPv4' && !iface.internal) {
-          allIps.push({ name, address: iface.address })
+    for (const [name, ifaceList] of Object.entries(interfaces)) {
+      if (!ifaceList) continue
+      for (const iface of ifaceList) {
+        if (iface.family === 'IPv4' && !iface.internal && iface.address !== '127.0.0.1') {
+          candidates.push({ name: name.toLowerCase(), address: iface.address })
         }
       }
     }
 
-    // 1. Prioritize active Wi-Fi / Ethernet adapter connected to the shared hotspot or router
-    const wifiIp = allIps.find(i => (i.name.toLowerCase() === 'wi-fi' || i.name.toLowerCase() === 'wlan' || i.name.toLowerCase() === 'ethernet') && i.address !== '127.0.0.1')
-    if (wifiIp) return wifiIp.address
+    if (candidates.length === 0) return null
 
-    // 2. Wi-Fi substrings
-    const wifiSubIp = allIps.find(i => (i.name.toLowerCase().includes('wi-fi') || i.name.toLowerCase().includes('wlan') || i.name.toLowerCase().includes('ethernet')) && !i.name.toLowerCase().includes('virtual') && !i.name.toLowerCase().includes('direct'))
-    if (wifiSubIp) return wifiSubIp.address
+    // 1. Prefer physical Wi-Fi / Ethernet / ens / eth adapters
+    const primary = candidates.find(c => 
+      c.name.includes('wi-fi') || c.name.includes('wlan') || 
+      c.name.includes('eth') || c.name.includes('en')
+    )
+    if (primary) return primary.address
 
-    // 3. Windows direct hotspot adapter fallback
-    const hotspotIp = allIps.find(i => i.address === '192.168.137.1')
-    if (hotspotIp) return hotspotIp.address
-
-    if (allIps.length > 0) return allIps[0].address
+    // 2. Default to first detected IPv4 address
+    return candidates[0].address
   } catch {
-    // Ignore network interface errors
+    // Ignore network interface discovery errors
+    return null
   }
-  return null
 }
 
 // Cleanup sessions older than 15 minutes
@@ -272,27 +277,27 @@ function qrUploadApiPlugin() {
 export default defineConfig({
   plugins: [react(), qrUploadApiPlugin()],
   server: {
-    host: true, // Listen on all network interfaces for mobile phone access on Wi-Fi
-    port: 5174,
+    host: true, // Listen on all network interfaces
+    port: Number(process.env.PORT || process.env.VITE_PORT || 5174),
     proxy: {
       '/api/v1': {
-        target: 'http://127.0.0.1:8000',
+        target: explicitBackendUrl || `http://${backendHost}:${activeBackendPort}`,
         changeOrigin: true,
-        router: () => `http://127.0.0.1:${activeBackendPort}`,
+        router: () => explicitBackendUrl || `http://${backendHost}:${activeBackendPort}`,
         configure: (proxy) => {
           proxy.on('error', (err, req, res) => {
             updateActiveBackendPort()
             if (err.code === 'ECONNREFUSED') {
-              console.warn(`[vite proxy] Backend (127.0.0.1:${activeBackendPort}) offline/restarting (${req.url})`)
+              const targetDesc = explicitBackendUrl || `${backendHost}:${activeBackendPort}`
+              console.warn(`[vite proxy] Backend (${targetDesc}) offline/restarting (${req.url})`)
               if (res && !res.headersSent) {
                 res.writeHead(503, { 'Content-Type': 'application/json' })
-                res.end(JSON.stringify({ error: `Backend server (127.0.0.1:${activeBackendPort}) is starting up. Please retry in a few seconds.` }))
+                res.end(JSON.stringify({ error: `Backend server (${targetDesc}) is starting up. Please retry in a few seconds.` }))
               }
             }
           })
         }
       }
     }
-
   }
 })

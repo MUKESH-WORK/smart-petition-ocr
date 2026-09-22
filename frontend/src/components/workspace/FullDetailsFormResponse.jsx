@@ -73,7 +73,7 @@ export default function FullDetailsFormResponse({ initialDetails }) {
 
   return (
     <div className="full-details-form-container" role="region" aria-label="Full Petition Details">
-      
+
       {/* Response Main Title */}
       <div className="full-details-header-row">
         <h4 className="full-details-main-heading">FULL PETITION DETAILS</h4>
@@ -85,7 +85,7 @@ export default function FullDetailsFormResponse({ initialDetails }) {
       <div className="portal-sub-section">
         <div className="portal-sub-section-header">
           <span className="portal-section-badge">I</span>
-          <h5 className="portal-section-title">I) .Petitioner/மனுதாரர்</h5>
+          <h5 className="portal-section-title">.Petitioner/மனுதாரர்</h5>
         </div>
 
         <div className="full-details-form-grid">
@@ -116,7 +116,7 @@ export default function FullDetailsFormResponse({ initialDetails }) {
       <div className="portal-sub-section">
         <div className="portal-sub-section-header">
           <span className="portal-section-badge">II</span>
-          <h5 className="portal-section-title">II) Grievance Details</h5>
+          <h5 className="portal-section-title"> Grievance Details</h5>
         </div>
 
         <div className="full-details-form-grid">
@@ -171,13 +171,13 @@ export default function FullDetailsFormResponse({ initialDetails }) {
       <div className="portal-sub-section">
         <div className="portal-sub-section-header">
           <span className="portal-section-badge">III</span>
-          <h5 className="portal-section-title">III) Communication Address</h5>
+          <h5 className="portal-section-title"> Communication Address</h5>
         </div>
 
         <div className="full-details-form-grid">
           {/* 32.Select if different from above/மேலே உள்ள முகவரியில் தங்கவில்லை என்றால்(yes/no) */}
-          <FieldDisplayBox 
-            label="32.Select if different from above/மேலே உள்ள முகவரியில் தங்கவில்லை என்றால்(yes/no)" 
+          <FieldDisplayBox
+            label="32.Select if different from above/மேலே உள்ள முகவரியில் தங்கவில்லை என்றால்(yes/no)"
             value={data.communicationAddressSame}
             isFullWidth
           />

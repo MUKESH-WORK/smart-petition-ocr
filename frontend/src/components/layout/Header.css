@@ -86,45 +86,50 @@
   gap: 12px;
 }
 
-/* Compact Language Toggle (English | தமிழ்) */
-.header-lang-toggle {
+/* Language Translation Icon Button */
+.header-lang-icon-btn {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 7px;
   background: rgba(234, 219, 200, 0.15);
-  border: 1px solid rgba(218, 192, 163, 0.35);
+  border: 1px solid rgba(218, 192, 163, 0.4);
   border-radius: var(--radius-pill);
-  padding: 2px 6px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
-}
-
-.lang-option-btn {
-  background: transparent;
-  border: none;
+  padding: 5px 12px;
   color: #EADBC8;
-  font-size: var(--font-size-btn-secondary);
-  font-weight: 600;
-  padding: 4px 10px;
-  border-radius: var(--radius-pill);
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: all var(--transition-fast, 0.15s ease);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
 }
 
-.lang-option-btn:hover {
-  color: #FEFAF6;
+.header-lang-icon-btn:hover {
+  background: rgba(234, 219, 200, 0.28);
+  border-color: rgba(218, 192, 163, 0.7);
+  color: #FFFFFF;
+  transform: translateY(-1px);
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.3);
 }
 
-.lang-option-btn.active {
-  background: #FEFAF6;
-  color: #102C57;
+.header-lang-icon-btn .lang-icon {
+  color: #DAC0A3;
+  transition: transform 0.2s ease;
+}
+
+.header-lang-icon-btn:hover .lang-icon {
+  color: #FFFFFF;
+  transform: rotate(15deg);
+}
+
+.header-lang-icon-btn .lang-active-tag {
+  font-size: 0.8rem;
   font-weight: 700;
-  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.25);
+  letter-spacing: 0.02em;
+  color: #FFFFFF;
+  background: rgba(254, 250, 246, 0.18);
+  padding: 2px 7px;
+  border-radius: 9999px;
+  border: 1px solid rgba(218, 192, 163, 0.35);
 }
 
-.lang-sep {
-  color: rgba(218, 192, 163, 0.4);
-  font-size: var(--font-size-btn-secondary);
-}
 
 /* Officer Profile Badge & Dropdown */
 .officer-profile-wrapper {
