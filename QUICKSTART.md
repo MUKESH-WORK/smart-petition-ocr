@@ -53,7 +53,18 @@ python run.py --setup
 ```
 *(Or activate manually from the root: `activate.bat` on Windows or `source backend/.venv/bin/activate` on Linux).*
 
-#### Step 3: Run in Development Mode (Hot-Reloading)
+#### Step 3: Environment Configuration
+```bash
+# Copy the template and customize
+cp .env.example .env    # Linux / macOS
+Copy-Item .env.example .env    # Windows PowerShell
+```
+
+**Minimum required changes:**
+- Set a secure `SECRET_KEY` for JWT authentication
+- *(Optional)* Add `DATALAB_API_KEY` for cloud-powered OCR, or leave blank for local PaddleOCR
+
+#### Step 4: Run in Development Mode (Hot-Reloading)
 ```bash
 # Terminal 1: Backend (FastAPI with Uvicorn Reload)
 python run.py --reload --backend-only
@@ -62,6 +73,27 @@ python run.py --reload --backend-only
 cd frontend
 npm run dev
 ```
+
+---
+
+## 🐳 Option C: Docker Compose (Containerized)
+
+```bash
+# Copy environment template
+cp .env.example .env
+
+# Launch all services (PostgreSQL + Backend + Frontend)
+docker compose up -d
+
+# Verify services are running
+docker compose ps
+```
+
+| Service | Container | Port | Description |
+| :--- | :--- | :---: | :--- |
+| PostgreSQL 16 + pgvector | `gdp_postgres` | 5432 | Database with vector search |
+| FastAPI Backend | `gdp_backend` | 8000 | API server |
+| React Frontend (Nginx) | `gdp_frontend` | 5174 | Admin portal |
 
 ---
 
@@ -76,6 +108,8 @@ The local database is pre-seeded with authoritative officer roles for testing:
 | **Sub-Collector / RDO** | `RDO-ERODE-001` | **Department User** | Erode Revenue Division |
 | **Tahsildar (Erode)** | `TAH-ERD-001` | **Field Officer** | Erode Taluk Desk |
 | **Tahsildar (Bhavani)** | `TAH-BHV-001` | **Field Officer** | Bhavani Taluk Desk |
+
+> **Note**: Only users with the **District Administrator** role have access to edit officer profiles and manage taxonomy/hierarchy data. Department Users and Field Officers have read-only access to these modules.
 
 ---
 
@@ -104,11 +138,26 @@ python scripts/manage_db.py sync-to-postgres --postgres-url "postgresql+asyncpg:
 
 ## 🧪 Running Automated Tests
 
+### Backend Tests
 Verify backend pipeline integrity and OCR fallback logic:
 ```bash
 python run.py --test
+# Or run directly:
+cd backend && pytest tests/ -v
 ```
-*(Or run `pytest backend/tests/ -v` directly).*
+
+### Frontend Validation
+```bash
+cd frontend
+npm run build    # Verify production build
+npm run lint     # Run OxLint static analysis
+```
+
+### Admin Model Unit Tests
+```bash
+cd frontend
+node --test src/components/admin/adminModel.test.js
+```
 
 ---
 
@@ -118,4 +167,19 @@ Once running:
 - **Civil Desk Workspace**: [`http://localhost:5174`](http://localhost:5174)
 - **FastAPI OpenAPI Interactive Docs**: [`http://127.0.0.1:8000/api/v1/docs`](http://127.0.0.1:8000/api/v1/docs)
 - **Database & Health Telemetry**: [`http://127.0.0.1:8000/api/v1/health`](http://127.0.0.1:8000/api/v1/health)
+- **Translation API**: [`http://127.0.0.1:8000/api/v1/translate`](http://127.0.0.1:8000/api/v1/translate)
 - **Mobile QR Capture Bridge**: Built into the frontend header for scanning physical petitions with any mobile device camera.
+
+---
+
+## ❓ Troubleshooting
+
+| Symptom | Cause | Fix |
+| :--- | :--- | :--- |
+| `ModuleNotFoundError` on backend start | Virtual environment not activated | Run `activate.bat` (Windows) or `source backend/.venv/bin/activate` (Linux) |
+| Port 8000 already in use | Another process using the port | Kill the process: `netstat -ano \| findstr 8000` then `taskkill /F /PID <pid>` |
+| Port 5174 already in use | Another Vite dev server running | Close the other server or change port in `vite.config.js` |
+| Tamil text misaligned | Missing Tamil fonts | Install `Noto Sans Tamil` from Google Fonts |
+| OCR returns empty text | No API key and PaddleOCR not installed | Set `DATALAB_API_KEY` in `.env` or install PaddleOCR: `pip install paddleocr paddlepaddle` |
+| Database not found | Fresh clone without seeding | Run `python scripts/manage_db.py seed-fresh` |
+| Docker build fails | Missing Dockerfile | Ensure you're running from the repository root with `docker compose up` |

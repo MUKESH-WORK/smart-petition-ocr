@@ -69,12 +69,12 @@ Before writing code, please review the core architectural tenets governing GDP A
 
 1. Fork the repository on GitHub:
    ```bash
-   git clone https://github.com/<your-username>/GDP_Assistant.git
-   cd GDP_Assistant
+   git clone https://github.com/<your-username>/smart-petition-ocr.git
+   cd smart-petition-ocr
    ```
 2. Set up the upstream remote:
    ```bash
-   git remote add upstream https://github.com/original-org/GDP_Assistant.git
+   git remote add upstream https://github.com/MUKESH-WORK/smart-petition-ocr.git
    ```
 
 ### Branching Conventions
@@ -164,6 +164,25 @@ We strictly follow the **Conventional Commits** specification:
 
 ---
 
+## Dynamic Translation Guidelines
+
+GDP Assistant uses **real-time LLM-powered translation** (no hardcoded dictionaries). When contributing UI changes:
+
+1. **Never hardcode translations**: Do not add static Tamil strings in frontend components. Use the `useDynamicTranslation` hook or `translateDynamic` utility from `src/utils/translations.js`.
+2. **Batch translate**: Group related UI labels into a single batch request to minimize LLM API calls.
+3. **Tamil font stack**: Always use the `field-input-tamil` CSS class for Tamil text inputs to ensure proper rendering with `Noto Sans Tamil` / `Latha` / `Tamil Sangam MN`.
+4. **Translation API**: The backend endpoint `POST /api/v1/translate` accepts `{ texts: [...], target_language: "ta" }` for batch translation.
+
+## Intake Channel Contributions
+
+The system supports **21 official intake channels** (see [README.md](README.md#-intake-channels-21-sources)). When adding new channels:
+
+1. Add the channel definition to `frontend/src/data/` with proper metadata (name, category, Tamil translation).
+2. Update the admin taxonomy modal if the channel requires new department routing logic.
+3. Ensure the backend ingestion API handles the new channel type.
+
+---
+
 ## Coding & Style Standards
 
 ### Python Backend Guidelines
@@ -195,6 +214,12 @@ All new features and bug fixes must include unit or integration tests:
    ```bash
    cd frontend
    npm run build
+   npm run lint
+   ```
+3. **Admin Model Unit Tests**:
+   ```bash
+   cd frontend
+   node --test src/components/admin/adminModel.test.js
    ```
 
 Ensure all tests pass and static checks report zero errors before opening a pull request.

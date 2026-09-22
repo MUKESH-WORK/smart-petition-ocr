@@ -30,6 +30,13 @@ GDP Assistant processes citizen grievance petitions for revenue administration. 
    - In enterprise production mode, PostgreSQL 16 connections must use SSL (`sslmode=require`) with non-root roles.
 4. **Air-Gapped & Offline Safety**:
    - OCR, vector embedding generation, and entity parsing are designed to run fully offline without exfiltrating document images or text chunks to third-party public cloud APIs.
+5. **Role-Based Access Control (RBAC)**:
+   - Profile editing is restricted to users with `is_admin: true` (District Administrator role).
+   - Non-admin users (Department Users, Field Officers) see all profile data in read-only mode.
+   - Taxonomy and hierarchy management endpoints require admin role verification.
+6. **Dynamic Translation Security**:
+   - Translation requests are processed server-side via the LLM engine; no citizen PII should be included in translation payloads.
+   - Translation responses are cached in-memory (LRU) and never persisted to disk or logs.
 
 ---
 

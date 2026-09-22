@@ -136,12 +136,18 @@ curl -s -H "X-Officer-Id: ADM-ERODE-001" http://127.0.0.1:8000/api/v1/admin/hier
 
 # 3. Taxonomy Stats Endpoint
 curl -s -H "X-Officer-Id: ADM-ERODE-001" http://127.0.0.1:8000/api/v1/admin/taxonomy/stats | jq .
+
+# 4. Dynamic Translation Service (verify LLM connectivity)
+curl -s -X POST http://127.0.0.1:8000/api/v1/translate \
+  -H "Content-Type: application/json" \
+  -d '{"texts": ["System health check"], "target_language": "ta"}' | jq .
 ```
 Verify that:
 - `admin_db.status` is `"connected"`.
 - `user_db.status` is `"connected"`.
 - Hierarchy counts reflect active district figures (Zones: 4, Taluks: 9, Firkas: 33, Municipalities: 5, Villages: 375, Wards: 60).
 - Total taxonomy mappings reflect `1,861`.
+- Translation API returns a valid Tamil translation (confirms LLM engine is operational).
 
 ### Phase 5: Rollback Strategy (If Critical Anomalies Occur)
 If the service fails to start or database connectivity is lost:
@@ -161,11 +167,55 @@ If the service fails to start or database connectivity is lost:
 
 ---
 
-## 4. Operational Maintenance & Monitoring
+## 4. Docker Compose Deployment
+
+For containerized deployments using Docker:
+
+### Quick Start
+```bash
+# 1. Copy and configure environment
+cp .env.example .env
+# Edit .env with production values (SECRET_KEY, POSTGRES_PASSWORD, etc.)
+
+# 2. Build and launch all services
+docker compose up -d --build
+
+# 3. Verify all containers are healthy
+docker compose ps
+
+# 4. View logs
+docker compose logs -f backend
+docker compose logs -f frontend
+```
+
+### Architecture
+```
+docker compose up -d
+├── gdp_postgres   (pgvector/pgvector:pg16)  → Port 5432
+├── gdp_backend    (Python 3.11 + FastAPI)   → Port 8000
+└── gdp_frontend   (Node 20 + Nginx)         → Port 5174
+```
+
+### Scaling Backend Workers
+```bash
+docker compose up -d --scale backend=3
+```
+
+### Stopping & Cleanup
+```bash
+docker compose down          # Stop containers
+docker compose down -v       # Stop + remove volumes (⚠️ deletes database)
+```
+
+---
+
+## 5. Operational Maintenance & Monitoring
 
 - **Log Inspections**: `journalctl -u gdp-backend -f -n 100` (ensure zero citizen PII).
+- **Docker Logs**: `docker compose logs -f --tail=100 backend`.
 - **Disk Usage**: Keep `temp_cache/` and `uploads/` monitored to ensure storage doesn't exceed workstation capacity.
 - **Scheduled Backups**: Set up a weekly cron job on the production server:
   ```cron
   0 2 * * 0 /usr/bin/python3 /opt/smart-petition-ocr/scripts/manage_db.py export --output /var/backups/gdp/weekly_$(date +\%Y\%m\%d).tar.gz
   ```
+- **Translation Cache**: The LLM translation engine uses an LRU cache. No manual cache management needed, but restart the backend to clear the cache if translations seem stale.
