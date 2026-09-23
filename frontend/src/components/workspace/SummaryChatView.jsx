@@ -41,6 +41,40 @@ export default function SummaryChatView({ petition, onLogUserMessage }) {
   const [dynamicSummary, setDynamicSummary] = useState({});
   const [isTranslatingSummary, setIsTranslatingSummary] = useState(false);
 
+  // Track prompts that have been clicked/asked in this session
+  const [usedPrompts, setUsedPrompts] = useState(new Set());
+
+  const conversationScrollRef = useRef(null);
+  const textareaRef = useRef(null);
+
+  // Extract structured portal details safely
+  const details = petition ? (petition.portalDetails || extractPetitionDetails(petition) || {}) : {};
+
+  // Auto-scroll ONLY when new messages arrive in chat tab
+  useEffect(() => {
+    if (activeTab === 'chat' && conversationScrollRef.current && (conversation.length > 0 || isTyping)) {
+      conversationScrollRef.current.scrollTo({
+        top: conversationScrollRef.current.scrollHeight,
+        behavior: 'smooth'
+      });
+    }
+  }, [conversation, isTyping, activeTab]);
+
+  // Adjust textarea height on input change
+  useEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+      textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 120)}px`;
+    }
+  }, [inputValue]);
+
+  // Compute active contextual suggestions dynamically
+  const lastUserMessage = conversation
+    .filter((m) => m.sender === 'officer')
+    .slice(-1)[0]?.text || '';
+
+  const activeSuggestions = getContextualSuggestions(lastUserMessage, usedPrompts);
+
   // Handle translation toggle with real API fallback
   const handleToggleSummaryLanguage = async (targetLang) => {
     if (targetLang === summaryLang) return;
@@ -61,7 +95,7 @@ export default function SummaryChatView({ petition, onLogUserMessage }) {
         }
       }
     } else if (targetLang === 'ta') {
-      if (petition?.summaryTamil || petition?.summary || dynamicSummary.ta) return;
+      if (petition?.summaryTamil || dynamicSummary.ta) return;
       const baseText = petition?.summaryEnglish || details.description;
       if (baseText) {
         setIsTranslatingSummary(true);
@@ -75,6 +109,157 @@ export default function SummaryChatView({ petition, onLogUserMessage }) {
         }
       }
     }
+  };
+
+  const handleSendMessage = (textToSend) => {
+    const query = (textToSend || inputValue).trim();
+    if (!query) return;
+
+    setActiveTab('chat');
+    setUsedPrompts((prev) => new Set([...prev, query.toLowerCase().trim()]));
+
+    if (onLogUserMessage) {
+      onLogUserMessage(query, petition);
+    }
+
+    const userMessage = {
+      id: `msg-user-${Date.now()}`,
+      sender: 'officer',
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      text: query
+    };
+
+    setConversation((prev) => [...prev, userMessage]);
+    setInputValue('');
+    setIsTyping(true);
+
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+    }
+
+    const isFullDetails = isFullDetailsQuery(query);
+
+    if (isFullDetails) {
+      setTimeout(() => {
+        const fullDetailsData = extractPetitionDetails(petition);
+        const assistantMessage = {
+          id: `msg-ai-${Date.now()}`,
+          sender: 'assistant',
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          isFullDetails: true,
+          details: fullDetailsData
+        };
+        setConversation((prev) => [...prev, assistantMessage]);
+        setIsTyping(false);
+      }, 350);
+    } else {
+      askDocumentAssistant(petition?.source_id, query, petition)
+        .then((replyText) => {
+          const assistantMessage = {
+            id: `msg-ai-${Date.now()}`,
+            sender: 'assistant',
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            isFullDetails: false,
+            text: replyText
+          };
+          setConversation((prev) => [...prev, assistantMessage]);
+        })
+        .catch(() => {
+          const fallbackText = getSmartAssistantReply(query, petition);
+          const assistantMessage = {
+            id: `msg-ai-${Date.now()}`,
+            sender: 'assistant',
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            isFullDetails: false,
+            text: fallbackText
+          };
+          setConversation((prev) => [...prev, assistantMessage]);
+        })
+        .finally(() => {
+          setIsTyping(false);
+        });
+    }
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSendMessage();
+    }
+  };
+
+  const handleChipClick = (suggestion) => {
+    if (suggestion === 'Full Details') {
+      setActiveTab('details');
+    } else {
+      handleSendMessage(suggestion);
+    }
+  };
+
+  const handleClearConversation = () => {
+    setConversation([]);
+    setUsedPrompts(new Set());
+  };
+
+  // Copy full structured petition fields summary to clipboard
+  const handleCopyAllDetails = () => {
+    const lines = [
+      `=== TAMIL NADU GRIEVANCE PETITION DETAILS ===`,
+      `I) .Petitioner/மனுதாரர்`,
+      `1. Name/பெயர்*: ${details.petitionerName || 'Not found'}`,
+      `2. Email/மின்னஞ்சல்: ${details.email || 'Not found'}`,
+      `3. Phone/தொலைபேசி*: ${details.phoneNumber || 'Not found'}`,
+      `4. Is this your own number/இது தங்களது கைப்பேசி எண்ணா(yes or no): ${details.isOwnNumber || 'Not mentioned'}`,
+      `5. Alternate Phone Number/மாற்று தொலைபேசி எண்: ${details.alternatePhone || 'Not found'}`,
+      `6. Address*: ${details.address || 'Not found'}`,
+      `7. Please enter your gender*: ${details.gender || 'Not mentioned'}`,
+      `8. Are You a Differently Abled Person*(yes/no/-None-): ${details.differentlyAbled || 'No'}`,
+      `9. சமூகம்/தனிப்பட்ட குறை*(Public/personal): ${details.petitionerCategory || 'Personal / தனிப்பட்ட குறை'}`,
+      ``,
+      `II) Grievance Details`,
+      `10. Description *: ${details.description || petition?.summary || 'Not found'}`,
+      `12. Grievance Source/குறைக்கான ஆதாரம்*: ${details.grievanceSource || 'Collectorate Grievance Day Petition'}`,
+      `13. Ref Number: ${details.referenceNumber || 'Not found'}`,
+      `14. Government Department / குறை தொடர்புடைய அரசு துறை*: ${details.governmentDepartment || 'Not found'}`,
+      `15. Local Body Type*: ${details.localBodyType || 'Rural / கிராமப்புறம்'}`,
+      `16. Grievance Type/குறையின் வகை*: ${details.grievanceType || 'Not found'}`,
+      `17. Grievance SubType / குறையின்துணை வகை*: ${details.grievanceSubType || 'Not found'}`,
+      `18. District/ மாவட்டம்*: ${details.district || 'Erode / ஈரோடு'}`,
+      `19. Sub Department/குறை தொடர்புடைய துணைத்துறை*: ${details.subDepartment || 'Not found'}`,
+      `20. Ward/வார்டு: ${details.ward || 'Not found'}`,
+      `21. Municipality Ward/நகராட்சி வார்டு: ${details.municipalityWard || 'Not found'}`,
+      `22. Block/வட்டாரம்*: ${details.block || 'Not found'}`,
+      `23. Taluk/வட்டம்: ${details.taluk || 'Not found'}`,
+      `24. Revenue Division/உட்கோட்டம்*: ${details.revenueDivision || 'Erode / ஈரோடு'}`,
+      `25. Firka/ குறுவட்டம்: ${details.firka || 'Not found'}`,
+      `26. Street Name/தெருவின் பெயர்: ${details.streetName || 'Not found'}`,
+      `27. Door No/கதவு எண்: ${details.doorNumber || 'Not found'}`,
+      `28. Responsible Officer/பொறுப்பு அதிகாரி*: ${details.responsibleOfficer || 'District Revenue Officer / மாவட்ட வருவாய் அலுவலர்'}`,
+      `29. Fisheries Region: ${details.fisheriesRegion || 'Not found'}`,
+      `30. Fisheries Division *: ${details.fisheriesDivision || 'Not found'}`,
+      `31. Reason for Redirection: ${details.reasonForRedirection || 'Not applicable / பொருந்தாது'}`,
+      ``,
+      `III) Communication Address`,
+      `32. Select if different from above/மேலே உள்ள முகவரியில் தங்கவில்லை என்றால்(yes/no): ${details.communicationAddressSame || 'No'}`,
+      ``,
+      `Grievance Status/குறையின் நிலை`,
+      `33. Due Date/தீர்வு நாள் dd MMM yyyy hh:mm: ${details.dueDate || '31 Aug 2026 17:00'}`,
+      `35. Status */நிலை*: ${details.status || 'Open / நிலுவையில் உள்ளது'}`,
+      `36. Source Code: ${details.sourceCode || 'GDP - Grievance Day Petition'}`,
+      `37. Grievance ID-TN/AHFISH/ERD/P/{Mode}/31AUG26/g: ${details.grievanceId || 'TN/AHFISH/ERD/P/OFFLINE/31AUG26/001'}`,
+      `38. Priority: ${details.priority || 'Medium'}`,
+      `39. Call Disposition: ${details.callDisposition || 'Registered / பதிவு செய்யப்பட்டது'}`,
+      `40. Is Whatsapp Appeal (yes/no): ${details.isWhatsappAppeal || 'No'}`,
+      `41. Is Whatsapp Tracking (yes/no): ${details.isWhatsappTracking || 'Yes'}`,
+      `42. Is Whatsapp Receipt (yes/no): ${details.isWhatsappReceipt || 'Yes'}`,
+      `43. Ex-Army Petition Details Relationship with Ex-servicemen(yes/no): ${details.relationshipWithExServicemen || 'No'}`,
+      `=============================================`
+    ];
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(lines.join('\n'));
+    }
+    setCopiedAll(true);
+    setTimeout(() => setCopiedAll(false), 2000);
   };
 
   // Helper to render bold text and linebreaks
@@ -99,8 +284,6 @@ export default function SummaryChatView({ petition, onLogUserMessage }) {
     });
   };
 
-  const hasActionItems = Array.isArray(petition?.actionItems) && petition.actionItems.length > 0;
-  
   let displaySummary = 'மனு விவரங்கள் பதிவு செய்யப்பட்டுள்ளன.';
   if (summaryLang === 'en') {
     displaySummary = petition?.summaryEnglish || dynamicSummary.en || petition?.summary || 'Petition details recorded.';

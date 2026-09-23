@@ -43,7 +43,9 @@ uploads/
 **/uploads/
 backend/uploads/
 /data/
-backend/data/
+backend/data/*
+!backend/data/*.json
+!backend/data/README.md
 
 # Environment files & Secrets
 .env
