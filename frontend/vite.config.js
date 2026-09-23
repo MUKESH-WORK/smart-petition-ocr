@@ -36,9 +36,13 @@ async function updateActiveBackendPort() {
   }
 }
 
-updateActiveBackendPort()
-if (!explicitBackendUrl) {
-  setInterval(updateActiveBackendPort, 5000)
+let portInterval = null
+export function startPortPoller() {
+  if (!portInterval && !explicitBackendUrl) {
+    updateActiveBackendPort()
+    portInterval = setInterval(updateActiveBackendPort, 5000)
+    if (portInterval.unref) portInterval.unref()
+  }
 }
 
 // In-memory store for upload sessions during dev server execution
@@ -79,20 +83,23 @@ function getLocalIpAddress() {
   }
 }
 
-// Cleanup sessions older than 15 minutes
-setInterval(() => {
-  const now = Date.now()
-  for (const [id, session] of sessions.entries()) {
-    if (now - session.createdAt > 15 * 60 * 1000) {
-      sessions.delete(id)
-    }
-  }
-}, 60 * 1000)
-
 function qrUploadApiPlugin() {
   return {
     name: 'qr-petition-upload-api',
     configureServer(server) {
+      startPortPoller()
+      
+      // Cleanup sessions older than 15 minutes
+      const cleanupInterval = setInterval(() => {
+        const now = Date.now()
+        for (const [id, session] of sessions.entries()) {
+          if (now - session.createdAt > 15 * 60 * 1000) {
+            sessions.delete(id)
+          }
+        }
+      }, 60 * 1000)
+      if (cleanupInterval.unref) cleanupInterval.unref()
+
       server.middlewares.use(async (req, res, next) => {
         const url = new URL(req.url, `http://${req.headers.host}`)
         const pathname = url.pathname
