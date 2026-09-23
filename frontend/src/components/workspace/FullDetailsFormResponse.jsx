@@ -133,16 +133,18 @@ export default function FullDetailsFormResponse({ initialDetails }) {
           <FieldDisplayBox label="16 .Grievance Type/குறையின் வகை*" value={data.grievanceType} />
 
           {/* Row 4: Left: 17 .Grievance SubType / குறையின்துணை வகை*, Right: 18.District/ மாவட்டம்* */}
-          <FieldDisplayBox label="17 .Grievance SubType / குறையின்துணை வகை*" value={data.grievanceSubType} />
-          <FieldDisplayBox label="18.District/ மாவட்டம்*" value={data.district} />
+          <FieldDisplayBox label="17.District/ மாவட்டம்*" value={data.district} />
+          <FieldDisplayBox label="18 .Grievance SubType / குறையின்துணை வகை*" value={data.grievanceSubType} />
 
           {/* Row 5: Left: 19.Sub Department/குறை தொடர்புடைய துணைத்துறை*, Right: 20.Ward/வார்டு */}
-          <FieldDisplayBox label="19.Sub Department/குறை தொடர்புடைய துணைத்துறை*" value={data.subDepartment} />
-          <FieldDisplayBox label="20.Ward/வார்டு" value={data.ward} />
+          <FieldDisplayBox label="19.Ward/வார்டு" value={data.ward} />
+          <FieldDisplayBox label="20.Sub Department/குறை தொடர்புடைய துணைத்துறை*" value={data.subDepartment} />
+
 
           {/* Row 6: Left: 21 .Municipality Ward/நகராட்சி வார்டு, Right: 22.Block/வட்டாரம்* */}
-          <FieldDisplayBox label="21 .Municipality Ward/நகராட்சி வார்டு" value={data.municipalityWard} />
-          <FieldDisplayBox label="22.Block/வட்டாரம்*" value={data.block} />
+          <FieldDisplayBox label="21.Block/வட்டாரம்*" value={data.block} />
+          <FieldDisplayBox label="22 .Municipality Ward/நகராட்சி வார்டு" value={data.municipalityWard} />
+
 
           {/* Row 7: Left: 23.Taluk/வட்டம், Right: 24 .Revenue Division/உட்கோட்டம்* */}
           <FieldDisplayBox label="23.Taluk/வட்டம்" value={data.taluk} />

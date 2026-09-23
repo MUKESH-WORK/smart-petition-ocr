@@ -1,0 +1,40 @@
+# Root .dockerignore for GDP Assistant
+.git
+.gitignore
+.agents
+.skills
+.vscode
+.idea
+*.log
+*.tmp
+*.bak*
+
+# Virtual environments
+.venv
+venv
+ENV
+env
+backend/.venv
+frontend/node_modules
+
+# Python cache & test artifacts
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache
+.coverage
+htmlcov
+
+# Node & frontend build outputs
+frontend/dist
+.npm
+
+# Temporary cache and binary uploads
+temp_cache
+backend/temp_cache
+uploads
+backend/uploads
+models_cache
+backend/models_cache
+scratch

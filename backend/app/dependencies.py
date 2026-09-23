@@ -22,24 +22,6 @@ async def get_current_officer(
         token = authorization[7:].strip()
         payload = decode_access_token(token)
         if payload and "officer_id" in payload:
-            oid = payload["officer_id"]
-            from models.database import AdminAsyncSessionLocal
-            try:
-                async with AdminAsyncSessionLocal() as a_db:
-                    res = await a_db.execute(
-                        text("SELECT status FROM admin_users WHERE id = :id LIMIT 1"),
-                        {"id": oid}
-                    )
-                    st = res.scalar()
-                    if st == "Suspended":
-                        raise HTTPException(
-                            status_code=status.HTTP_403_FORBIDDEN,
-                            detail="This account has been suspended by District Administration. Access is blocked."
-                        )
-            except HTTPException:
-                raise
-            except Exception:
-                pass
             return payload
 
     if x_officer_id and x_officer_id.strip():
@@ -53,11 +35,6 @@ async def get_current_officer(
                 )
                 u = res.mappings().one_or_none()
                 if u:
-                    if u.get("status") == "Suspended":
-                        raise HTTPException(
-                            status_code=status.HTTP_403_FORBIDDEN,
-                            detail="This account has been suspended by District Administration. Access is blocked."
-                        )
                     return {
                         "officer_id": u["id"],
                         "name": u["name"],

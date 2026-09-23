@@ -29,9 +29,14 @@ if hasattr(sys.stdout, "reconfigure"):
 if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
-# Resolve base directories
+# Resolve base directories safely
 SCRIPT_DIR = Path(__file__).resolve().parent
-REPO_ROOT = SCRIPT_DIR.parent if SCRIPT_DIR.name == "scripts" else SCRIPT_DIR.parent.parent
+if SCRIPT_DIR.parent.name == "backend":
+    REPO_ROOT = SCRIPT_DIR.parent.parent
+elif SCRIPT_DIR.name == "backend":
+    REPO_ROOT = SCRIPT_DIR.parent
+else:
+    REPO_ROOT = SCRIPT_DIR.parent
 
 DB_PATHS = [
     REPO_ROOT / "temp_cache" / "dro_admin.db",
@@ -283,21 +288,25 @@ def cmd_dump_sql(args):
     print(f"\n🎉 SQL dumps generated successfully in {out_dir}")
 
 def cmd_seed_fresh(args):
-    """Executes the master data seeder to build fresh databases from source PDF."""
-    print("🌱 Running Master Data Seeder from source documents...")
+    """Executes the master data seeder to build fresh databases."""
+    print("🌱 Running Master Data Seeder...")
     import asyncio
-    sys.path.insert(0, str(REPO_ROOT / "backend"))
-    from services.master_data_seeder import seed_authoritative_hierarchy, seed_authoritative_taxonomy, seed_official_accounts
-    from models.database import get_admin_db, get_user_db
+    backend_path = REPO_ROOT / "backend"
+    if str(backend_path) not in sys.path:
+        sys.path.insert(0, str(backend_path))
+    from models.database import init_db_schema, get_admin_db
+    from services.master_data_seeder import seed_authoritative_hierarchy, seed_official_accounts, seed_master_data_if_needed
     
     async def _run():
+        print("  • Initializing database tables...")
+        await init_db_schema()
         async for db in get_admin_db():
             print("  • Seeding official accounts...")
             await seed_official_accounts(db)
             print("  • Seeding administrative hierarchy (Zones, Taluks, Firkas, Wards)...")
             await seed_authoritative_hierarchy(db)
-            print("  • Seeding CM Helpline taxonomy (40 departments, 1,861 mappings)...")
-            await seed_authoritative_taxonomy(db)
+            print("  • Initializing master data & vector embeddings if needed...")
+            await seed_master_data_if_needed()
             break
             
     asyncio.run(_run())

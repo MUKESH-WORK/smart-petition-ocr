@@ -20,7 +20,7 @@
 }
 
 .app-sidebar.sidebar-expanded {
-  width: 220px;
+  width: 260px;
 }
 
 .app-sidebar.sidebar-collapsed {
@@ -66,6 +66,7 @@
   align-items: center;
   gap: 12px;
   padding: 8px 12px;
+  min-height: 44px;
   border-radius: var(--radius-md);
   color: #EADBC8;
   background: transparent;
@@ -117,15 +118,20 @@
 .sidebar-item-label {
   font-size: var(--font-size-label);
   font-weight: 600;
-  white-space: nowrap;
-  line-height: 1.25;
+  line-height: 1.35;
+  white-space: normal;
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 
 .sidebar-item-sub {
   font-size: var(--font-size-btn-secondary);
   color: #DAC0A3;
-  white-space: nowrap;
-  margin-top: 2px;
+  line-height: 1.25;
+  white-space: normal;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  margin-top: 3px;
 }
 
 .sidebar-nav-item.collapse-item {

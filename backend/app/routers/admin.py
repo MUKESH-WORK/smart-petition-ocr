@@ -3,6 +3,7 @@ import json
 import hashlib
 import uuid
 import logging
+from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
@@ -86,11 +87,6 @@ async def admin_session_login(req: LoginRequest, db: AsyncSession = Depends(get_
         }
 
     user_status = user.get("status") or "Active"
-    if user_status == "Suspended":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="This account has been suspended by District Administration. Sign in is blocked."
-        )
 
     stored_hash = user.get("password_hash")
     if stored_hash and req.password:
@@ -104,6 +100,16 @@ async def admin_session_login(req: LoginRequest, db: AsyncSession = Depends(get_
             text("UPDATE admin_users SET status = 'Active', last_login = CURRENT_TIMESTAMP WHERE id = :id"),
             {"id": user["id"]}
         )
+        # Record live LOGIN activity event
+        await db.execute(text("""
+            INSERT INTO admin_activity_log (id, type, detail, officer_id, date)
+            VALUES (:id, 'LOGIN', :detail, :officer_id, :date)
+        """), {
+            "id": f"ACT-{uuid.uuid4().hex[:8]}",
+            "detail": f"Officer {user.get('name')} logged in (System status -> Active).",
+            "officer_id": user["id"],
+            "date": datetime.now(timezone.utc).isoformat()
+        })
         await db.commit()
     except Exception as e:
         logger.debug(f"Admin DB login update notice: {e}")
@@ -167,7 +173,6 @@ async def admin_session_logout(
 ):
     """
     Marks the user's status as Inactive upon logout.
-    Does not override Suspended status.
     """
     officer_id = (req.officer_id if req and req.officer_id else None) or (current_officer.get("officer_id") if current_officer else None)
     if not officer_id:
@@ -175,9 +180,19 @@ async def admin_session_logout(
 
     try:
         await db.execute(
-            text("UPDATE admin_users SET status = 'Inactive' WHERE id = :id AND status != 'Suspended'"),
+            text("UPDATE admin_users SET status = 'Inactive' WHERE id = :id"),
             {"id": officer_id}
         )
+        # Record live LOGOUT activity event
+        await db.execute(text("""
+            INSERT INTO admin_activity_log (id, type, detail, officer_id, date)
+            VALUES (:id, 'LOGOUT', :detail, :officer_id, :date)
+        """), {
+            "id": f"ACT-{uuid.uuid4().hex[:8]}",
+            "detail": f"Officer {officer_id} logged out (System status -> Inactive).",
+            "officer_id": officer_id,
+            "date": datetime.now(timezone.utc).isoformat()
+        })
         await db.commit()
     except Exception as e:
         logger.debug(f"Admin DB logout update notice: {e}")
@@ -186,7 +201,7 @@ async def admin_session_logout(
         from models.database import UserAsyncSessionLocal
         async with UserAsyncSessionLocal() as u_db:
             await u_db.execute(
-                text("UPDATE officers SET status = 'Inactive' WHERE officer_id = :id AND status != 'Suspended'"),
+                text("UPDATE officers SET status = 'Inactive' WHERE officer_id = :id"),
                 {"id": officer_id}
             )
             await u_db.commit()
@@ -344,18 +359,6 @@ async def update_my_profile(
             logger.debug(f"User DB officers profile sync notice: {e}")
 
     return {"status": "success", "message": "Profile updated successfully."}
-
-
-@router.get("/public-accounts")
-async def get_public_accounts(db: AsyncSession = Depends(get_admin_db)):
-    """Provides public list of active officer accounts for quick login selection in demo/pilot setups."""
-    try:
-        res = await db.execute(text("SELECT id, name, name_tamil, email, is_admin, status FROM admin_users ORDER BY is_admin DESC, id ASC"))
-        rows = res.mappings().all()
-        return [dict(r) for r in rows]
-    except Exception as e:
-        logger.warning(f"Could not load admin accounts: {e}")
-        return []
 
 
 class UserCreateRequest(BaseModel):
@@ -645,8 +648,8 @@ async def update_admin_user(
         except Exception as e:
             logger.debug(f"User DB officers update sync notice: {e}")
 
-        act_type = 'SUSPEND_USER' if req.status == 'Suspended' else ('REACTIVATE_USER' if (user.get('status') == 'Suspended' and req.status != 'Suspended') else 'UPDATE_USER')
-        act_detail = f"Suspended official account {user.get('name')} ({user_id})." if req.status == 'Suspended' else f"Updated user account {user.get('name')} ({user_id}) - status: {req.status or user.get('status')}."
+        act_type = 'PASSWORD_RESET' if (req.password and not any([req.name, req.email, req.mobile, req.department, req.status])) else 'UPDATE_USER'
+        act_detail = f"Updated password for {user.get('name')} ({user_id})." if act_type == 'PASSWORD_RESET' else f"Updated user account {user.get('name')} ({user_id}) - status: {req.status or user.get('status')}."
 
         await db.execute(text("""
             INSERT INTO admin_activity_log (id, type, detail, officer_id)
@@ -660,6 +663,50 @@ async def update_admin_user(
         await db.commit()
 
     return {"status": "success", "message": f"User {user_id} updated successfully."}
+
+
+class PasswordUpdateRequest(BaseModel):
+    password: str
+
+
+@router.put("/users/{user_id}/password")
+async def update_user_password(
+    user_id: str,
+    req: PasswordUpdateRequest,
+    current_officer: Dict[str, Any] = Depends(get_current_officer),
+    db: AsyncSession = Depends(get_admin_db)
+):
+    """
+    District Administrator sets/resets the official password for a specific user.
+    """
+    is_admin = current_officer.get("is_admin") or "ADM" in str(current_officer.get("officer_id", ""))
+    if not is_admin:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only District Administrators can change user passwords.")
+
+    if not req.password or len(req.password.strip()) < 8:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Password must be at least 8 characters long.")
+
+    res = await db.execute(text("SELECT id, name FROM admin_users WHERE id = :id LIMIT 1"), {"id": user_id})
+    user = res.mappings().one_or_none()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"User {user_id} not found.")
+
+    pwd_hash = _hash_password(req.password.strip())
+    await db.execute(text("UPDATE admin_users SET password_hash = :pwd_hash WHERE id = :id"), {"pwd_hash": pwd_hash, "id": user_id})
+
+    # Log password reset activity
+    await db.execute(text("""
+        INSERT INTO admin_activity_log (id, type, detail, officer_id)
+        VALUES (:id, :type, :detail, :officer_id)
+    """), {
+        "id": f"ACT-{uuid.uuid4().hex[:8]}",
+        "type": "PASSWORD_RESET",
+        "detail": f"Updated password for official account {user.get('name')} ({user_id}).",
+        "officer_id": current_officer.get("officer_id", "ADMIN")
+    })
+    await db.commit()
+
+    return {"status": "success", "message": f"Password for {user.get('name')} updated successfully."}
 
 
 @router.delete("/users/{user_id}")
@@ -717,25 +764,9 @@ async def get_admin_activity_log(
     db: AsyncSession = Depends(get_admin_db)
 ):
     """
-    Returns official admin audit and activity trails directly from admin_activity_log in Admin DB.
+    Returns official admin and grievance audit and activity trails directly from database.
     """
-    res = await db.execute(text("""
-        SELECT id, type, detail, date, officer_id 
-        FROM admin_activity_log 
-        ORDER BY date DESC 
-        LIMIT :limit
-    """), {"limit": limit})
-    rows = res.mappings().all()
-    return [
-        {
-            "id": r["id"],
-            "type": r["type"],
-            "detail": r["detail"],
-            "date": str(r["date"]) if r["date"] else None,
-            "officerId": r.get("officer_id") or "SYSTEM"
-        }
-        for r in rows
-    ]
+    return await _get_unified_live_activities(db, limit=limit)
 
 
 
@@ -1571,4 +1602,144 @@ async def delete_intake_channel(
     await db.commit()
 
     return {"status": "success", "deleted_id": channel_id}
+
+
+async def _get_unified_live_activities(
+    db: AsyncSession,
+    limit: int = 100,
+    officer_id: Optional[str] = None
+) -> List[Dict[str, Any]]:
+    """
+    Constructs a true unified real-time activity stream from:
+    1. Admin DB `admin_activity_log` (Logins, user CRUD, password resets, hierarchy, backups)
+    2. User DB `audit_log` (Petition uploads, OCR processing, AI extraction, approvals)
+    Normalized by timestamp in reverse chronological order.
+    Optionally filtered by officer_id.
+    """
+    combined = []
+    eff_officer = officer_id if (officer_id and officer_id not in ["all", "ALL", ""]) else None
+
+    # 1. Fetch from admin_activity_log
+    try:
+        if eff_officer:
+            sql_admin = """
+                SELECT id, type, detail, date, officer_id
+                FROM admin_activity_log
+                WHERE officer_id = :officer_id
+                ORDER BY CASE WHEN date IS NOT NULL THEN date ELSE '1970-01-01' END DESC
+                LIMIT :limit
+            """
+            res = await db.execute(text(sql_admin), {"officer_id": eff_officer, "limit": limit})
+        else:
+            sql_admin = """
+                SELECT id, type, detail, date, officer_id
+                FROM admin_activity_log
+                ORDER BY CASE WHEN date IS NOT NULL THEN date ELSE '1970-01-01' END DESC
+                LIMIT :limit
+            """
+            res = await db.execute(text(sql_admin), {"limit": limit})
+
+        for r in res.mappings().all():
+            combined.append({
+                "id": str(r["id"]),
+                "type": str(r["type"] or "UPDATE"),
+                "detail": str(r["detail"] or "Administrative event recorded"),
+                "date": str(r["date"]) if r.get("date") else datetime.now(timezone.utc).isoformat(),
+                "officer_id": str(r.get("officer_id") or "SYSTEM")
+            })
+    except Exception as e:
+        logger.debug(f"Admin activity fetch notice: {e}")
+
+    # 2. Fetch from User DB audit_log
+    try:
+        from models.database import UserAsyncSessionLocal
+        async with UserAsyncSessionLocal() as u_db:
+            if eff_officer:
+                sql_user = """
+                    SELECT id, timestamp, source_id, officer_id, action, details
+                    FROM audit_log
+                    WHERE officer_id = :officer_id
+                    ORDER BY timestamp DESC
+                    LIMIT :limit
+                """
+                u_res = await u_db.execute(text(sql_user), {"officer_id": eff_officer, "limit": limit})
+            else:
+                sql_user = """
+                    SELECT id, timestamp, source_id, officer_id, action, details
+                    FROM audit_log
+                    ORDER BY timestamp DESC
+                    LIMIT :limit
+                """
+                u_res = await u_db.execute(text(sql_user), {"limit": limit})
+
+            for r in u_res.mappings().all():
+                row_id = r["id"]
+                timestamp = r["timestamp"]
+                source_id = str(r["source_id"] or "")
+                row_officer_id = r.get("officer_id") or "SYSTEM"
+                action = str(r["action"] or "PETITION").upper()
+
+                details_raw = r.get("details")
+                try:
+                    details_obj = json.loads(details_raw) if isinstance(details_raw, str) else (details_raw or {})
+                except Exception:
+                    details_obj = {}
+
+                if action == "UPLOAD_PETITION":
+                    act_type = "UPLOAD"
+                    file_name = details_obj.get("file_name") or (f"Document {source_id[:8]}..." if source_id else "Petition document")
+                    detail = f"Uploaded petition document ({file_name})."
+                elif action == "ANALYSIS_COMPLETE":
+                    act_type = "PROCESS"
+                    detail = f"AI analysis and categorization completed for petition {source_id[:8] if source_id else ''}."
+                elif action == "OFFICER_APPROVED" or action == "APPROVE_AND_SUBMIT_PETITION":
+                    act_type = "APPROVE"
+                    dro_id = details_obj.get("dro_grievance_id")
+                    detail = f"Officer approved grievance draft {f'({dro_id})' if dro_id else ''} for petition {source_id[:8] if source_id else ''}."
+                elif action == "PUSH_TO_DRO":
+                    act_type = "INTEGRATE"
+                    detail = f"Pushed approved petition {source_id[:8] if source_id else ''} to Revenue (DRO) repository."
+                else:
+                    act_type = action.split("_")[0] if "_" in action else action
+                    detail = f"{action.replace('_', ' ').title()} - {source_id[:8] if source_id else ''}"
+
+                combined.append({
+                    "id": f"AUD-{row_id}",
+                    "type": act_type,
+                    "detail": detail,
+                    "date": str(timestamp) if timestamp else datetime.now(timezone.utc).isoformat(),
+                    "officer_id": str(row_officer_id)
+                })
+    except Exception as e:
+        logger.debug(f"User DB audit log merge notice: {e}")
+
+    # 3. Sort chronologically descending with timezone normalization
+    def _parse_sort_date(d_str: str) -> datetime:
+        try:
+            dt = datetime.fromisoformat(d_str.replace("Z", "+00:00"))
+        except Exception:
+            try:
+                dt = datetime.strptime(d_str[:19], "%Y-%m-%d %H:%M:%S")
+            except Exception:
+                return datetime.min.replace(tzinfo=timezone.utc)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+
+    combined.sort(key=lambda x: _parse_sort_date(x["date"]), reverse=True)
+    return combined[:limit]
+
+
+@router.get("/activity")
+async def get_admin_activity(
+    limit: int = 100,
+    officer_id: Optional[str] = None,
+    db: AsyncSession = Depends(get_admin_db)
+):
+    """
+    Returns real, live chronological administrative and grievance activity feed directly from databases.
+    Zero mock/hardcoded items.
+    """
+    return await _get_unified_live_activities(db, limit=limit, officer_id=officer_id)
+
 

@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { Eye, EyeOff, Plus, Search, Trash2, AlertTriangle, RefreshCw, ShieldAlert, CheckCircle2 } from 'lucide-react';
-import AdminDialog, { DialogActions } from './AdminDialog';
-import { createAdminUser, updateAdminUser, deleteAdminUser } from '../../services/apiService';
+import { Eye, EyeOff, Plus, Search, Trash2, AlertTriangle, RefreshCw, Key, UserCheck, ShieldCheck } from 'lucide-react';
+import AdminDialog from './AdminDialog';
+import { createAdminUser, updateAdminUser, deleteAdminUser, updateUserPassword } from '../../services/apiService';
+import { getTranslation } from '../../utils/translations';
 
-function PasswordField({ label, value, onChange, required }) {
+function PasswordField({ label, value, onChange, required, placeholder = '' }) {
   const [visible, setVisible] = useState(false);
   const id = label.toLowerCase().replaceAll(' ', '-');
   return (
@@ -18,6 +19,7 @@ function PasswordField({ label, value, onChange, required }) {
           autoComplete="new-password"
           required={required}
           minLength={8}
+          placeholder={placeholder}
         />
         <button
           type="button"
@@ -33,7 +35,105 @@ function PasswordField({ label, value, onChange, required }) {
   );
 }
 
-function UserDialog({ user, users, sections, onSaveSuccess, onDeleteSuccess, onClose }) {
+/**
+ * Dedicated Password Dialog for District Admin to update an official's password
+ */
+function PasswordDialog({ user, onSuccess, onClose }) {
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [error, setError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [successMsg, setSuccessMsg] = useState('');
+
+  async function handleSubmit(event) {
+    if (event) event.preventDefault();
+    setError('');
+    setSuccessMsg('');
+
+    if (!password || password.length < 8) {
+      setError('Password must be at least 8 characters long.');
+      return;
+    }
+    if (password !== confirmPassword) {
+      setError('Passwords do not match. Please verify.');
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      await updateUserPassword(user.id, password.trim());
+      setSuccessMsg(`Password for ${user.name} updated successfully.`);
+      if (onSuccess) await onSuccess();
+      setTimeout(() => {
+        onClose();
+      }, 1200);
+    } catch (err) {
+      setError(err.message || 'Failed to update official password.');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <AdminDialog title={`Edit Password: ${user.name}`} onClose={onClose}>
+      <form onSubmit={handleSubmit}>
+        <div style={{ background: 'var(--bg-canvas)', padding: '12px 16px', borderRadius: 'var(--radius-md)', marginBottom: '16px', border: '1px solid var(--border-subtle)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 600, color: 'var(--text-primary)' }}>
+            <Key size={16} style={{ color: 'var(--primary-brand)' }} />
+            <span>{user.name} ({user.id})</span>
+          </div>
+          <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+            {user.email} • {user.department || 'District Administration'}
+          </div>
+        </div>
+
+        <fieldset className="admin-fieldset" style={{ marginTop: 0 }}>
+          <legend>Set New Password</legend>
+          <div className="admin-form-grid">
+            <PasswordField
+              label="New Password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              placeholder="Minimum 8 characters"
+            />
+            <PasswordField
+              label="Confirm New Password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              required
+              placeholder="Re-enter password"
+            />
+          </div>
+        </fieldset>
+
+        {error && (
+          <p role="alert" className="admin-error">
+            {error}
+          </p>
+        )}
+
+        {successMsg && (
+          <div style={{ color: '#15803d', background: '#dcfce7', border: '1px solid #86efac', padding: '10px 12px', fontSize: '.84rem', borderRadius: 'var(--radius-md)', marginTop: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <ShieldCheck size={16} />
+            {successMsg}
+          </div>
+        )}
+
+        <div className="admin-dialog-actions" style={{ justifyContent: 'flex-end', gap: '8px' }}>
+          <button type="button" className="admin-button admin-button-secondary" onClick={onClose} disabled={submitting}>
+            Cancel
+          </button>
+          <button type="submit" className="admin-button" disabled={submitting}>
+            {submitting ? 'Updating Password…' : 'Save Password'}
+          </button>
+        </div>
+      </form>
+    </AdminDialog>
+  );
+}
+
+function UserDialog({ user, users, sections, onSaveSuccess, onDeleteSuccess, onOpenPasswordDialog, onClose }) {
   const edit = Boolean(user);
   const [form, setForm] = useState({
     name: user?.name || '',
@@ -42,7 +142,7 @@ function UserDialog({ user, users, sections, onSaveSuccess, onDeleteSuccess, onC
     email: user?.email || '',
     department: user?.department || 'Revenue Administration',
     role: user?.role || 'Department User',
-    status: user?.status || 'Active',
+    status: user?.status === 'Suspended' ? 'Inactive' : (user?.status || 'Active'),
     password: '',
     confirmPassword: ''
   });
@@ -75,10 +175,10 @@ function UserDialog({ user, users, sections, onSaveSuccess, onDeleteSuccess, onC
       return;
     }
     if (!edit && (!form.password || form.password.length < 8)) {
-      setError('Password must be at least 8 characters long.');
+      setError('Initial password must be at least 8 characters long.');
       return;
     }
-    if (form.password && form.password !== form.confirmPassword) {
+    if (!edit && form.password !== form.confirmPassword) {
       setError('Passwords do not match. Please verify.');
       return;
     }
@@ -94,9 +194,6 @@ function UserDialog({ user, users, sections, onSaveSuccess, onDeleteSuccess, onC
           department: form.department.trim(),
           status: form.status
         };
-        if (form.password && form.password.trim()) {
-          updatePayload.password = form.password.trim();
-        }
         await updateAdminUser(user.id, updatePayload);
       } else {
         const createPayload = {
@@ -135,13 +232,6 @@ function UserDialog({ user, users, sections, onSaveSuccess, onDeleteSuccess, onC
       setSubmitting(false);
     }
   }
-
-  const handleToggleSuspend = () => {
-    // If suspended, toggling unsuspend transitions to Inactive.
-    // When the user logs in, their status will become Active automatically.
-    const nextStatus = form.status === 'Suspended' ? 'Inactive' : 'Suspended';
-    setForm((prev) => ({ ...prev, status: nextStatus }));
-  };
 
   return (
     <AdminDialog title={edit ? `Edit User: ${user.name}` : 'Add Official Account'} onClose={onClose}>
@@ -201,26 +291,44 @@ function UserDialog({ user, users, sections, onSaveSuccess, onDeleteSuccess, onC
             <label className="admin-field admin-span-2">
               Account Status
               <select {...field('status')} disabled={isProtectedAdmin}>
-                <option value="Active">Active (Live Logged In)</option>
-                <option value="Inactive">Inactive (Logged Out)</option>
-                <option value="Suspended">Suspended (Admin Only - Login Blocked)</option>
+                <option value="Active">Active (Live Logged In / Enabled)</option>
+                <option value="Inactive">Inactive (Logged Out / Disabled)</option>
               </select>
             </label>
           </div>
         </fieldset>
 
-        <fieldset className="admin-fieldset">
-          <legend>{edit ? 'Change Password' : 'Initial Password'}</legend>
-          {edit && <p className="admin-note">Leave password fields blank to retain current password.</p>}
-          <div className="admin-form-grid">
-            <PasswordField label={edit ? 'New Password' : 'Password'} {...field('password')} required={!edit} />
-            <PasswordField
-              label={edit ? 'Confirm New Password' : 'Confirm Password'}
-              {...field('confirmPassword')}
-              required={!edit || Boolean(form.password)}
-            />
+        {!edit ? (
+          <fieldset className="admin-fieldset">
+            <legend>Initial Password</legend>
+            <div className="admin-form-grid">
+              <PasswordField label="Password" {...field('password')} required />
+              <PasswordField
+                label="Confirm Password"
+                {...field('confirmPassword')}
+                required
+              />
+            </div>
+          </fieldset>
+        ) : (
+          <div style={{ marginTop: '16px', padding: '12px 16px', background: 'var(--bg-canvas)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div>
+              <div style={{ fontWeight: 600, fontSize: '0.86rem', color: 'var(--text-primary)' }}>Account Security</div>
+              <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Need to reset or change this official's credentials?</div>
+            </div>
+            <button
+              type="button"
+              className="admin-button admin-button-secondary"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '0.82rem', padding: '6px 12px' }}
+              onClick={() => {
+                onClose();
+                onOpenPasswordDialog(user);
+              }}
+            >
+              <Key size={14} /> Edit Password
+            </button>
           </div>
-        </fieldset>
+        )}
 
         {error && (
           <p role="alert" className="admin-error">
@@ -255,54 +363,15 @@ function UserDialog({ user, users, sections, onSaveSuccess, onDeleteSuccess, onC
         <div className="admin-dialog-actions" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
             {edit && !confirmDelete && !isProtectedAdmin && (
-              <div style={{ display: 'inline-flex', gap: '8px', alignItems: 'center' }}>
-                <button
-                  type="button"
-                  className="admin-button admin-button-danger"
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-                  onClick={() => setConfirmDelete(true)}
-                  disabled={submitting}
-                >
-                  <Trash2 size={16} /> Delete
-                </button>
-                {form.status === 'Suspended' ? (
-                  <button
-                    type="button"
-                    className="admin-button"
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '5px',
-                      backgroundColor: '#dcfce7',
-                      color: '#15803d',
-                      border: '1px solid #86efac'
-                    }}
-                    onClick={handleToggleSuspend}
-                    disabled={submitting}
-                    title="Unsuspend this account (sets to Inactive until user logs in)"
-                  >
-                    <CheckCircle2 size={15} /> Unsuspend (Set Inactive)
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    className="admin-button"
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '5px',
-                      backgroundColor: '#fee2e2',
-                      color: '#b91c1c',
-                      border: '1px solid #fca5a5'
-                    }}
-                    onClick={handleToggleSuspend}
-                    disabled={submitting}
-                    title="Suspend this user account immediately"
-                  >
-                    <ShieldAlert size={15} /> Suspend Account
-                  </button>
-                )}
-              </div>
+              <button
+                type="button"
+                className="admin-button admin-button-danger"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                onClick={() => setConfirmDelete(true)}
+                disabled={submitting}
+              >
+                <Trash2 size={16} /> Delete User
+              </button>
             )}
             {isProtectedAdmin && (
               <span className="admin-note" style={{ color: '#047857', fontWeight: 600 }}>
@@ -315,7 +384,7 @@ function UserDialog({ user, users, sections, onSaveSuccess, onDeleteSuccess, onC
               Cancel
             </button>
             <button type="submit" className="admin-button" disabled={submitting}>
-              {submitting ? 'Saving…' : edit ? 'Save Changes' : 'Create Account'}
+              {submitting ? 'Saving…' : edit ? 'Save Profile' : 'Create Account'}
             </button>
           </div>
         </div>
@@ -329,10 +398,12 @@ export default function UserManagement({
   loading = false,
   dbHealth = null,
   onRefreshUsers,
-  onReconnectDb
+  onReconnectDb,
+  currentLanguage = 'en'
 }) {
   const [filters, setFilters] = useState({ search: '', department: '', status: '' });
   const [dialog, setDialog] = useState(null);
+  const [passwordDialogUser, setPasswordDialogUser] = useState(null);
 
   // Common official sections
   const defaultSections = [
@@ -374,10 +445,10 @@ export default function UserManagement({
       <header className="admin-page-header">
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <h1>All Users</h1>
+            <h1>{getTranslation(currentLanguage, 'allUsers', 'All Users')}</h1>
             <span className={`admin-header-db-pill ${isDbDisconnected ? 'disconnected' : 'connected'}`}>
               <span className="dot" />
-              {isDbDisconnected ? 'Database Disconnected' : 'Live Database Connected'}
+              {isDbDisconnected ? getTranslation(currentLanguage, 'databaseDisconnected', 'Database Disconnected') : getTranslation(currentLanguage, 'databaseLive', 'Database Live')}
             </span>
           </div>
           <p aria-live="polite">
@@ -392,7 +463,7 @@ export default function UserManagement({
             disabled={loading}
             title="Refresh accounts from database"
           >
-            <RefreshCw size={16} className={loading ? 'spin-icon' : ''} /> Refresh
+            <RefreshCw size={16} className={loading ? 'spin-icon' : ''} /> {getTranslation(currentLanguage, 'refresh', 'Refresh')}
           </button>
           <button
             type="button"
@@ -400,7 +471,7 @@ export default function UserManagement({
             onClick={() => setDialog({})}
             disabled={isDbDisconnected}
           >
-            <Plus size={17} /> Add User
+            <Plus size={17} /> {getTranslation(currentLanguage, 'addUser', 'Add User')}
           </button>
         </div>
       </header>
@@ -439,7 +510,6 @@ export default function UserManagement({
           <option value="">All Status</option>
           <option value="Active">Active</option>
           <option value="Inactive">Inactive</option>
-          <option value="Suspended">Suspended</option>
         </select>
       </div>
 
@@ -447,15 +517,17 @@ export default function UserManagement({
         <table className="admin-table admin-users-table">
           <thead>
             <tr>
-              <th scope="col">Official Account</th>
-              <th scope="col">Department / Section</th>
-              <th scope="col">Status</th>
-              <th scope="col">Last Login</th>
+              <th scope="col">{getTranslation(currentLanguage, 'officialAccount', 'Official Account')}</th>
+              <th scope="col">{getTranslation(currentLanguage, 'departmentSection', 'Department / Section')}</th>
+              <th scope="col">{getTranslation(currentLanguage, 'status', 'Status')}</th>
+              <th scope="col">{getTranslation(currentLanguage, 'lastLogin', 'Last Login')}</th>
+              <th scope="col" style={{ textAlign: 'right', paddingRight: '20px' }}>{getTranslation(currentLanguage, 'actions', 'Actions')}</th>
             </tr>
           </thead>
           <tbody>
             {filteredUsers.map((user) => {
-              const initials = (user.name || 'User')
+              const displayName = (currentLanguage === 'ta' && user.nameTamil) ? user.nameTamil : user.name;
+              const initials = (displayName || 'User')
                 .split(/\s+/)
                 .filter(Boolean)
                 .slice(0, 2)
@@ -464,8 +536,8 @@ export default function UserManagement({
                 .toUpperCase();
 
               return (
-                <tr key={user.id} onClick={() => setDialog({ user })}>
-                  <td>
+                <tr key={user.id}>
+                  <td onClick={() => setDialog({ user })}>
                     <div className="admin-user-name">
                       <span className="admin-avatar" aria-hidden="true">
                         {initials}
@@ -480,7 +552,7 @@ export default function UserManagement({
                               setDialog({ user });
                             }}
                           >
-                            {user.name}
+                            {displayName}
                           </button>
                           <span className="admin-id-badge">{user.id}</span>
                         </div>
@@ -488,14 +560,41 @@ export default function UserManagement({
                       </div>
                     </div>
                   </td>
-                  <td>{user.department || '—'}</td>
-                  <td>
-                    <span className={`admin-status ${user.status === 'Active' ? 'is-success' : user.status === 'Suspended' ? 'is-suspended' : 'is-inactive'}`}>
+                  <td onClick={() => setDialog({ user })}>{user.department || '—'}</td>
+                  <td onClick={() => setDialog({ user })}>
+                    <span className={`admin-status ${user.status === 'Active' ? 'is-success' : 'is-inactive'}`}>
                       {user.status || 'Active'}
                     </span>
                   </td>
-                  <td className="admin-date">
+                  <td className="admin-date" onClick={() => setDialog({ user })}>
                     {user.lastLogin ? new Date(user.lastLogin).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' }) : 'Never'}
+                  </td>
+                  <td style={{ textAlign: 'right', paddingRight: '16px' }}>
+                    <div style={{ display: 'inline-flex', gap: '8px', alignItems: 'center', justifyContent: 'flex-end' }}>
+                      <button
+                        type="button"
+                        className="admin-button admin-button-secondary"
+                        style={{ padding: '4px 10px', fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: '5px' }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setPasswordDialogUser(user);
+                        }}
+                        title={`Edit password for ${displayName}`}
+                      >
+                        <Key size={13} /> {getTranslation(currentLanguage, 'editPassword', 'Edit Password')}
+                      </button>
+                      <button
+                        type="button"
+                        className="admin-button admin-button-secondary"
+                        style={{ padding: '4px 10px', fontSize: '0.78rem' }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setDialog({ user });
+                        }}
+                      >
+                        {getTranslation(currentLanguage, 'editProfile', 'Edit Profile')}
+                      </button>
+                    </div>
                   </td>
                 </tr>
               );
@@ -524,7 +623,16 @@ export default function UserManagement({
           sections={dynamicSections}
           onSaveSuccess={onRefreshUsers}
           onDeleteSuccess={onRefreshUsers}
+          onOpenPasswordDialog={(targetUser) => setPasswordDialogUser(targetUser)}
           onClose={() => setDialog(null)}
+        />
+      )}
+
+      {passwordDialogUser && (
+        <PasswordDialog
+          user={passwordDialogUser}
+          onSuccess={onRefreshUsers}
+          onClose={() => setPasswordDialogUser(null)}
         />
       )}
     </>

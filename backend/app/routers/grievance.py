@@ -1,3 +1,5 @@
+import asyncio
+import sqlalchemy.ext.asyncio
 import os
 import json
 import uuid
@@ -24,7 +26,7 @@ from services.entity_extractor import entity_extractor
 from services.ai_analyzer import ai_analyzer
 from services.job_queue import job_queue
 from app.config import settings
-from app.dependencies import get_current_officer, log_audit_event
+from app.dependencies import get_current_officer, get_optional_officer, log_audit_event
 from core.llm_client import llm_client
 
 logger = logging.getLogger(__name__)
@@ -252,40 +254,6 @@ async def upload_petition(
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(exc))
 
-
-@router.get("/recent")
-async def get_recent_petitions(
-    limit: int = 20,
-    db: AsyncSession = Depends(get_db)
-):
-    """Return recently uploaded and processed petitions for the audit logs / history modal"""
-    res = await db.execute(text("""
-        SELECT s.source_id, s.file_name, s.file_size_bytes, s.page_count, s.status, s.created_at,
-               d.petitioner_name, d.phone, d.address, d.grievance_type, d.department, d.description
-        FROM sources s
-        LEFT JOIN grievance_drafts d ON d.source_id = s.source_id
-        ORDER BY s.created_at DESC
-        LIMIT :limit
-    """), {"limit": limit})
-    rows = res.mappings().all()
-    return [
-        {
-            "id": str(r["source_id"])[:8].upper(),
-            "source_id": str(r["source_id"]),
-            "fileName": r["file_name"],
-            "fileSize": f"{round((r['file_size_bytes'] or 0) / 1024, 1)} KB",
-            "totalPages": r["page_count"] or 1,
-            "status": r["status"],
-            "uploadedAt": r["created_at"].strftime("%Y-%m-%d %H:%M") if r["created_at"] else "Recent",
-            "petitionerName": r["petitioner_name"] or "Processing...",
-            "phone": r["phone"] or "-",
-            "address": r["address"] or "-",
-            "grievanceType": r["grievance_type"] or "-",
-            "department": r["department"] or "-",
-            "summary": r["description"] or "Petition received."
-        }
-        for r in rows
-    ]
 
 
 @router.get("/{source_id}/status", response_model=SourceStatusResponse)
@@ -647,7 +615,8 @@ async def get_draft(source_id: str, db: AsyncSession = Depends(get_db)):
     draft = res.mappings().one_or_none()
     if not draft:
         raise HTTPException(status_code=404, detail="Draft has not been generated yet for this source")
-    return GrievanceDraftResponse(**dict(draft))
+    draft_dict = dict(draft)
+    return GrievanceDraftResponse.model_validate(draft_dict)
 
 
 @router.put("/draft/{draft_id}", response_model=GrievanceDraftResponse)
@@ -689,7 +658,8 @@ async def update_draft(
         ip_address=request.client.host if request.client else "127.0.0.1"
     )
 
-    return GrievanceDraftResponse(**dict(updated_draft))
+    updated_dict = dict(updated_draft)
+    return GrievanceDraftResponse.model_validate(updated_dict)
 
 
 @router.post("/draft/{draft_id}/approve")
@@ -779,34 +749,65 @@ async def push_to_dro(
 
 @router.get("/history")
 async def get_history(
+    request: Request,
     officer_id: Optional[str] = None,
-    limit: int = 20,
+    limit: int = 100,
+    current_officer: Optional[dict] = Depends(get_optional_officer),
     db: AsyncSession = Depends(get_db)
 ):
     """
-    List sources and petitions processed by officer
+    List sources and petitions processed by the requesting officer alone (or all officers if Admin).
+    Guarantees officer data isolation for normal officers, while permitting administrative audit review.
     """
-    if officer_id:
+    # Detect if requester is an administrator
+    is_admin = False
+    if current_officer:
+        is_admin = (
+            current_officer.get("is_admin") is True or
+            current_officer.get("isAdmin") is True or
+            current_officer.get("role") in ["Admin", "District Administrator", "admin"] or
+            (current_officer.get("officer_id") and "ADM" in str(current_officer.get("officer_id")).upper())
+        )
+    if not is_admin:
+        header_off = request.headers.get("x-officer-id") or request.headers.get("X-Officer-Id") or ""
+        if "ADM" in header_off.upper():
+            is_admin = True
+
+    target_officer = officer_id
+    if target_officer in ["all", "ALL", ""]:
+        target_officer = None
+
+    if is_admin and not target_officer:
+        # Admin viewing all officer audit histories
         sql = """
-            SELECT s.source_id, s.file_name, s.file_type, s.page_count, s.status, s.created_at,
-                   d.id as draft_id, d.petitioner_name, d.grievance_type, d.dro_grievance_id, d.dro_status
-            FROM sources s
-            LEFT JOIN grievance_drafts d ON s.source_id = d.source_id
-            WHERE s.officer_id = :officer_id
-            ORDER BY s.created_at DESC
-            LIMIT :limit
-        """
-        res = await db.execute(text(sql), {"officer_id": officer_id, "limit": limit})
-    else:
-        sql = """
-            SELECT s.source_id, s.file_name, s.file_type, s.page_count, s.status, s.created_at,
-                   d.id as draft_id, d.petitioner_name, d.grievance_type, d.dro_grievance_id, d.dro_status
+            SELECT s.source_id, s.file_name, s.file_type, s.file_size_bytes, s.page_count, s.status, s.created_at, s.officer_id,
+                   d.id as draft_id, d.petitioner_name, d.phone, d.address, d.grievance_type, d.department, d.description,
+                   d.dro_grievance_id, d.dro_status
             FROM sources s
             LEFT JOIN grievance_drafts d ON s.source_id = d.source_id
             ORDER BY s.created_at DESC
             LIMIT :limit
         """
         res = await db.execute(text(sql), {"limit": limit})
+    else:
+        eff_officer_id = (
+            target_officer
+            or (current_officer.get("officer_id") if current_officer else None)
+            or request.headers.get("x-officer-id")
+            or request.headers.get("X-Officer-Id")
+            or "DRO_ERODE_01"
+        )
+        sql = """
+            SELECT s.source_id, s.file_name, s.file_type, s.file_size_bytes, s.page_count, s.status, s.created_at, s.officer_id,
+                   d.id as draft_id, d.petitioner_name, d.phone, d.address, d.grievance_type, d.department, d.description,
+                   d.dro_grievance_id, d.dro_status
+            FROM sources s
+            LEFT JOIN grievance_drafts d ON s.source_id = d.source_id
+            WHERE s.officer_id = :officer_id
+            ORDER BY s.created_at DESC
+            LIMIT :limit
+        """
+        res = await db.execute(text(sql), {"officer_id": eff_officer_id, "limit": limit})
 
     rows = []
     for r in res.mappings().all():
@@ -818,6 +819,60 @@ async def get_history(
             item["created_at"] = str(item["created_at"])
         rows.append(item)
     return rows
+
+
+@router.get("/recent")
+async def get_recent(
+    request: Request,
+    officer_id: Optional[str] = None,
+    limit: int = 50,
+    current_officer: Optional[dict] = Depends(get_optional_officer),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Recent audit log and document history processed by officer (or all officers for admin).
+    """
+    raw_history = await get_history(
+        request=request,
+        officer_id=officer_id,
+        limit=limit,
+        current_officer=current_officer,
+        db=db
+    )
+    formatted = []
+    for item in raw_history:
+        created_str = item.get("created_at") or ""
+        uploaded_label = created_str[:16].replace("T", " ") if created_str else "Recent"
+        file_size_kb = f"{round((item.get('file_size_bytes') or 0) / 1024, 1)} KB"
+        
+        summary_text = item.get("description") or (
+            f"{item.get('petitioner_name') or 'Petitioner'} - {item.get('grievance_type') or 'General Grievance'}"
+            if (item.get("petitioner_name") or item.get("grievance_type"))
+            else (item.get("file_name") or "Processed Document")
+        )
+
+        formatted.append({
+            "id": item.get("dro_grievance_id") or item.get("draft_id") or str(item.get("source_id", ""))[:8].upper(),
+            "source_id": item.get("source_id"),
+            "fileName": item.get("file_name") or "Petition Document",
+            "file_type": item.get("file_type"),
+            "fileSize": file_size_kb,
+            "totalPages": item.get("page_count") or 1,
+            "status": item.get("status"),
+            "created_at": item.get("created_at"),
+            "uploadedAt": uploaded_label,
+            "officer_id": item.get("officer_id"),
+            "petitionerName": item.get("petitioner_name") or "Processing...",
+            "petitioner_name": item.get("petitioner_name"),
+            "phone": item.get("phone") or "-",
+            "address": item.get("address") or "-",
+            "grievanceType": item.get("grievance_type") or "-",
+            "grievance_type": item.get("grievance_type"),
+            "department": item.get("department") or "-",
+            "summary": summary_text,
+            "timestamp": item.get("created_at")
+        })
+    return formatted
 
 
 @router.get("/departments", response_model=List[str])

@@ -363,8 +363,8 @@ export default function AdminHierarchyModal({ onClose }) {
                         )}
                       </h3>
                     </div>
-                    <span className={`taluk-division-badge ${isFirstDivision ? 'erode' : 'gobi'}`}>
-                      {taluk.division ? taluk.division.toUpperCase() : ''}
+                    <span className={`taluk-division-badge ${isFirstDivision ? 'erode' : 'gobi'}`} title={taluk.division || ''}>
+                      {taluk.division ? taluk.division.replace(/\s*Division/i, '').toUpperCase() : ''}
                     </span>
                   </div>
 
@@ -444,7 +444,7 @@ export default function AdminHierarchyModal({ onClose }) {
                       className="btn-card-action add-firka"
                       onClick={() => handleAddFirkaQuick(taluk)}
                     >
-                      <Plus size={12} /> + Add Firka
+                      <Plus size={12} /> Add Firka
                     </button>
                     <button
                       type="button"

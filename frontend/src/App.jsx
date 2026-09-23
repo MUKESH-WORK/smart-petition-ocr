@@ -13,7 +13,7 @@ import LoginPage from './components/auth/LoginPage';
 import AdminWorkspace from './components/admin/AdminWorkspace';
 import AdminNotifications from './components/admin/AdminNotifications';
 import { ChevronRight, ChevronLeft } from 'lucide-react';
-import { fetchAuditHistory, fetchPetitionBySourceId, logoutAdminSession, updateMyProfile } from './services/apiService';
+import { fetchAuditHistory, fetchPetitionBySourceId, logoutAdminSession, updateMyProfile, fetchAdminUsers } from './services/apiService';
 import ErrorBoundary from './components/common/ErrorBoundary';
 import './styles/index.css';
 
@@ -153,6 +153,7 @@ function Workstation({ session, onLogout }) {
   // Session audit records list (Maintains real activity records in current session)
   const [auditRecords, setAuditRecords] = useState([]);
   const [adminActivity, setAdminActivity] = useState([]);
+  const [officersList, setOfficersList] = useState([]);
   
   // Document Drawer state (Right panel open/collapsed in workspace)
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
@@ -167,9 +168,26 @@ function Workstation({ session, onLogout }) {
     mobile.addEventListener('change', collapseOnMobile);
     return () => mobile.removeEventListener('change', collapseOnMobile);
   }, [isAdmin]);
+
+  // Load system officers list when admin
+  useEffect(() => {
+    if (isAdmin) {
+      fetchAdminUsers().then((users) => {
+        if (Array.isArray(users)) {
+          setOfficersList(users);
+        }
+      }).catch((err) => console.warn('Could not load officers list:', err));
+    }
+  }, [isAdmin]);
   
   // Language state: 'en' | 'ta'
   const [currentLanguage, setCurrentLanguage] = useState('en');
+
+  // Synchronize data-lang on HTML root for global CSS resilience
+  useEffect(() => {
+    document.documentElement.setAttribute('data-lang', currentLanguage);
+    document.documentElement.lang = currentLanguage;
+  }, [currentLanguage]);
 
   // Toast notifications state
   const [toasts, setToasts] = useState([]);
@@ -182,18 +200,21 @@ function Workstation({ session, onLogout }) {
     }, 3000);
   };
 
-  // Fetch initial audit records from backend on mount
-  useEffect(() => {
-    fetchAuditHistory().then((records) => {
-      if (records && records.length > 0) {
-        setAuditRecords((prev) => {
-          const existingIds = new Set(prev.map((r) => r.id));
-          const newOnes = records.filter((r) => !existingIds.has(r.id));
-          return [...prev, ...newOnes];
-        });
+  const handleRefreshAudit = useCallback(async (officerId = null) => {
+    try {
+      const records = await fetchAuditHistory(officerId);
+      if (Array.isArray(records)) {
+        setAuditRecords(records);
       }
-    });
+    } catch (err) {
+      console.warn('Failed to refresh audit history:', err);
+    }
   }, []);
+
+  // Fetch officer audit records from backend on mount and officer/session change
+  useEffect(() => {
+    handleRefreshAudit();
+  }, [session?.officerId, session?.id, session?.email, handleRefreshAudit]);
 
   // Upload / Petition Selection handler
   const handleSelectPetition = useCallback((petition) => {
@@ -330,7 +351,14 @@ function Workstation({ session, onLogout }) {
 
         {/* Main Application Content Area */}
         <main className="main-content">
-          {isAdmin && <AdminWorkspace activeModule={activeModule} onNavigate={setActiveModule} onActivityChange={setAdminActivity} />}
+          {isAdmin && (
+            <AdminWorkspace
+              activeModule={activeModule}
+              onNavigate={setActiveModule}
+              onActivityChange={setAdminActivity}
+              currentLanguage={currentLanguage}
+            />
+          )}
           
           {/* VIEW A: GDP ASSISTANT MODULE */}
           {activeModule === 'gdp' && (
@@ -408,6 +436,9 @@ function Workstation({ session, onLogout }) {
           {activeModule === 'audit' && (
             <AuditLogsView
               auditRecords={auditRecords}
+              isAdmin={isAdmin}
+              officers={officersList}
+              onRefreshAudit={handleRefreshAudit}
               currentPetitionId={activePetition?.id}
               onSelectPetition={handleSelectAuditRecord}
               onNavigateToGDP={() => {

@@ -1,16 +1,19 @@
 import React, { useState, useMemo, useRef } from 'react';
 import {
   RefreshCw,
-  Bot,
   BarChart2,
-  FileText,
   FileCheck,
   Search,
   X,
   Calendar,
   RotateCcw,
   Inbox,
-  MessageSquareText
+  MessageSquareText,
+  Users,
+  ShieldCheck,
+  Database,
+  Layers,
+  UserCheck
 } from 'lucide-react';
 import './AuditLogs.css';
 
@@ -34,41 +37,26 @@ function formatDate(timestampStr) {
 
 // Helper to parse date parts
 function parseDateParts(timestampStr) {
-  if (!timestampStr) return { year: '', month: '', day: '', dateStr: '' };
+  if (!timestampStr) return { dateStr: '' };
   try {
     const d = new Date(timestampStr);
-    if (isNaN(d.getTime())) return { year: '', month: '', day: '', dateStr: '' };
+    if (isNaN(d.getTime())) return { dateStr: '' };
     const year = String(d.getFullYear());
     const month = String(d.getMonth() + 1).padStart(2, '0');
     const day = String(d.getDate()).padStart(2, '0');
     return {
-      year,
-      month,
-      day,
       dateStr: `${year}-${month}-${day}`
     };
   } catch (e) {
-    return { year: '', month: '', day: '', dateStr: '' };
+    return { dateStr: '' };
   }
 }
 
-const MONTH_OPTIONS = [
-  { value: '01', label: 'January' },
-  { value: '02', label: 'February' },
-  { value: '03', label: 'March' },
-  { value: '04', label: 'April' },
-  { value: '05', label: 'May' },
-  { value: '06', label: 'June' },
-  { value: '07', label: 'July' },
-  { value: '08', label: 'August' },
-  { value: '09', label: 'September' },
-  { value: '10', label: 'October' },
-  { value: '11', label: 'November' },
-  { value: '12', label: 'December' }
-];
-
 export default function AuditLogsView({
   auditRecords = [],
+  isAdmin = false,
+  officers = [],
+  onRefreshAudit,
   currentPetitionId,
   onSelectPetition,
   onNavigateToGDP
@@ -76,98 +64,69 @@ export default function AuditLogsView({
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
-
-  // Date Filter States
+  const [selectedOfficer, setSelectedOfficer] = useState('all');
   const [selectedDate, setSelectedDate] = useState('');
   const [isDateFocused, setIsDateFocused] = useState(false);
-  const [selectedYear, setSelectedYear] = useState('');
-  const [selectedMonth, setSelectedMonth] = useState('');
-  const [selectedDay, setSelectedDay] = useState('');
   const dateInputRef = useRef(null);
 
   // Standardize real audit records passed into component
   const realLogs = useMemo(() => {
     return (auditRecords || []).map((rec) => ({
       id: rec.id || `AUD-${Math.floor(Math.random() * 100000)}`,
-      timestamp: rec.timestamp || rec.uploadedAt || new Date().toISOString(),
+      timestamp: rec.timestamp || rec.uploadedAt || rec.date || new Date().toISOString(),
       category: rec.category || 'GDP Assistant',
       categoryLabel: rec.categoryLabel || rec.category || 'GDP Assistant',
-      officer: rec.officer || rec.officer_id || 'USER',
+      type: rec.type || 'EVENT',
+      officer: rec.officer || rec.officer_id || 'SYSTEM',
+      officer_id: rec.officer_id || rec.officer || 'SYSTEM',
       source_id: rec.source_id || rec.id || 'N/A',
       details: rec.details || rec.summary || rec.fileName || '',
       rawPetition: rec.rawPetition || rec
     }));
   }, [auditRecords]);
 
-  // Derived available years
-  const availableYears = useMemo(() => {
-    const currentYr = String(new Date().getFullYear());
-    const yearsSet = new Set([currentYr]);
-    realLogs.forEach((log) => {
-      const parts = parseDateParts(log.timestamp);
-      if (parts.year) yearsSet.add(parts.year);
+  // Derived available officers list for filtering
+  const availableOfficers = useMemo(() => {
+    const officerMap = new Map();
+    // 1. Add registered users / officers
+    (officers || []).forEach((u) => {
+      const id = u.id || u.officer_id || u.officerId || u.email;
+      const name = u.name || u.fullName || u.email || id;
+      const role = u.role ? ` (${u.role})` : '';
+      if (id) {
+        officerMap.set(String(id), `${name}${role}`);
+      }
     });
-    return Array.from(yearsSet).sort((a, b) => b.localeCompare(a));
-  }, [realLogs]);
+    // 2. Incorporate officers from audit records
+    realLogs.forEach((log) => {
+      const off = log.officer || log.officer_id;
+      if (off && !officerMap.has(String(off))) {
+        officerMap.set(String(off), String(off));
+      }
+    });
+    return Array.from(officerMap.entries()).map(([id, label]) => ({ id, label }));
+  }, [officers, realLogs]);
 
-  // Derived days (1-31)
-  const availableDays = useMemo(() => {
-    return Array.from({ length: 31 }, (_, i) => String(i + 1).padStart(2, '0'));
-  }, []);
-
-  // Sync Date Picker -> Year, Month, Day
-  const handleFullDateChange = (e) => {
-    const dateVal = e.target.value;
-    setSelectedDate(dateVal);
-    if (dateVal) {
-      const [y, m, d] = dateVal.split('-');
-      setSelectedYear(y || '');
-      setSelectedMonth(m || '');
-      setSelectedDay(d || '');
-    } else {
-      setSelectedYear('');
-      setSelectedMonth('');
-      setSelectedDay('');
-    }
-  };
-
-  // Changing Individual Dropdowns clears Full Date Picker
-  const handleYearChange = (e) => {
-    setSelectedYear(e.target.value);
-    setSelectedDate('');
-  };
-
-  const handleMonthChange = (e) => {
-    setSelectedMonth(e.target.value);
-    setSelectedDate('');
-  };
-
-  const handleDayChange = (e) => {
-    setSelectedDay(e.target.value);
-    setSelectedDate('');
-  };
-
-  // Reset all active date, category, and search filters
+  // Reset all active filters
   const handleResetFilters = () => {
     setSelectedCategory('all');
+    setSelectedOfficer('all');
     setSelectedDate('');
-    setSelectedYear('');
-    setSelectedMonth('');
-    setSelectedDay('');
     setSearchQuery('');
   };
 
   const hasActiveFilters =
     selectedCategory !== 'all' ||
+    selectedOfficer !== 'all' ||
     selectedDate !== '' ||
-    selectedYear !== '' ||
-    selectedMonth !== '' ||
-    selectedDay !== '' ||
     searchQuery.trim() !== '';
 
   // Manual Refresh Handler
   const handleRefresh = () => {
     setIsRefreshing(true);
+    if (onRefreshAudit) {
+      onRefreshAudit(selectedOfficer !== 'all' ? selectedOfficer : null);
+    }
     setTimeout(() => {
       setIsRefreshing(false);
     }, 600);
@@ -176,56 +135,74 @@ export default function AuditLogsView({
   // Derived Filtered Logs
   const filteredLogs = useMemo(() => {
     return realLogs.filter((log) => {
-      // 1. Category Filter
+      // 1. Officer Filter
+      if (selectedOfficer !== 'all') {
+        const offLower = (log.officer || '').toLowerCase();
+        const offIdLower = (log.officer_id || '').toLowerCase();
+        const selLower = selectedOfficer.toLowerCase();
+        const matchesOfficer = (
+          offLower === selLower ||
+          offIdLower === selLower ||
+          offLower.includes(selLower) ||
+          offIdLower.includes(selLower)
+        );
+        if (!matchesOfficer) return false;
+      }
+
+      // 2. Category Filter
       if (selectedCategory !== 'all') {
         const catLower = (log.category || '').toLowerCase();
         const selLower = selectedCategory.toLowerCase();
         if (!catLower.includes(selLower)) return false;
       }
 
-      // 2. Search Query Filter
+      // 3. Search Query Filter
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase().trim();
         const matchesQ =
           log.id.toLowerCase().includes(q) ||
           log.source_id.toLowerCase().includes(q) ||
           log.officer.toLowerCase().includes(q) ||
+          (log.officer_id && log.officer_id.toLowerCase().includes(q)) ||
           log.details.toLowerCase().includes(q) ||
           log.category.toLowerCase().includes(q);
         if (!matchesQ) return false;
       }
 
-      // 3. Date Filters
-      const dateParts = parseDateParts(log.timestamp);
-
+      // 4. Date Filter
       if (selectedDate) {
+        const dateParts = parseDateParts(log.timestamp);
         if (dateParts.dateStr !== selectedDate) return false;
-      } else {
-        if (selectedYear && dateParts.year !== selectedYear) return false;
-        if (selectedMonth && dateParts.month !== selectedMonth) return false;
-        if (selectedDay && dateParts.day !== selectedDay) return false;
       }
 
       return true;
     });
-  }, [realLogs, selectedCategory, searchQuery, selectedDate, selectedYear, selectedMonth, selectedDay]);
+  }, [realLogs, selectedOfficer, selectedCategory, searchQuery, selectedDate]);
 
-  // Get Badge Icon & Class for Category
-  const getCategoryBadgeInfo = (catName) => {
+  // Get Badge Icon & Class for Category and Action Type
+  const getCategoryBadgeInfo = (catName, actionType) => {
     const name = (catName || '').toLowerCase();
-    if (name.includes('gdp')) {
-      return { icon: MessageSquareText, styleClass: 'cat-badge-blue', label: 'GDP Assistant' };
+    const type = (actionType || '').toLowerCase();
+
+    if (name.includes('taxonomy') || name.includes('master') || type.includes('taxonomy') || type.includes('ingest')) {
+      return { icon: Database, styleClass: 'cat-badge-purple', label: 'Master Data' };
+    }
+    if (name.includes('hierarchy') || name.includes('taluk') || name.includes('village') || name.includes('block')) {
+      return { icon: Layers, styleClass: 'cat-badge-blue', label: 'Hierarchy' };
+    }
+    if (name.includes('user') || type.includes('user') || type.includes('password') || type.includes('credential')) {
+      return { icon: Users, styleClass: 'cat-badge-purple', label: 'User Management' };
+    }
+    if (name.includes('security') || name.includes('session') || type.includes('login') || type.includes('logout') || type.includes('auth')) {
+      return { icon: ShieldCheck, styleClass: 'cat-badge-amber', label: 'Security & Auth' };
     }
     if (name.includes('data') || name.includes('visualization')) {
-      return { icon: BarChart2, styleClass: 'cat-badge-blue', label: 'Data & Visualization' };
+      return { icon: BarChart2, styleClass: 'cat-badge-blue', label: 'Data & Analytics' };
     }
-    if (name.includes('official') || name.includes('content')) {
-      return { icon: FileText, styleClass: 'cat-badge-purple', label: 'Official Content' };
+    if (name.includes('gdp') || type.includes('upload') || type.includes('process') || type.includes('approve') || type.includes('integrate') || type.includes('petition')) {
+      return { icon: MessageSquareText, styleClass: 'cat-badge-blue', label: 'GDP Assistant' };
     }
-    if (name.includes('bulk') || name.includes('workflow')) {
-      return { icon: FileCheck, styleClass: 'cat-badge-green', label: 'Bulk Workflow' };
-    }
-    return { icon: Bot, styleClass: 'cat-badge-amber', label: 'General' };
+    return { icon: FileCheck, styleClass: 'cat-badge-green', label: catName || 'Audit Entry' };
   };
 
   return (
@@ -237,7 +214,7 @@ export default function AuditLogsView({
           <div className="audit-title-group">
             <h2 className="audit-page-title">Audit Logs</h2>
             <p className="audit-page-subtext">
-              Real-time audit trail of user queries and message activity in GDP Assistant.
+              Real-time audit trail of user queries, administrative actions, and system operations.
             </p>
           </div>
 
@@ -249,23 +226,23 @@ export default function AuditLogsView({
               disabled={isRefreshing}
               title="Refresh Audit Data"
             >
-              <RefreshCw size={15} className={`refresh-icon ${isRefreshing ? 'spin-anim' : ''}`} />
+              <RefreshCw size={14} className={`refresh-icon ${isRefreshing ? 'spin-anim' : ''}`} />
               <span>Refresh</span>
             </button>
           </div>
         </div>
 
-        {/* 2. FILTER CARD (Single Landscape Row Layout) */}
+        {/* 2. FILTER CARD (Single Clean Horizontal Row) */}
         <div className="audit-filter-card">
           <div className="audit-filter-controls-row">
 
-            {/* 1. Search Box */}
+            {/* Search Box */}
             <div className="audit-search-box">
-              <Search size={16} className="search-icon" />
+              <Search size={15} className="search-icon" />
               <input
                 type="text"
                 className="audit-search-input"
-                placeholder="Filter by officer, source ID, or message prompt..."
+                placeholder="Search logs by keyword, action, or ID..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
               />
@@ -275,13 +252,32 @@ export default function AuditLogsView({
                   className="search-clear-btn"
                   onClick={() => setSearchQuery('')}
                   aria-label="Clear search query"
+                  title="Clear search"
                 >
-                  <X size={14} />
+                  <X size={13} />
                 </button>
               )}
             </div>
 
-            {/* 2. Single Category Dropdown (All / GDP Assistant) */}
+            {/* Officer Filter Dropdown */}
+            <div className="date-select-wrapper officer-select-wrapper">
+              <UserCheck size={14} className="filter-inner-icon" />
+              <select
+                className="date-select officer-select"
+                value={selectedOfficer}
+                onChange={(e) => setSelectedOfficer(e.target.value)}
+                title="Filter by Officer"
+              >
+                <option value="all">All Officers ({availableOfficers.length})</option>
+                {availableOfficers.map((off) => (
+                  <option key={off.id} value={off.id}>
+                    {off.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Category Dropdown */}
             <div className="date-select-wrapper category-select-wrapper">
               <select
                 className="date-select"
@@ -289,12 +285,16 @@ export default function AuditLogsView({
                 onChange={(e) => setSelectedCategory(e.target.value)}
                 title="Filter by Category"
               >
-                <option value="all">All</option>
-                <option value="GDP Assistant">GDP Assistant</option>
+                <option value="all">All Categories</option>
+                <option value="GDP Assistant">GDP Assistant & Petitions</option>
+                <option value="Master Data">Master Data & Taxonomy</option>
+                <option value="Administrative Hierarchy">Administrative Hierarchy</option>
+                <option value="User Management">User Management</option>
+                <option value="Security & Session">Security & Auth</option>
               </select>
             </div>
 
-            {/* 3. Clean Date Picker */}
+            {/* Date Picker */}
             <div
               className={`date-input-wrapper ${selectedDate ? 'has-date' : ''}`}
               onClick={() => {
@@ -304,7 +304,7 @@ export default function AuditLogsView({
                 } catch {}
               }}
             >
-              <Calendar size={15} className="date-field-icon" />
+              <Calendar size={14} className="date-field-icon" />
               <input
                 ref={dateInputRef}
                 type={isDateFocused || selectedDate ? 'date' : 'text'}
@@ -327,7 +327,7 @@ export default function AuditLogsView({
                     setIsDateFocused(false);
                   }
                 }}
-                onChange={handleFullDateChange}
+                onChange={(e) => setSelectedDate(e.target.value)}
                 title="Select date"
               />
               {selectedDate && (
@@ -336,68 +336,27 @@ export default function AuditLogsView({
                   className="date-clear-btn"
                   onClick={(e) => {
                     e.stopPropagation();
-                    handleFullDateChange({ target: { value: '' } });
+                    setSelectedDate('');
                     setIsDateFocused(false);
                   }}
                   aria-label="Clear date filter"
                   title="Clear date"
                 >
-                  <X size={13} />
+                  <X size={12} />
                 </button>
               )}
             </div>
 
-            {/* 4. Year Dropdown */}
-            <div className="date-select-wrapper">
-              <select
-                className="date-select"
-                value={selectedYear}
-                onChange={handleYearChange}
-              >
-                <option value="">All Years</option>
-                {availableYears.map((yr) => (
-                  <option key={yr} value={yr}>{yr}</option>
-                ))}
-              </select>
-            </div>
-
-            {/* 5. Month Dropdown */}
-            <div className="date-select-wrapper">
-              <select
-                className="date-select"
-                value={selectedMonth}
-                onChange={handleMonthChange}
-              >
-                <option value="">All Months</option>
-                {MONTH_OPTIONS.map((m) => (
-                  <option key={m.value} value={m.value}>{m.label}</option>
-                ))}
-              </select>
-            </div>
-
-            {/* 6. Day Dropdown */}
-            <div className="date-select-wrapper">
-              <select
-                className="date-select"
-                value={selectedDay}
-                onChange={handleDayChange}
-              >
-                <option value="">All Days</option>
-                {availableDays.map((d) => (
-                  <option key={d} value={d}>Day {parseInt(d, 10)}</option>
-                ))}
-              </select>
-            </div>
-
-            {/* 7. Reset Filters Button */}
+            {/* Reset Filters Button */}
             {hasActiveFilters && (
               <button
                 type="button"
                 className="reset-filters-btn"
                 onClick={handleResetFilters}
+                title="Reset all active filters"
               >
                 <RotateCcw size={13} />
-                <span>Reset Filters</span>
+                <span>Reset</span>
               </button>
             )}
 
@@ -423,21 +382,21 @@ export default function AuditLogsView({
               <p className="loading-text">Loading audit log entries...</p>
             </div>
           ) : filteredLogs.length > 0 ? (
-            /* Scrollable Audit Log Table (5 Columns: Date & Time, Category, Officer, Source ID, Details) */
+            /* Scrollable Audit Log Table */
             <div className="audit-table-container">
               <table className="audit-table">
                 <thead>
                   <tr>
-                    <th style={{ width: '180px' }}>Date & Time</th>
-                    <th style={{ width: '190px' }}>Category</th>
-                    <th style={{ width: '130px' }}>Officer</th>
-                    <th style={{ width: '160px' }}>Source ID</th>
+                    <th style={{ width: '165px' }}>Date & Time</th>
+                    <th style={{ width: '175px' }}>Category</th>
+                    <th style={{ width: '160px' }}>Officer</th>
+                    <th style={{ width: '130px' }}>Source ID</th>
                     <th>Details</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filteredLogs.map((log) => {
-                    const categoryInfo = getCategoryBadgeInfo(log.category);
+                    const categoryInfo = getCategoryBadgeInfo(log.category, log.type);
                     const CatIcon = categoryInfo.icon;
 
                     return (
@@ -458,17 +417,17 @@ export default function AuditLogsView({
                         {/* 2. Category Badge */}
                         <td className="cell-category">
                           <span className={`cat-badge ${categoryInfo.styleClass}`}>
-                            <CatIcon size={13} />
+                            <CatIcon size={12} />
                             <span>{categoryInfo.label}</span>
                           </span>
                         </td>
 
                         {/* 3. Officer */}
                         <td className="cell-officer" title={log.officer}>
-                          {log.officer}
+                          <span className="officer-name-label">{log.officer}</span>
                         </td>
 
-                        {/* 4. Source ID (Truncated) */}
+                        {/* 4. Source ID */}
                         <td className="cell-source-id">
                           <span className="source-id-badge" title={log.source_id}>
                             {log.source_id}
@@ -494,8 +453,8 @@ export default function AuditLogsView({
               <h3 className="audit-empty-title">No Audit Log entries found</h3>
               <p className="audit-empty-subtext">
                 {hasActiveFilters
-                  ? 'No entries match the currently selected category, date, or search filters.'
-                  : 'Messages submitted in GDP Assistant will automatically appear here.'}
+                  ? 'No entries match the currently selected category, officer, date, or search filters.'
+                  : 'System activity and processed petitions will appear here in real time.'}
               </p>
 
               {hasActiveFilters ? (
@@ -523,3 +482,4 @@ export default function AuditLogsView({
     </div>
   );
 }
+

@@ -105,38 +105,46 @@
 /* 2. Filter Card (Single Horizontal Row Layout) */
 .audit-filter-card {
   background-color: var(--bg-surface, #FFFFFF);
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--border-subtle, #E2E8F0);
   border-radius: var(--radius-xl, 12px);
-  padding: var(--card-padding, 12px 16px);
-  box-shadow: var(--shadow-xs, 0 1px 3px rgba(0, 0, 0, 0.04));
+  padding: 12px 16px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
 }
 
 .audit-filter-controls-row {
   display: flex;
   align-items: center;
-  gap: var(--space-sections, 10px);
+  gap: 12px;
   width: 100%;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+}
+
+@media (max-width: 960px) {
+  .audit-filter-controls-row {
+    flex-wrap: wrap;
+  }
 }
 
 .audit-search-box {
-  flex: 2;
-  min-width: 240px;
+  flex: 1 1 240px;
+  min-width: 200px;
+  height: 38px;
   display: flex;
   align-items: center;
   gap: 8px;
   background-color: var(--bg-surface, #FFFFFF);
   border: 1.5px solid var(--border-medium, #CBD5E1);
   border-radius: var(--radius-md, 6px);
-  padding: 6px 12px;
-  box-shadow: var(--shadow-xs, 0 1px 2px rgba(0, 0, 0, 0.04));
+  padding: 0 12px;
+  box-sizing: border-box;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
   transition: all var(--transition-fast, 0.15s ease);
 }
 
 .audit-search-box:focus-within {
   background-color: #FFFFFF;
   border-color: #102C57;
-  box-shadow: 0 0 0 3px rgba(16, 44, 87, 0.2);
+  box-shadow: 0 0 0 3px rgba(16, 44, 87, 0.15);
 }
 
 .search-icon {
@@ -150,7 +158,7 @@
   outline: none !important;
   box-shadow: none !important;
   background: transparent;
-  font-size: var(--font-size-body, 1rem);
+  font-size: var(--font-size-btn-secondary, 0.9rem);
   color: var(--text-primary, #0F172A);
   font-family: inherit;
   padding: 0;
@@ -179,8 +187,8 @@
   position: relative;
   display: flex;
   align-items: center;
-  flex: 0 0 175px;
-  min-width: 165px;
+  flex: 0 0 160px;
+  min-width: 145px;
   cursor: pointer;
 }
 
@@ -201,13 +209,13 @@
 .date-picker-input {
   width: 100%;
   height: 38px;
-  padding: 0 10px 0 32px;
+  padding: 0 10px 0 30px;
   font-size: var(--font-size-btn-secondary, 0.88rem);
   font-family: inherit;
   font-weight: 500;
   color: var(--text-primary);
   background-color: var(--bg-surface, #FFFFFF);
-  border: 1.5px solid var(--border-medium);
+  border: 1.5px solid var(--border-medium, #CBD5E1);
   border-radius: var(--radius-md, 6px);
   outline: none;
   cursor: pointer;
@@ -232,10 +240,9 @@
 }
 
 .date-input-wrapper.has-date .date-picker-input {
-  padding-right: 32px;
+  padding-right: 28px;
 }
 
-/* Hide the duplicate native calendar icon so it doesn't collide with text or Lucide icon */
 .date-picker-input::-webkit-calendar-picker-indicator {
   position: absolute;
   right: 6px;
@@ -247,7 +254,6 @@
   height: 24px;
 }
 
-/* Clear date button */
 .date-clear-btn {
   position: absolute;
   right: 8px;
@@ -259,8 +265,8 @@
   background: #F1F5F9;
   border: none;
   color: var(--text-muted, #64748B);
-  width: 20px;
-  height: 20px;
+  width: 18px;
+  height: 18px;
   border-radius: 50%;
   cursor: pointer;
   z-index: 5;
@@ -272,74 +278,55 @@
   background-color: #EF4444;
 }
 
-/* Category Pill Buttons (All, GDP Assistant) */
-.category-pill-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 7px 14px;
-  border-radius: var(--radius-md, 6px);
-  font-size: var(--font-size-btn-secondary, 0.88rem);
-  font-weight: 600;
-  color: var(--text-secondary, #475569);
-  background-color: var(--bg-surface, #FFFFFF);
-  border: 1.5px solid var(--border-medium);
-  cursor: pointer;
-  white-space: nowrap;
-  transition: all var(--transition-fast, 0.15s ease);
-}
-
-.category-pill-btn:hover {
-  border-color: #102C57;
-  color: #102C57;
-  background-color: #F5EDE2;
-}
-
-.category-pill-btn.active {
-  background-color: #102C57;
-  color: #FEFAF6;
-  border-color: #102C57;
-  box-shadow: 0 1px 4px rgba(16, 44, 87, 0.3);
-}
-
-.category-pill-btn.active .pill-icon {
-  color: #DAC0A3;
-}
-
-.pill-icon {
-  color: var(--text-muted, #64748B);
-}
-
-/* Dropdowns Wrapper (Category, Year, Month, Day) */
+/* Dropdowns Wrapper (Officer, Category) */
 .date-select-wrapper {
+  position: relative;
   display: flex;
-  flex: 0 0 120px;
-  min-width: 105px;
+  align-items: center;
+}
+
+.officer-select-wrapper {
+  flex: 0 0 190px;
+  min-width: 160px;
+}
+
+.filter-inner-icon {
+  position: absolute;
+  left: 10px;
+  color: var(--text-muted, #64748B);
+  pointer-events: none;
+  z-index: 2;
+}
+
+.officer-select-wrapper .officer-select {
+  padding-left: 28px;
 }
 
 .category-select-wrapper {
-  flex: 0 0 140px;
-  min-width: 125px;
+  flex: 0 0 190px;
+  min-width: 160px;
 }
 
 .date-select {
   width: 100%;
-  padding: 7px 10px;
-  font-size: var(--font-size-body, 1rem);
+  height: 38px;
+  padding: 6px 10px;
+  font-size: var(--font-size-btn-secondary, 0.88rem);
   font-family: inherit;
   color: var(--text-primary);
   background-color: var(--bg-surface, #FFFFFF);
-  border: 1.5px solid var(--border-medium);
+  border: 1.5px solid var(--border-medium, #CBD5E1);
   border-radius: var(--radius-md, 6px);
   outline: none;
   cursor: pointer;
+  box-sizing: border-box;
   transition: all var(--transition-fast, 0.15s ease);
 }
 
 .date-select:focus {
   background-color: #FFFFFF;
   border-color: #102C57;
-  box-shadow: 0 0 0 2px rgba(16, 44, 87, 0.2);
+  box-shadow: 0 0 0 2px rgba(16, 44, 87, 0.15);
 }
 
 /* Reset Filters Button */
@@ -347,23 +334,24 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: var(--font-size-btn-secondary, 0.88rem);
+  height: 38px;
+  font-size: var(--font-size-btn-secondary, 0.86rem);
   font-weight: 600;
-  color: #FEFAF6;
-  background-color: #102C57;
-  border: 1px solid #091A34;
-  padding: 7px 14px;
+  color: #B91C1C;
+  background-color: #FEF2F2;
+  border: 1.5px solid #FECACA;
+  padding: 0 14px;
   border-radius: var(--radius-md, 6px);
   cursor: pointer;
   white-space: nowrap;
+  flex-shrink: 0;
   transition: all var(--transition-fast, 0.15s ease);
-  box-shadow: 0 1px 4px rgba(16, 44, 87, 0.25);
 }
 
 .reset-filters-btn:hover {
-  background-color: #163C73;
-  border-color: #091A34;
-  color: #FEFAF6;
+  background-color: #FEE2E2;
+  border-color: #F87171;
+  color: #991B1B;
 }
 
 /* 3. Results Summary Strip */
@@ -371,16 +359,17 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  padding: 0 2px;
 }
 
 .results-count-text {
-  font-size: var(--font-size-body, 1rem);
+  font-size: var(--font-size-body, 0.95rem);
   color: var(--text-secondary, #475569);
 }
 
 .active-filter-tag {
   margin-left: 6px;
-  font-size: var(--font-size-label, 0.95rem);
+  font-size: var(--font-size-label, 0.9rem);
   font-weight: 600;
   color: #102C57;
 }
@@ -393,20 +382,20 @@
 
 .audit-table-container {
   width: 100%;
-  max-height: calc(100vh - 340px);
-  min-height: 300px;
+  max-height: calc(100vh - 280px);
+  min-height: 320px;
   overflow: auto;
   background-color: var(--bg-surface, #FFFFFF);
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--border-subtle, #E2E8F0);
   border-radius: var(--radius-lg, 8px);
-  box-shadow: var(--shadow-xs, 0 1px 3px rgba(0, 0, 0, 0.04));
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
 }
 
 .audit-table {
   width: 100%;
   border-collapse: collapse;
   text-align: left;
-  font-size: var(--font-size-body, 1rem);
+  font-size: var(--font-size-body, 0.95rem);
 }
 
 /* Sticky Table Header */
@@ -414,24 +403,24 @@
   position: sticky;
   top: 0;
   z-index: 10;
-  background-color: var(--bg-subtle);
-  color: var(--text-primary);
-  font-size: var(--font-size-label, 0.95rem);
+  background-color: #F8F5F0;
+  color: #102C57;
+  font-size: 0.82rem;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
-  padding: var(--card-padding, 12px 16px);
+  letter-spacing: 0.06em;
+  padding: 12px 16px;
   border-bottom: 2px solid #DAC0A3;
   white-space: nowrap;
 }
 
 .audit-table tbody tr {
-  border-bottom: 1px solid var(--border-subtle);
+  border-bottom: 1px solid #F1F5F9;
   transition: background-color var(--transition-fast, 0.15s ease);
 }
 
 .audit-table tbody tr:hover {
-  background-color: var(--bg-canvas);
+  background-color: #FDFBF9;
 }
 
 .audit-table tbody tr.clickable-row {
@@ -439,19 +428,19 @@
 }
 
 .audit-table tbody tr.clickable-row:hover {
-  background-color: var(--bg-subtle);
+  background-color: #FBF8F4;
 }
 
 .audit-table td {
-  padding: var(--card-padding, 12px 16px);
+  padding: 12px 16px;
   vertical-align: middle;
-  color: var(--text-primary, #0F172A);
-  font-size: var(--font-size-body, 1rem);
+  color: #1E293B;
+  font-size: 0.92rem;
 }
 
 .cell-datetime {
   font-family: var(--font-mono, monospace);
-  font-size: var(--font-size-body, 1rem);
+  font-size: 0.88rem;
   color: var(--text-secondary, #475569);
   white-space: nowrap;
 }
@@ -461,70 +450,68 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 10px;
-  border-radius: 9999px;
-  font-size: var(--font-size-label, 0.95rem);
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 0.82rem;
   font-weight: 600;
   white-space: nowrap;
 }
 
-/* General Assistant -> Amber */
 .cat-badge-amber {
-  background-color: #FEF3C7;
+  background-color: #FFFBEB;
   border: 1px solid #FDE68A;
-  color: #92400E;
+  color: #B45309;
 }
 
-/* Data & Visualization -> Blue */
 .cat-badge-blue {
   background-color: #EFF6FF;
   border: 1px solid #BFDBFE;
-  color: #1E40AF;
+  color: #1D4ED8;
 }
 
-/* Official Content -> Purple */
 .cat-badge-purple {
-  background-color: #F3E8FF;
+  background-color: #FAF5FF;
   border: 1px solid #E9D5FF;
-  color: #6B21A8;
+  color: #7E22CE;
 }
 
-/* Bulk Workflow -> Green */
 .cat-badge-green {
-  background-color: #ECFDF5;
-  border: 1px solid #A7F3D0;
-  color: #047857;
+  background-color: #F0FDF4;
+  border: 1px solid #BBF7D0;
+  color: #15803D;
 }
 
 .cell-officer {
-  font-weight: 600;
-  color: #102C57;
-  max-width: 170px;
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: var(--font-size-body, 1rem);
 }
 
-/* Source ID Badge (Truncated) */
+.officer-name-label {
+  display: inline-block;
+  font-family: var(--font-mono, monospace);
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: #102C57;
+  background-color: #F8FAFC;
+  border: 1px solid #E2E8F0;
+  padding: 2px 7px;
+  border-radius: 4px;
+}
+
+/* Source ID Badge */
 .cell-source-id {
   white-space: nowrap;
 }
 
 .source-id-badge {
   display: inline-block;
-  max-width: 150px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   font-family: var(--font-mono, monospace);
-  font-size: var(--font-size-label, 0.95rem);
+  font-size: 0.82rem;
   font-weight: 600;
-  background-color: var(--parchment-100);
-  color: #102C57;
-  border: 1px solid var(--border-subtle);
-  padding: 3px 8px;
-  border-radius: var(--radius-sm, 4px);
+  background-color: #F1F5F9;
+  color: #475569;
+  border: 1px solid #E2E8F0;
+  padding: 2px 7px;
+  border-radius: 4px;
 }
 
 /* Details Cell */
@@ -534,8 +521,8 @@
 
 .details-text {
   margin: 0;
-  font-size: var(--font-size-body, 1rem);
-  color: var(--text-secondary);
+  font-size: 0.92rem;
+  color: #334155;
   line-height: 1.5;
   word-break: break-word;
 }

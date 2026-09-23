@@ -1,0 +1,252 @@
+import os
+import json
+
+def generate_hierarchy():
+    data = {
+        "district": {
+            "name_ta": "ஈரோடு",
+            "name_en": "Erode"
+        },
+        "divisions": [
+            {
+                "division_name_ta": "ஈரோடு வருவாய் கோட்டம்",
+                "division_name_en": "Erode Division",
+                "taluks": [
+                    {
+                        "taluk_name_ta": "ஈரோடு",
+                        "taluk_name_en": "Erode",
+                        "firkas": [
+                            {"firka_name_ta": "ஈரோடு கிழக்கு", "firka_name_en": "Erode East", "keywords": ["ஈரோடு கிழக்கு", "erode east"]},
+                            {"firka_name_ta": "ஈரோடு வடக்கு", "firka_name_en": "Erode North", "keywords": ["ஈரோடு வடக்கு", "erode north"]},
+                            {"firka_name_ta": "ஈரோடு தெற்கு", "firka_name_en": "Erode South", "keywords": ["ஈரோடு தெற்கு", "erode south"]},
+                            {"firka_name_ta": "ஈரோடு மேற்கு", "firka_name_en": "Erode West", "keywords": ["ஈரோடு மேற்கு", "erode west"]}
+                        ],
+                        "municipalities": [
+                            {
+                                "municipality_name_ta": "ஈரோடு மாநகராட்சி",
+                                "municipality_name_en": "Erode City Municipal Corporation",
+                                "zones": [
+                                    {
+                                        "zone_name_ta": "மண்டலம் 1 (சூரியம்பாளையம்)",
+                                        "zone_name_en": "Zone 1 (Suriyampalayam HQ)",
+                                        "wards": [
+                                            {"ward_no": 1, "ward_name_ta": "சூரியம்பாளையம் வடக்கு", "ward_name_en": "Suriyampalayam North", "pincode": "638005"},
+                                            {"ward_no": 2, "ward_name_ta": "சூரியம்பாளையம் தெற்கு", "ward_name_en": "Suriyampalayam South", "pincode": "638005"},
+                                            {"ward_no": 3, "ward_name_ta": "பவானி ரோடு", "ward_name_en": "Bhavani Road", "pincode": "638005"},
+                                            {"ward_no": 4, "ward_name_ta": "சித்தோடு இணைப்பு", "ward_name_en": "Chithode Link", "pincode": "638005"},
+                                            {"ward_no": 5, "ward_name_ta": "காலிங்கராயன்பாளையம்", "ward_name_en": "Kalingarayanpalayam", "pincode": "638007"},
+                                            {"ward_no": 6, "ward_name_ta": "பிராமண பெரிய அக்ரஹாரம்", "ward_name_en": "Brammana Periya Agraharam", "pincode": "638005"},
+                                            {"ward_no": 7, "ward_name_ta": "பி.பி.அக்ரஹாரம் மத்தி", "ward_name_en": "BP Agraharam Central", "pincode": "638005"},
+                                            {"ward_no": 8, "ward_name_ta": "பள்ளிபாளையம் ரோடு", "ward_name_en": "Pallipalayam Road", "pincode": "638005"},
+                                            {"ward_no": 9, "ward_name_ta": "வைரப்பாளையம்", "ward_name_en": "Vairapalayam", "pincode": "638003"},
+                                            {"ward_no": 10, "ward_name_ta": "காவேரி நகர்", "ward_name_en": "Cauvery Nagar", "pincode": "638003"},
+                                            {"ward_no": 11, "ward_name_ta": "கருங்கல்பாளையம் வடக்கு", "ward_name_en": "Karungalpalayam North", "pincode": "638003"},
+                                            {"ward_no": 12, "ward_name_ta": "கருங்கல்பாளையம் மத்தி", "ward_name_en": "Karungalpalayam Central", "pincode": "638003"},
+                                            {"ward_no": 13, "ward_name_ta": "காமராஜ் நகர்", "ward_name_en": "Kamaraj Nagar", "pincode": "638003"},
+                                            {"ward_no": 14, "ward_name_ta": "கிருஷ்ணா டாக்கீஸ் ரோடு மற்றும் பஜார் பகுதி", "ward_name_en": "Krishna Talkies Road and Bazar Area", "pincode": "638001"},
+                                            {"ward_no": 15, "ward_name_ta": "நேதாஜி ரோடு", "ward_name_en": "Netaji Road", "pincode": "638001"}
+                                        ]
+                                    },
+                                    {
+                                        "zone_name_ta": "மண்டலம் 2 (பெரியசேமூர்)",
+                                        "zone_name_en": "Zone 2 (Periyasemur HQ)",
+                                        "wards": [
+                                            {"ward_no": 16, "ward_name_ta": "பெரியசேமூர் வடக்கு", "ward_name_en": "Periyasemur North", "pincode": "638004"},
+                                            {"ward_no": 17, "ward_name_ta": "பெரியசேமூர் மத்தி", "ward_name_en": "Periyasemur Central", "pincode": "638004"},
+                                            {"ward_no": 18, "ward_name_ta": "வீரப்பன்சத்திரம் வடக்கு", "ward_name_en": "Veerappanchatram North", "pincode": "638004"},
+                                            {"ward_no": 19, "ward_name_ta": "வீரப்பன்சத்திரம் மத்தி", "ward_name_en": "Veerappanchatram Central", "pincode": "638004"},
+                                            {"ward_no": 20, "ward_name_ta": "வீரப்பன்சத்திரம் தெற்கு", "ward_name_en": "Veerappanchatram South", "pincode": "638004"},
+                                            {"ward_no": 21, "ward_name_ta": "மணிக்கம்பாளையம் ஹவுசிங் போர்டு காலனி", "ward_name_en": "Manickampalayam Housing Board Colony", "pincode": "638011"},
+                                            {"ward_no": 22, "ward_name_ta": "மணிக்கம்பாளையம் மத்தி", "ward_name_en": "Manickampalayam Central", "pincode": "638011"},
+                                            {"ward_no": 23, "ward_name_ta": "குமலன் குட்டை", "ward_name_en": "Kumalan Kuttai", "pincode": "638011"},
+                                            {"ward_no": 24, "ward_name_ta": "சம்பத் நகர் மற்றும் கலெக்டரேட் வளாகம்", "ward_name_en": "Sampath Nagar and Collectorate Complex", "pincode": "638011"},
+                                            {"ward_no": 25, "ward_name_ta": "காந்திஜி ரோடு", "ward_name_en": "Gandhiji Road", "pincode": "638001"},
+                                            {"ward_no": 26, "ward_name_ta": "மேட்டூர் ரோடு", "ward_name_en": "Mettur Road", "pincode": "638011"},
+                                            {"ward_no": 27, "ward_name_ta": "சத்தி ரோடு வடக்கு", "ward_name_en": "Sathy Road North", "pincode": "638004"},
+                                            {"ward_no": 28, "ward_name_ta": "சத்தி ரோடு தெற்கு", "ward_name_en": "Sathy Road South", "pincode": "638004"},
+                                            {"ward_no": 29, "ward_name_ta": "மரப்பாலம் கிழக்கு", "ward_name_en": "Marapalam East", "pincode": "638001"},
+                                            {"ward_no": 30, "ward_name_ta": "மரப்பாலம் மேற்கு", "ward_name_en": "Marapalam West", "pincode": "638001"}
+                                        ]
+                                    },
+                                    {
+                                        "zone_name_ta": "மண்டலம் 3 (சூரம்பட்டி)",
+                                        "zone_name_en": "Zone 3 (Surampatti HQ)",
+                                        "wards": [
+                                            {"ward_no": 31, "ward_name_ta": "சூரம்பட்டி வலசு வடக்கு", "ward_name_en": "Surampatti Valasu North", "pincode": "638009"},
+                                            {"ward_no": 32, "ward_name_ta": "சூரம்பட்டி வலசு மேற்கு", "ward_name_en": "Surampatti Valasu West", "pincode": "638009"},
+                                            {"ward_no": 33, "ward_name_ta": "சூரம்பட்டி மத்தி", "ward_name_en": "Surampatti Central", "pincode": "638009"},
+                                            {"ward_no": 34, "ward_name_ta": "சூரம்பட்டி தெற்கு", "ward_name_en": "Surampatti South", "pincode": "638009"},
+                                            {"ward_no": 35, "ward_name_ta": "செங்கோடம்பாளையம்", "ward_name_en": "Sengodampalayam", "pincode": "638012"},
+                                            {"ward_no": 36, "ward_name_ta": "திண்டல் மேற்கு", "ward_name_en": "Thindal West", "pincode": "638012"},
+                                            {"ward_no": 37, "ward_name_ta": "பெரியார் நகர் மத்தி மற்றும் பார்க் ரோடு", "ward_name_en": "Periyar Nagar Central and Park Road", "pincode": "638001"},
+                                            {"ward_no": 38, "ward_name_ta": "பெரியார் நகர் தெற்கு", "ward_name_en": "Periyar Nagar South", "pincode": "638001"},
+                                            {"ward_no": 39, "ward_name_ta": "முத்துச்சாமி வீதி", "ward_name_en": "Muthusamy Street", "pincode": "638001"},
+                                            {"ward_no": 40, "ward_name_ta": "ஜெகன்நாதபுரம் காலனி", "ward_name_en": "Jaganathapuram Colony", "pincode": "638001"},
+                                            {"ward_no": 41, "ward_name_ta": "ரயில்வே ஸ்டேஷன் பகுதி", "ward_name_en": "Railway Station Area", "pincode": "638002"},
+                                            {"ward_no": 42, "ward_name_ta": "சென்னிமலை ரோடு", "ward_name_en": "Chennimalai Road", "pincode": "638009"},
+                                            {"ward_no": 43, "ward_name_ta": "சாஸ்திரி நகர்", "ward_name_en": "Sasthri Nagar", "pincode": "638002"},
+                                            {"ward_no": 44, "ward_name_ta": "காளைமாடு சிலை பகுதி", "ward_name_en": "Bull Statue Area", "pincode": "638001"},
+                                            {"ward_no": 45, "ward_name_ta": "மூலப்பட்டறை", "ward_name_en": "Moolapattarai", "pincode": "638003"}
+                                        ]
+                                    },
+                                    {
+                                        "zone_name_ta": "மண்டலம் 4 (காசிபாளையம்)",
+                                        "zone_name_en": "Zone 4 (Kasipalayam HQ)",
+                                        "wards": [
+                                            {"ward_no": 46, "ward_name_ta": "காசிபாளையம் வடக்கு", "ward_name_en": "Kasipalayam North", "pincode": "638009"},
+                                            {"ward_no": 47, "ward_name_ta": "காசிபாளையம் மத்தி", "ward_name_en": "Kasipalayam Central", "pincode": "638009"},
+                                            {"ward_no": 48, "ward_name_ta": "காசிபாளையம் தெற்கு", "ward_name_en": "Kasipalayam South", "pincode": "638009"},
+                                            {"ward_no": 49, "ward_name_ta": "ரயில் நகர்", "ward_name_en": "Rail Nagar", "pincode": "638002"},
+                                            {"ward_no": 50, "ward_name_ta": "சாஸ்திரி சாலை", "ward_name_en": "Sasthri Road", "pincode": "638002"},
+                                            {"ward_no": 51, "ward_name_ta": "கொல்லம்பாளையம் வடக்கு", "ward_name_en": "Kollampalayam North", "pincode": "638002"},
+                                            {"ward_no": 52, "ward_name_ta": "கொல்லம்பாளையம் பைபாஸ்", "ward_name_en": "Kollampalayam Bypass", "pincode": "638002"},
+                                            {"ward_no": 53, "ward_name_ta": "கொல்லம்பாளையம் தெற்கு", "ward_name_en": "Kollampalayam South", "pincode": "638002"},
+                                            {"ward_no": 54, "ward_name_ta": "ஆண்டிபாளையம்", "ward_name_en": "Andipalayam", "pincode": "638002"},
+                                            {"ward_no": 55, "ward_name_ta": "மூலப்பாளையம் வடக்கு", "ward_name_en": "Moolapalayam North", "pincode": "638002"},
+                                            {"ward_no": 56, "ward_name_ta": "மூலப்பாளையம் மத்தி", "ward_name_en": "Moolapalayam Central", "pincode": "638002"},
+                                            {"ward_no": 57, "ward_name_ta": "மூலப்பாளையம் தெற்கு", "ward_name_en": "Moolapalayam South", "pincode": "638002"},
+                                            {"ward_no": 58, "ward_name_ta": "கிருஷ்ணம்பாளையம்", "ward_name_en": "Krishnampalayam", "pincode": "638003"},
+                                            {"ward_no": 59, "ward_name_ta": "நொச்சிப்பாளையம் மற்றும் சோலார் புதிய பேருந்து நிலையம்", "ward_name_en": "Nochipalayam and Solar Bus Stand", "pincode": "638002"},
+                                            {"ward_no": 60, "ward_name_ta": "சோலார் புதூர்", "ward_name_en": "Solar Pudur", "pincode": "638002"}
+                                        ]
+                                    }
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        "taluk_name_ta": "கொடுமுடி",
+                        "taluk_name_en": "Kodumudi",
+                        "firkas": [
+                            {"firka_name_ta": "கீழம்பாடி", "firka_name_en": "Kilambadi", "keywords": ["கீழம்பாடி", "kilambadi"]},
+                            {"firka_name_ta": "கொடுமுடி", "firka_name_en": "Kodumudi", "keywords": ["கொடுமுடி", "kodumudi"]},
+                            {"firka_name_ta": "சிவகிரி", "firka_name_en": "Sivagiri", "keywords": ["சிவகிரி", "sivagiri"]}
+                        ]
+                    },
+                    {
+                        "taluk_name_ta": "மொடக்குறிச்சி",
+                        "taluk_name_en": "Modakkurichi",
+                        "firkas": [
+                            {"firka_name_ta": "அரச்சலூர்", "firka_name_en": "Arachalur", "keywords": ["அரச்சலூர்", "arachalur"]},
+                            {"firka_name_ta": "மொடக்குறிச்சி", "firka_name_en": "Modakkurichi", "keywords": ["மொடக்குறிச்சி", "modakkurichi"]},
+                            {"firka_name_ta": "பூந்துறை", "firka_name_en": "Poondurai", "keywords": ["பூந்துறை", "poondurai"]}
+                        ]
+                    },
+                    {
+                        "taluk_name_ta": "பெருந்துறை",
+                        "taluk_name_en": "Perundurai",
+                        "firkas": [
+                            {"firka_name_ta": "சென்னிமலை", "firka_name_en": "Chennimalai", "keywords": ["சென்னிமலை", "chennimalai"]},
+                            {"firka_name_ta": "காஞ்சிக்கோவில்", "firka_name_en": "Kanjikoil", "keywords": ["காஞ்சிக்கோவில்", "kanjikoil"]},
+                            {"firka_name_ta": "பெருந்துறை", "firka_name_en": "Perundurai", "keywords": ["பெருந்துறை", "perundurai"]},
+                            {"firka_name_ta": "திங்களூர்", "firka_name_en": "Thingalore", "keywords": ["திங்களூர்", "thingalore"]},
+                            {"firka_name_ta": "வெள்ளோடு", "firka_name_en": "Vellodu", "keywords": ["வெள்ளோடு", "vellode", "vellodu"]}
+                        ]
+                    }
+                ]
+            },
+            {
+                "division_name_ta": "கோபிசெட்டிபாளையம் வருவாய் கோட்டம்",
+                "division_name_en": "Gobichettipalayam Division",
+                "taluks": [
+                    {
+                        "taluk_name_ta": "பவானி",
+                        "taluk_name_en": "Bhavani",
+                        "firkas": [
+                            {"firka_name_ta": "பவானி", "firka_name_en": "Bhavani", "keywords": ["பவானி", "bhavani"]},
+                            {"firka_name_ta": "கவுந்தப்பாடி", "firka_name_en": "Kavindapadi", "keywords": ["கவுந்தப்பாடி", "kavindapadi"]},
+                            {"firka_name_ta": "குறிச்சி", "firka_name_en": "Kurichi", "keywords": ["குறிச்சி", "kurichi"]}
+                        ],
+                        "municipalities": [
+                            {
+                                "municipality_name_ta": "பவானி நகராட்சி",
+                                "municipality_name_en": "Bhavani Municipality",
+                                "wards": [
+                                    {"ward_no": 27, "ward_name_ta": "பவானி வார்டு 27", "ward_name_en": "Bhavani Ward 27", "pincode": "638301"}
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        "taluk_name_ta": "கோபிசெட்டிபாளையம்",
+                        "taluk_name_en": "Gobichettipalayam",
+                        "firkas": [
+                            {"firka_name_ta": "கோபிசெட்டிபாளையம்", "firka_name_en": "Gobichettipalayam", "keywords": ["கோபிசெட்டிபாளையம்", "gobichettipalayam", "gobi"]},
+                            {"firka_name_ta": "காசிபாளையம் (கோபி)", "firka_name_en": "Kasipalayam (Gobi)", "keywords": ["காசிபாளையம்"]},
+                            {"firka_name_ta": "கூகலூர்", "firka_name_en": "Kugalur", "keywords": ["கூகலூர்"]},
+                            {"firka_name_ta": "சிறுவலூர்", "firka_name_en": "Siruvalur", "keywords": ["சிறுவலூர்"]},
+                            {"firka_name_ta": "வாணிபுத்தூர்", "firka_name_en": "Vaniputhur", "keywords": ["வாணிபுத்தூர்"]}
+                        ],
+                        "municipalities": [
+                            {
+                                "municipality_name_ta": "கோபிசெட்டிபாளையம் நகராட்சி",
+                                "municipality_name_en": "Gobichettipalayam Municipality",
+                                "wards": [
+                                    {"ward_no": 1, "ward_name_ta": "கோபி வார்டு 1", "ward_name_en": "Gobi Ward 1", "pincode": "638452"}
+                                ]
+                            }
+                        ]
+                    },
+                    {
+                        "taluk_name_ta": "அந்தியூர்",
+                        "taluk_name_en": "Anthiyur",
+                        "firkas": [
+                            {"firka_name_ta": "அம்மாபேட்டை", "firka_name_en": "Ammapettai", "keywords": ["அம்மாபேட்டை", "ammapettai"]},
+                            {"firka_name_ta": "அந்தியூர்", "firka_name_en": "Anthiyur", "keywords": ["அந்தியூர்", "anthiyur"]},
+                            {"firka_name_ta": "ஆப்பக்கூடல் / ஆத்தானி", "firka_name_en": "Athani", "keywords": ["ஆப்பக்கூடல்", "ஆத்தானி", "athani"]},
+                            {"firka_name_ta": "பர்கூர்", "firka_name_en": "Bargur", "keywords": ["பர்கூர்", "bargur"]}
+                        ]
+                    },
+                    {
+                        "taluk_name_ta": "சத்தியமங்கலம்",
+                        "taluk_name_en": "Sathyamangalam",
+                        "firkas": [
+                            {"firka_name_ta": "அரசூர்", "firka_name_en": "Arasur", "keywords": ["அரசூர்"]},
+                            {"firka_name_ta": "பவானிசாகர்", "firka_name_en": "Bhavanisagar", "keywords": ["பவானிசாகர்"]},
+                            {"firka_name_ta": "குத்தியாலத்தூர்", "firka_name_en": "Gudhiyalathur", "keywords": ["குத்தியாலத்தூர்"]},
+                            {"firka_name_ta": "புஞ்சை புளியம்பட்டி", "firka_name_en": "Punjai Puliyampatti", "keywords": ["புஞ்சை புளியம்பட்டி"]},
+                            {"firka_name_ta": "சத்தியமங்கலம்", "firka_name_en": "Sathyamangalam", "keywords": ["சத்தியமங்கலம்"]}
+                        ],
+                        "municipalities": [
+                            {
+                                "municipality_name_ta": "சத்தியமங்கலம் நகராட்சி",
+                                "municipality_name_en": "Sathyamangalam Municipality",
+                                "wards": []
+                            },
+                            {
+                                "municipality_name_ta": "புஞ்சை புளியம்பட்டி நகராட்சி",
+                                "municipality_name_en": "Punjai Puliampatti Municipality",
+                                "wards": []
+                            }
+                        ]
+                    },
+                    {
+                        "taluk_name_ta": "தாளவாடி",
+                        "taluk_name_en": "Thalavadi",
+                        "firkas": [
+                            {"firka_name_ta": "தாளவாடி", "firka_name_en": "Thalavadi", "keywords": ["தாளவாடி", "thalavadi"]}
+                        ]
+                    },
+                    {
+                        "taluk_name_ta": "நம்பியூர்",
+                        "taluk_name_en": "Nambiyur",
+                        "firkas": [
+                            {"firka_name_ta": "நம்பியூர்", "firka_name_en": "Nambiyur", "keywords": ["நம்பியூர்", "nambiyur"]},
+                            {"firka_name_ta": "கடத்தூர்", "firka_name_en": "Kadathur", "keywords": ["கடத்தூர்", "kadathur"]},
+                            {"firka_name_ta": "கோசணம்", "firka_name_en": "Kosanam", "keywords": ["கோசணம்", "kosanam"]}
+                        ]
+                    }
+                ]
+            }
+        ]
+    }
+
+    out_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
+    os.makedirs(out_dir, exist_ok=True)
+    out_path = os.path.join(out_dir, "erode_administrative_hierarchy.json")
+    with open(out_path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    print("Generated hierarchy JSON at:", out_path)
+
+if __name__ == "__main__":
+    generate_hierarchy()

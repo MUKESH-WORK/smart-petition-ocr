@@ -233,17 +233,17 @@ class AIAnalyzer:
 
         if not detected_category:
             for cat, keywords in {
+                "விதவை ஓய்வூதியம் / உதவித்தொகை": ["ஆதரவற்ற விதவை", "விதவை", "widow", "dwps", "dwp", "முதியோர் ஓய்வூதியம்", "ஓய்வூதியம்", "pension", "oap"],
+                "கல்வி உதவித்தொகை": ["கல்வி உதவித்தொகை", "கல்வி உதவி", "scholarship", "கல்லூரி உதவி", "மாணவர் கல்வி"],
                 "குடிநீர் வசதி": ["குடிநீர்", "தண்ணீர்", "நீர் வசதி", "water connection", "drinking water"],
                 "கழிவுநீர் / வடிகால் வசதி": ["கழிவுநீர்", "வடிகால்", "சாக்கடை", "drainage", "storm water", "sewage", "தூர்வார"],
                 "தெருவிளக்கு வசதி": ["தெருவிளக்கு", "விளக்குகள்", "மின்விளக்கு", "street light", "lighting"],
-                "கல்வி உதவித்தொகை": ["கல்வி உதவி", "உதவித்தொகை", "scholarship", "கல்வி", "படிப்பு", "கல்லூரி", "மாணவர்"],
                 "நில ஆக்கிரமிப்பு அகற்றுதல்": ["ஆக்கிரமிப்பு", "போக வழி", "வழி ஆக்கிரமிப்பு", "பாதை ஆக்கிரமிப்பு", "encroachment"],
                 "வாரிசு சான்றிதழ்": ["வாரிசு", "இறப்பு", "சான்று", "சான்றிதழ்", "heir"],
                 "பட்டா மாறுதல்": ["பட்டா மாறுதல்", "பட்டா பெயர் மாற்றம்", "உட்பிரிவு", "patta transfer"],
                 "பட்டா / நிலம்": ["நில", "பட்டா", "சர்வே", "land", "patta", "நத்தம்"],
                 "சாலை வசதி": ["சாலை", "road", "பாலம்", "bridge", "தெரு"],
                 "மின்சார வசதி": ["மின்", "electric", "electricity", "eb"],
-                "ஓய்வூதியம் / உதவித்தொகை": ["ஓய்வூதியம்", "முதியோர்", "விதவை", "pension"],
                 "ஆதார் / பெயர் மாற்றம்": ["ஆதார் திருத்தம்", "ஆதார் பெயர் மாற்றம்", "ஆதார் அட்டை சேர்க்கை"],
                 "வருவாய்த்துறை": ["வருவாய்", "revenue"],
                 "சுகாதாரம்": ["சுகாதாரம்", "சாக்கடை", "குப்பை"]
@@ -295,6 +295,12 @@ class AIAnalyzer:
             f_gsub = "Storm Water Drains - MAWS"
             f_subdept = "Commissionerate of Municipal Administration (CMA)"
             f_respoff = "Commissioner Municipality, Commissioner Municipal Corporation, Executive Officer - Town Panchayat"
+        elif "விதவை" in (detected_category + " " + doc_text) or "dwps" in doc_text.lower() or "ஓய்வூதியம்" in (detected_category + " " + doc_text):
+            dept = "Revenue and Disaster Management (REV)"
+            f_gtype = "Destitute Widow Pension Scheme (DWPS) / Social Security Schemes"
+            f_gsub = "Destitute Widow Pension (DWP)"
+            f_subdept = "Social Security Schemes (SSS) / Revenue Administration"
+            f_respoff = "Special Tahsildar (SSS) / Tahsildar"
         elif "கல்வி" in (detected_category + " " + doc_text) or "scholarship" in doc_text.lower() or "கல்வி உதவி" in doc_text:
             dept = "Higher Education Department (HIGHEDU)"
             f_gtype = "Scholarship - High Edu"
@@ -471,8 +477,9 @@ class AIAnalyzer:
             "குடிநீர்", "தண்ணீர்", "drinking water", "water connection", "water supply",
             "தெருவிளக்கு", "விளக்கு", "street light", "lighting",
             "கழிவுநீர்", "வடிகால்", "சாக்கடை", "drainage", "storm water", "sewage", "தூர்வார",
-            "கல்வி", "scholarship", "ஆக்கிரமிப்பு", "encroachment", "பட்டா", "patta", "விதவை",
-            "முதியோர்", "மின்சாரம்", "ரேஷன்", "வாரிசு", "சாலை",
+            "ஆதரவற்ற விதவை", "விதவை", "dwps", "widow", "முதியோர்", "oap", "ஓய்வூதியம்",
+            "கல்வி", "scholarship", "ஆக்கிரமிப்பு", "encroachment", "பட்டா", "patta",
+            "மின்சாரம்", "ரேஷன்", "வாரிசு", "சாலை",
             "ஆதார் திருத்தம்", "ஆதார் அட்டை", "esevai", "ceg"
         ]:
             if kw in (zone_a + " " + zone_b).lower():
@@ -920,6 +927,14 @@ class AIAnalyzer:
                 p_gsub = "Storm Water Drains - MAWS"
                 p_subdept = "Commissionerate of Municipal Administration (CMA)"
                 p_resp_off = "Commissioner Municipal Corporation / Municipality, Erode"
+
+        # Domain routing: Destitute Widow Pension (DWPS) / Social Security Schemes (OAP)
+        elif any(k in (p_gtype + " " + p_gsub + " " + doc_context).lower() for k in ["dwps", "ஆதரவற்ற விதவை", "விதவை உதவி", "விதவை ஓய்வூதியம்", "விதவை", "destitute widow", "widow pension", "முதியோர் ஓய்வூதியம்", "oap"]):
+            p_dept = "Revenue and Disaster Management (REV)"
+            p_gtype = "Destitute Widow Pension Scheme (DWPS) / Social Security Schemes"
+            p_gsub = "Destitute Widow Pension (DWP)"
+            p_subdept = "Social Security Schemes (SSS) / Revenue Administration"
+            p_resp_off = "Special Tahsildar (SSS) / Tahsildar"
 
         # Domain routing: Higher Education Scholarship
         elif any(k in (p_gtype + " " + p_gsub + " " + doc_context).lower() for k in ["scholarship", "கல்வி உதவி", "கல்வி உதவித்தொகை", "கல்லூரி படிப்பு", "பல்கலைக்கழக"]):

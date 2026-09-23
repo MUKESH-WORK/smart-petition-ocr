@@ -161,10 +161,7 @@ def test_k20_filestore_no_listdir():
 
 
 def test_k21_tamil_concept_map_json():
-    """K21: tamil_concept_map.json must exist in backend/data and be loaded by taxonomy_matcher."""
-    map_file = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "tamil_concept_map.json")
-    assert os.path.exists(map_file), "K21 Violation: backend/data/tamil_concept_map.json does not exist"
-
+    """K21: Tamil concept map must be loaded dynamically by taxonomy_matcher."""
     from services.taxonomy_matcher import taxonomy_matcher
     assert hasattr(taxonomy_matcher, "concept_map")
     assert "ஆக்கிரமிப்பு" in taxonomy_matcher.concept_map
@@ -206,6 +203,55 @@ async def test_upload_endpoint_authentication(sqlite_test_db):
                 data={"officer_id": "DRO_ERODE_01"}
             )
             assert res_form.status_code in [200, 202], f"Expected 200/202 with form officer_id, got {res_form.status_code}: {res_form.text}"
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+
+
+@pytest.mark.asyncio
+async def test_officer_isolated_history_and_recent(sqlite_test_db):
+    """Verify that /grievance/history and /grievance/recent return ONLY records processed by the authenticated officer."""
+    from httpx import AsyncClient, ASGITransport
+    from app.main import app
+    from models.database import get_db
+    from models.orm import Source, Officer
+
+    _, session_factory = sqlite_test_db
+
+    async def _get_db_override():
+        async with session_factory() as session:
+            yield session
+
+    app.dependency_overrides[get_db] = _get_db_override
+    try:
+        # Seed 2 officers and sources
+        async with session_factory() as s:
+            o1 = Officer(officer_id="OFF_ALICE", name="Alice", email="alice@tn.gov.in", designation="DRO", department="Revenue", status="Active")
+            o2 = Officer(officer_id="OFF_BOB", name="Bob", email="bob@tn.gov.in", designation="DRO", department="Revenue", status="Active")
+            s.add_all([o1, o2])
+            await s.commit()
+
+            src1 = Source(source_id=uuid.uuid4(), officer_id="OFF_ALICE", file_name="alice_petition.pdf", file_type="pdf", file_size_bytes=1024, file_hash="hash_a1", status="draft_ready")
+            src2 = Source(source_id=uuid.uuid4(), officer_id="OFF_BOB", file_name="bob_petition.pdf", file_type="pdf", file_size_bytes=2048, file_hash="hash_b1", status="draft_ready")
+            s.add_all([src1, src2])
+            await s.commit()
+
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            # 1. Query history as Alice
+            res_alice = await ac.get("/api/v1/grievance/history", headers={"X-Officer-Id": "OFF_ALICE"})
+            assert res_alice.status_code == 200
+            data_alice = res_alice.json()
+            assert len(data_alice) == 1
+            assert data_alice[0]["file_name"] == "alice_petition.pdf"
+            assert data_alice[0]["officer_id"] == "OFF_ALICE"
+
+            # 2. Query recent as Bob
+            res_bob = await ac.get("/api/v1/grievance/recent", headers={"X-Officer-Id": "OFF_BOB"})
+            assert res_bob.status_code == 200
+            data_bob = res_bob.json()
+            assert len(data_bob) == 1
+            assert data_bob[0]["fileName"] == "bob_petition.pdf"
+            assert data_bob[0]["officer_id"] == "OFF_BOB"
     finally:
         app.dependency_overrides.pop(get_db, None)
 

@@ -353,12 +353,12 @@ class AuditLog(Base):
 class SemanticCacheRecord(Base):
     __tablename__ = "semantic_cache"
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
+    id = Column(String(50), primary_key=True)
     prompt_hash = Column(String(64), index=True, nullable=False)
-    prompt_snippet = Column(Text, nullable=True)
+    prompt_text = Column(Text, nullable=True)
     embedding = Column(SafeVector(384), nullable=True)
     response_json = Column(SafeJSON, nullable=False)
-    hit_count = Column(Integer, default=1)
+    hit_count = Column(Integer, default=0)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
-    last_accessed_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    expires_at = Column(DateTime, nullable=True)
 

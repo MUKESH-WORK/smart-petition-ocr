@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { History, FileText, X, ArrowRight, Clock, Loader2 } from 'lucide-react';
+import { authHeaders } from '../../services/apiService';
 import './HistoryModal.css';
 
 export default function HistoryModal({ 
@@ -14,7 +15,9 @@ export default function HistoryModal({
   useEffect(() => {
     if (!isOpen) return;
     setLoading(true);
-    fetch('/api/v1/grievance/recent?limit=25')
+    fetch('/api/v1/grievance/recent?limit=25', {
+      headers: authHeaders()
+    })
       .then(res => res.ok ? res.json() : [])
       .then(data => {
         setPetitions(Array.isArray(data) ? data : []);

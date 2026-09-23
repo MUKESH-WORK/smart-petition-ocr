@@ -7,7 +7,7 @@ import { emptyAdminState, loadAdminState, STORAGE_KEY } from './adminModel';
 import { fetchAdminUsers, fetchAdminActivity, checkDbHealth } from '../../services/apiService';
 import './AdminWorkspace.css';
 
-export default function AdminWorkspace({ activeModule, onNavigate, onActivityChange }) {
+export default function AdminWorkspace({ activeModule, onNavigate, onActivityChange, currentLanguage = 'en' }) {
   const [initial] = useState(() => {
     try {
       return { state: loadAdminState(sessionStorage), error: '' };
@@ -149,6 +149,7 @@ export default function AdminWorkspace({ activeModule, onNavigate, onActivityCha
             dbHealth={dbHealth}
             commit={commit}
             onNavigate={onNavigate}
+            currentLanguage={currentLanguage}
           />
         )}
 
@@ -159,6 +160,7 @@ export default function AdminWorkspace({ activeModule, onNavigate, onActivityCha
             dbHealth={dbHealth}
             onRefreshUsers={refreshUsers}
             onReconnectDb={reconnectDb}
+            currentLanguage={currentLanguage}
           />
         )}
 
@@ -166,6 +168,7 @@ export default function AdminWorkspace({ activeModule, onNavigate, onActivityCha
           <BackupPage
             state={{ ...state, users: dbUsers, activity: dbActivity }}
             commit={commit}
+            currentLanguage={currentLanguage}
           />
         )}
       </div>

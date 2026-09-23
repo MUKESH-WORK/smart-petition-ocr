@@ -73,21 +73,225 @@ class ErodeLocationHierarchyMatcher:
         return os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "erode_administrative_hierarchy.json")
 
     def load_hierarchy(self) -> None:
-        if not os.path.exists(self.hierarchy_path):
-            logger.warning(f"Hierarchy JSON not found at {self.hierarchy_path}.")
+        """Loads administrative locations hierarchy directly from database."""
+        self.taluk_to_division.clear()
+        self.firka_to_taluk.clear()
+        self.firka_keywords.clear()
+        self.taluk_keywords.clear()
+        self.all_wards.clear()
+        self.ward_keywords.clear()
+        self.local_body_entries.clear()
+        self.district_name_ta = "ஈரோடு"
+        self.district_name_en = "Erode"
+
+        # 1. Try loading directly from database master_locations table
+        db_candidates = [
+            os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "temp_cache", "dro_admin.db"),
+            os.path.join(os.getcwd(), "temp_cache", "dro_admin.db"),
+            os.path.join(os.getcwd(), "backend", "temp_cache", "dro_admin.db"),
+            os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "temp_cache", "dro_local.db"),
+        ]
+
+        db_loaded = False
+        for cand in db_candidates:
+            if os.path.exists(cand):
+                try:
+                    import sqlite3
+                    con = sqlite3.connect(cand)
+                    con.row_factory = sqlite3.Row
+                    cur = con.cursor()
+                    cur.execute("""
+                        SELECT division_name_tamil, division_name_en, taluk_name_tamil, taluk_name_en,
+                               firka_name_tamil, firka_name_en, ward_no, ward_name_tamil, ward_name_en,
+                               local_body_type, sub_departments, pincode, search_text
+                        FROM master_locations
+                    """)
+                    rows = [dict(r) for r in cur.fetchall()]
+                    con.close()
+                    if rows:
+                        for r in rows:
+                            div_ta = (r.get("division_name_tamil") or "").strip()
+                            div_en = (r.get("division_name_en") or "").strip()
+                            t_ta = (r.get("taluk_name_tamil") or "").strip()
+                            t_en = (r.get("taluk_name_en") or "").strip()
+                            f_ta = (r.get("firka_name_tamil") or "").strip()
+                            f_en = (r.get("firka_name_en") or "").strip()
+                            w_no = r.get("ward_no")
+                            w_ta = (r.get("ward_name_tamil") or "").strip()
+                            w_en = (r.get("ward_name_en") or "").strip()
+                            lb_type = (r.get("local_body_type") or "").strip()
+                            pin = (r.get("pincode") or "").strip()
+                            stext = (r.get("search_text") or "").strip()
+
+                            if t_ta and div_ta:
+                                self.taluk_to_division[t_ta] = div_ta
+                                if t_en:
+                                    self.taluk_to_division[t_en.lower()] = div_ta
+                                if not any(k["taluk_ta"] == t_ta for k in self.taluk_keywords):
+                                    self.taluk_keywords.append({
+                                        "taluk_ta": t_ta,
+                                        "taluk_en": t_en,
+                                        "division_ta": div_ta,
+                                        "keywords": [k.lower() for k in [t_ta, t_en] if k and len(k) >= 3]
+                                    })
+
+                            if f_ta and t_ta:
+                                self.firka_to_taluk[f_ta] = t_ta
+                                if f_en:
+                                    self.firka_to_taluk[f_en.lower()] = t_ta
+                                if not any(k["firka_ta"] == f_ta for k in self.firka_keywords):
+                                    self.firka_keywords.append({
+                                        "firka_ta": f_ta,
+                                        "firka_en": f_en,
+                                        "taluk_ta": t_ta,
+                                        "division_ta": div_ta,
+                                        "keywords": [k.lower() for k in [f_ta, f_en] if k and len(k) >= 3]
+                                    })
+
+                            # Process Wards
+                            if w_no is not None:
+                                # Determine parent local body
+                                if lb_type == "Corporation" or (t_ta == "ஈரோடு" and 1 <= w_no <= 60):
+                                    m_name_en = "Erode City Municipal Corporation"
+                                    m_name_ta = "ஈரோடு மாநகராட்சி"
+                                    lb_type_norm = "Corporation"
+                                    z_no = ((w_no - 1) // 15) + 1
+                                    z_en = f"Zone {z_no}"
+                                elif "Bhavani" in w_en or "பவானி" in w_ta:
+                                    m_name_en = "Bhavani Municipality"
+                                    m_name_ta = "பவானி நகராட்சி"
+                                    lb_type_norm = "Municipality"
+                                    z_en = None
+                                elif "Gobi" in w_en or "கோபி" in w_ta:
+                                    m_name_en = "Gobichettipalayam Municipality"
+                                    m_name_ta = "கோபிசெட்டிபாளையம் நகராட்சி"
+                                    lb_type_norm = "Municipality"
+                                    z_en = None
+                                else:
+                                    m_name_en = lb_type or "Local Body"
+                                    m_name_ta = lb_type or "உள்ளாட்சி"
+                                    lb_type_norm = lb_type if lb_type in ["Corporation", "Municipality", "Town Panchayat"] else "Local Body"
+                                    z_en = None
+
+                                # Clean primary ward name
+                                primary_ward = w_ta
+                                if "(" in w_ta and ")" in w_ta:
+                                    inside = w_ta[w_ta.find("(") + 1:w_ta.rfind(")")].strip()
+                                    if inside:
+                                        primary_ward = inside
+
+                                ward_record = {
+                                    "district": self.district_name_ta,
+                                    "district_en": self.district_name_en,
+                                    "revenue_division": div_ta,
+                                    "revenue_division_en": div_en,
+                                    "taluk": t_ta,
+                                    "taluk_en": t_en,
+                                    "firka": f_ta,
+                                    "firka_en": f_en,
+                                    "ward": primary_ward or w_ta or f"Ward {w_no}",
+                                    "ward_no": w_no,
+                                    "ward_name": w_ta,
+                                    "ward_name_ta": w_ta,
+                                    "ward_name_en": w_en,
+                                    "municipality_ward": m_name_en,
+                                    "municipality_ward_ta": m_name_ta,
+                                    "local_body_type": lb_type_norm,
+                                    "zone": z_en,
+                                    "pincode": pin,
+                                    "boundary_type": "Urban"
+                                }
+                                self.all_wards.append(ward_record)
+
+                                # Build search keywords for this ward
+                                kws = set()
+                                for val in [w_ta, primary_ward, w_en, stext]:
+                                    if val:
+                                        kws.add(val.lower().strip())
+                                        for part in re.split(r'[,;\(\)\/\-]|மற்றும்|பகுதி|காலனி|நகர்', val):
+                                            cp = part.strip().lower()
+                                            if len(cp) >= 4 and cp not in GENERIC_LOCATION_TERMS:
+                                                kws.add(cp)
+
+                                self.ward_keywords.append({
+                                    "entry": ward_record,
+                                    "keywords": [k for k in kws if len(k) >= 4 and k not in GENERIC_LOCATION_TERMS]
+                                })
+
+                            # Process Municipalities & Corporations as local bodies
+                            if lb_type in ["Corporation", "Municipality"] and w_no is None:
+                                m_name_en = w_en or lb_type
+                                m_name_ta = w_ta or lb_type
+                                # Require explicit municipal/corporation signifier to avoid matching simple district name
+                                m_kws = set()
+                                if m_name_en:
+                                    m_kws.add(m_name_en.lower())
+                                if m_name_ta:
+                                    m_kws.add(m_name_ta.lower())
+                                if "corporation" in m_name_en.lower() or "மாநகராட்சி" in m_name_ta:
+                                    m_kws.add("ஈரோடு மாநகராட்சி")
+                                    m_kws.add("erode corporation")
+                                    m_kws.add("erode city municipal corporation")
+                                elif "municipality" in m_name_en.lower() or "நகராட்சி" in m_name_ta:
+                                    if "bhavani" in m_name_en.lower() or "பவானி" in m_name_ta:
+                                        m_kws.add("பவானி நகராட்சி")
+                                        m_kws.add("bhavani municipality")
+                                    elif "gobi" in m_name_en.lower() or "கோபி" in m_name_ta:
+                                        m_kws.add("கோபிசெட்டிபாளையம் நகராட்சி")
+                                        m_kws.add("gobichettipalayam municipality")
+                                        m_kws.add("கோபி நகராட்சி")
+
+                                if not any(entry.get("name_en") == m_name_en for entry in self.local_body_entries):
+                                    self.local_body_entries.append({
+                                        "name_en": m_name_en,
+                                        "name_ta": m_name_ta,
+                                        "local_body_type": lb_type,
+                                        "firka_ta": f_ta or t_ta,
+                                        "taluk_ta": t_ta,
+                                        "division_ta": div_ta,
+                                        "keywords": [k for k in m_kws if len(k) >= 5]
+                                    })
+
+                        logger.info(f"[LOCATION_MATCHER] Loaded {len(rows)} location records from database {cand}")
+                        db_loaded = True
+                        break
+                except Exception as e:
+                    logger.debug(f"DB load notice for {cand}: {e}")
+
+        if db_loaded and len(self.all_wards) > 0 and len(self.local_body_entries) > 0:
             return
 
+        # 2. Authoritative embedded hierarchy fallback
         try:
-            with open(self.hierarchy_path, "r", encoding="utf-8") as f:
-                self.hierarchy_data = json.load(f)
+            from services.master_data_seeder import AUTHORITATIVE_HIERARCHY_DATA
+            for tinfo in AUTHORITATIVE_HIERARCHY_DATA:
+                div_en = tinfo["division_name_en"]
+                div_ta = tinfo["division_name_tamil"]
+                t_en = tinfo["taluk_name_en"]
+                t_ta = tinfo["taluk_name_tamil"]
 
-            self.taluk_to_division.clear()
-            self.firka_to_taluk.clear()
-            self.firka_keywords.clear()
-            self.taluk_keywords.clear()
-            self.all_wards.clear()
-            self.ward_keywords.clear()
-            self.local_body_entries.clear()
+                self.taluk_to_division[t_ta] = div_ta
+                self.taluk_to_division[t_en.lower()] = div_ta
+                self.taluk_keywords.append({
+                    "taluk_ta": t_ta,
+                    "taluk_en": t_en,
+                    "division_ta": div_ta,
+                    "keywords": [t_ta.lower(), t_en.lower()]
+                })
+
+                for f_en, f_ta in tinfo.get("firkas", []):
+                    self.firka_to_taluk[f_ta] = t_ta
+                    self.firka_to_taluk[f_en.lower()] = t_ta
+                    self.firka_keywords.append({
+                        "firka_ta": f_ta,
+                        "firka_en": f_en,
+                        "taluk_ta": t_ta,
+                        "division_ta": div_ta,
+                        "keywords": [f_ta.lower(), f_en.lower()]
+                    })
+            logger.info("[LOCATION_MATCHER] Loaded authoritative embedded hierarchy model")
+        except Exception as e:
+            logger.warning(f"[LOCATION_MATCHER] Embedded hierarchy fallback notice: {e}")
 
             district = self.hierarchy_data.get("district", {})
             self.district_name_ta = district.get("name_ta", "")
@@ -269,33 +473,69 @@ class ErodeLocationHierarchyMatcher:
 
         matched_ward_entry: Optional[Dict[str, Any]] = None
 
-        # 1. Match Ward primarily by entity-wise locality and ward name keywords
-        best_ward_match = None
-        longest_ward_kw_len = 0
-        for item in self.ward_keywords:
-            for kw in item["keywords"]:
-                if kw in combined and len(kw) > longest_ward_kw_len:
-                    longest_ward_kw_len = len(kw)
-                    best_ward_match = item["entry"]
+        # 1. Check explicit local body (Municipality/Corporation) + Ward Number pattern first
+        muni_w_match = re.search(r'(பவானி|கோபிசெட்டிபாளையம்|கோபி|சத்தியமங்கலம்|புஞ்சை புளியம்பட்டி|ஈரோடு)\s*(?:நகராட்சி|மாநகராட்சி)?\s*(?:வார்டு|ward|w\.no|வார்டு\s*எண்)[\s\.\:\#-]*([0-9]{1,3})', combined)
+        if muni_w_match:
+            loc_prefix = muni_w_match.group(1)
+            w_num = int(muni_w_match.group(2))
+            for w_cand in self.all_wards:
+                if w_cand.get("ward_no") == w_num:
+                    cand_muni = (w_cand.get("municipality_ward_ta") or w_cand.get("taluk") or "").lower()
+                    if loc_prefix in cand_muni:
+                        matched_ward_entry = w_cand
+                        break
+            if not matched_ward_entry:
+                for lb in self.local_body_entries:
+                    if loc_prefix in lb.get("name_ta", "").lower() or loc_prefix in lb.get("taluk_ta", "").lower():
+                        w_name_ta_short = f"கோபி வார்டு {w_num}" if "கோபி" in loc_prefix else f"{loc_prefix} வார்டு {w_num}"
+                        matched_ward_entry = {
+                            "district": self.district_name_ta,
+                            "district_en": self.district_name_en,
+                            "revenue_division": lb.get("division_ta"),
+                            "revenue_division_en": "Erode Division" if "ஈரோடு" in (lb.get("division_ta") or "") else "Gobichettipalayam Division",
+                            "taluk": lb.get("taluk_ta"),
+                            "taluk_en": lb.get("taluk_ta"),
+                            "firka": lb.get("firka_ta"),
+                            "firka_en": lb.get("firka_ta"),
+                            "ward": w_name_ta_short,
+                            "ward_no": w_num,
+                            "ward_name": w_name_ta_short,
+                            "ward_name_ta": w_name_ta_short,
+                            "ward_name_en": f"{lb.get('name_en')} Ward {w_num}",
+                            "municipality_ward": lb.get("name_en"),
+                            "municipality_ward_ta": lb.get("name_ta"),
+                            "local_body_type": lb.get("local_body_type", "Municipality"),
+                            "zone": None,
+                            "pincode": None,
+                            "boundary_type": "Urban"
+                        }
+                        break
 
-        if best_ward_match:
-            matched_ward_entry = best_ward_match
+        # 2. Match Ward by entity-wise locality and ward name keywords
+        if not matched_ward_entry:
+            best_ward_match = None
+            longest_ward_kw_len = 0
+            for item in self.ward_keywords:
+                for kw in item["keywords"]:
+                    if kw in combined and len(kw) > longest_ward_kw_len:
+                        longest_ward_kw_len = len(kw)
+                        best_ward_match = item["entry"]
 
-        # 2. Secondary fallback: check explicit ward number reference if contextually matching a local body
+            if best_ward_match:
+                matched_ward_entry = best_ward_match
+
+        # 3. Secondary fallback: check generic ward number reference
         if not matched_ward_entry:
             w_num_match = re.search(r'(?:வார்டு|ward|w\.no|வார்டு\s*எண்)[\s\.\:\#-]*([0-9]{1,3})', combined)
             if w_num_match:
                 ref_w_no = int(w_num_match.group(1))
-                # Find matching ward in the relevant local body or first matching ward entity in JSON
                 for w_cand in self.all_wards:
                     if w_cand.get("ward_no") == ref_w_no:
-                        # If a local body name or taluk is mentioned, verify alignment
                         m_cand = (w_cand.get("municipality_ward") or "").lower()
                         t_cand = (w_cand.get("taluk") or "").lower()
                         if m_cand in combined or t_cand in combined:
                             matched_ward_entry = w_cand
                             break
-                # If no specific local body mentioned, pick the first ward with that reference number
                 if not matched_ward_entry:
                     for w_cand in self.all_wards:
                         if w_cand.get("ward_no") == ref_w_no:

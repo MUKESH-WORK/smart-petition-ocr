@@ -8,11 +8,12 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     DEBIAN_FRONTEND=noninteractive \
     TEMP=/app/temp_cache \
     TMP=/app/temp_cache \
-    TMPDIR=/app/temp_cache
+    TMPDIR=/app/temp_cache \
+    PIP_NO_CACHE_DIR=1
 
 WORKDIR /app
 
-# Install system dependencies for OpenCV, PDF processing, and PostgreSQL client
+# Install system dependencies for OpenCV, PDF processing, and health probes
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     curl \
@@ -22,13 +23,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     poppler-utils \
     && rm -rf /var/lib/apt/lists/*
 
-# Create cache and upload directories
+# Create cache, upload, and database bundle directories
 RUN mkdir -p /app/temp_cache /app/uploads /app/data
 
-# Install Python dependencies
+# 1. Install lightweight CPU PyTorch first (~180MB instead of 2.8GB CUDA wheel)
+RUN pip install --upgrade pip && \
+    pip install torch --index-url https://download.pytorch.org/whl/cpu
+
+# 2. Install remaining Python dependencies
 COPY backend/requirements.txt /app/requirements.txt
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r /app/requirements.txt
+RUN pip install --extra-index-url https://download.pytorch.org/whl/cpu -r /app/requirements.txt
 
 # Copy backend source code
 COPY backend /app/backend

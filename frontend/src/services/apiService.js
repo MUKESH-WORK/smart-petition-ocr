@@ -80,8 +80,8 @@ export function mapDraftToPortalDetails(draft = {}, analysis = {}) {
   };
 
   const rawGrievanceId = draft.dro_grievance_id || (analysis.id ? `TN/AHFISH/ERD/P/OFFLINE/31AUG26/${analysis.id}` : 'TN/AHFISH/ERD/P/OFFLINE/31AUG26/001');
-  const formattedGrievanceId = rawGrievanceId.includes('TN/AHFISH') 
-    ? rawGrievanceId 
+  const formattedGrievanceId = rawGrievanceId.includes('TN/AHFISH')
+    ? rawGrievanceId
     : `TN/AHFISH/ERD/P/OFFLINE/31AUG26/${rawGrievanceId.replace(/[^a-zA-Z0-9]/g, '').slice(-4) || '001'}`;
 
   return {
@@ -295,7 +295,7 @@ export async function uploadAndAnalyzePetition(file, onProgress, signal) {
         draftData = await dRes.json();
         break;
       }
-    } catch (_e) {}
+    } catch (_e) { }
   }
 
   // Fallback synthesis ONLY if draft row is completely missing after all retries
@@ -328,7 +328,7 @@ export async function uploadAndAnalyzePetition(file, onProgress, signal) {
       if (fullOcrText.includes('ஈரோடு') || fullOcrText.includes('ஈ. ரோடு')) fallbackDistrict = 'ஈரோடு';
     }
 
-    const fallbackSummary = analysisData.description_summary_tamil || 
+    const fallbackSummary = analysisData.description_summary_tamil ||
       (fallbackName ? `மனுதாரர் ${fallbackName}, ${fallbackVillage || 'பகுதியில்'} பழுதடைந்துள்ள தெருவிளக்குகளை ஆய்வு செய்து புதிய விளக்குகள் பொருத்தி சீரமைத்து தருமாறு உரிய நடவடிக்கை கோரியுள்ளார்.` : 'மனுதாரர் உரிய நிர்வாக நடவடிக்கை எடுக்கக் கோரி மனு அளித்துள்ளார்.');
 
     draftData = {
@@ -419,28 +419,124 @@ export async function askDocumentAssistant(sourceId, question, petition) {
 }
 
 /**
- * Fetch real audit logs & petition history from backend
+ * Fetch real audit logs & petition history from backend with support for officer filtering and system CRUD records.
  */
-export async function fetchAuditHistory() {
+export async function fetchAuditHistory(officerId = null) {
+  const records = [];
+  const seenIds = new Set();
+  const currentOfficerId = getOfficerId();
+
+  // 1. Fetch from Grievance / Document History
   try {
-    const res = await fetch(`${API_BASE}/grievance/history`);
+    const params = new URLSearchParams();
+    params.append('limit', '100');
+    if (officerId && officerId !== 'all') {
+      params.append('officer_id', officerId);
+    }
+    const res = await fetch(`${API_BASE}/grievance/history?${params.toString()}`, {
+      headers: authHeaders()
+    });
     if (res.ok) {
       const rows = await res.json();
-      return rows.map((item) => ({
-        id: item.dro_grievance_id || item.draft_id || `AUD-${(item.source_id || '').slice(0, 8)}`,
-        timestamp: item.created_at || new Date().toISOString(),
-        category: 'GDP Assistant',
-        categoryLabel: 'GDP Assistant',
-        officer: 'USER',
-        source_id: item.source_id,
-        details: item.grievance_type 
-          ? `${item.petitioner_name || 'Petition'}: ${item.grievance_type}` 
-          : (item.file_name || 'Petition processed'),
-        rawPetition: item
-      }));
+      rows.forEach((item) => {
+        const rowId = item.dro_grievance_id || item.draft_id || `AUD-${(item.source_id || '').slice(0, 8)}`;
+        if (!seenIds.has(rowId)) {
+          seenIds.add(rowId);
+          records.push({
+            id: rowId,
+            timestamp: item.created_at || new Date().toISOString(),
+            category: 'GDP Assistant',
+            categoryLabel: 'GDP Assistant',
+            type: item.status || 'PROCESSED',
+            officer: item.officer_id || currentOfficerId,
+            officer_id: item.officer_id || currentOfficerId,
+            source_id: item.source_id || rowId,
+            details: item.grievance_type
+              ? `${item.petitioner_name || 'Petition'}: ${item.grievance_type} (${item.department || 'General'})`
+              : (item.file_name || 'Petition processed'),
+            rawPetition: item
+          });
+        }
+      });
     }
   } catch (err) {
-    console.warn('Could not fetch backend history:', err);
+    console.warn('Could not fetch grievance history:', err);
+  }
+
+  // 2. Fetch System and Admin CRUD activities
+  try {
+    const params = new URLSearchParams();
+    params.append('limit', '100');
+    if (officerId && officerId !== 'all') {
+      params.append('officer_id', officerId);
+    }
+    const adminRes = await fetch(`${API_BASE}/admin/activity?${params.toString()}`, {
+      headers: authHeaders()
+    });
+    if (adminRes.ok) {
+      const activities = await adminRes.json();
+      activities.forEach((act) => {
+        const actId = act.id || `ACT-${Math.random()}`;
+        if (!seenIds.has(actId)) {
+          seenIds.add(actId);
+
+          let cat = 'GDP Assistant';
+          const typeUpper = (act.type || '').toUpperCase();
+          const detailLower = (act.detail || '').toLowerCase();
+
+          if (detailLower.includes('taxonomy') || detailLower.includes('master data') || detailLower.includes('intake channel') || ['TAXONOMY', 'MASTER_DATA', 'INGEST'].includes(typeUpper)) {
+            cat = 'Master Data';
+          } else if (detailLower.includes('hierarchy') || detailLower.includes('taluk') || detailLower.includes('village') || detailLower.includes('block') || ['HIERARCHY', 'TALUK', 'VILLAGE', 'BLOCK'].includes(typeUpper)) {
+            cat = 'Administrative Hierarchy';
+          } else if (detailLower.includes('login') || detailLower.includes('logged in') || detailLower.includes('logged out') || detailLower.includes('session') || ['LOGIN', 'LOGOUT', 'SESSION', 'AUTH'].includes(typeUpper)) {
+            cat = 'Security & Session';
+          } else if (detailLower.includes('user') || detailLower.includes('officer') || detailLower.includes('password') || detailLower.includes('credential') || ['CREATE_USER', 'UPDATE_USER', 'DELETE_USER', 'PASSWORD_RESET'].includes(typeUpper)) {
+            cat = 'User Management';
+          } else if (detailLower.includes('petition') || detailLower.includes('document') || detailLower.includes('upload') || ['UPLOAD', 'PROCESS', 'APPROVE', 'INTEGRATE', 'PETITION'].includes(typeUpper)) {
+            cat = 'GDP Assistant';
+          } else if (['CREATE', 'UPDATE', 'DELETE'].includes(typeUpper)) {
+            cat = 'System Admin';
+          }
+
+          records.push({
+            id: actId,
+            timestamp: act.date || act.timestamp || new Date().toISOString(),
+            category: cat,
+            categoryLabel: cat,
+            type: act.type || 'EVENT',
+            officer: act.officer_id || 'SYSTEM',
+            officer_id: act.officer_id || 'SYSTEM',
+            source_id: actId.startsWith('AUD-') ? actId : (act.source_id || 'SYS-AUDIT'),
+            details: act.detail || 'Administrative action recorded'
+          });
+        }
+      });
+    }
+  } catch (err) {
+    // Non-admins might not have access to admin activity, ignore gracefully
+  }
+
+  // Sort unified audit logs descending by timestamp
+  records.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+  return records;
+}
+
+/**
+ * Fetch live administrative activity feed directly from database
+ */
+export async function fetchAdminActivity(limit = 50, officerId = null) {
+  try {
+    const params = new URLSearchParams();
+    params.append('limit', String(limit));
+    if (officerId && officerId !== 'all') {
+      params.append('officer_id', officerId);
+    }
+    const res = await fetch(`${API_BASE}/admin/activity?${params.toString()}`, {
+      headers: authHeaders()
+    });
+    if (res.ok) return await res.json();
+  } catch (err) {
+    console.warn('Could not fetch admin activity feed:', err);
   }
   return [];
 }
@@ -584,6 +680,25 @@ export async function deleteAdminUser(userId) {
 }
 
 /**
+ * Update user password directly in Admin DB
+ */
+export async function updateUserPassword(userId, password) {
+  const res = await fetch(`${API_BASE}/admin/users/${encodeURIComponent(userId)}/password`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      ...authHeaders()
+    },
+    body: JSON.stringify({ password })
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || `Failed to update password (HTTP ${res.status})`);
+  }
+  return await res.json();
+}
+
+/**
  * Fetch authenticated officer's own profile
  */
 export async function fetchMyProfile() {
@@ -628,21 +743,6 @@ export async function logoutAdminSession(officerId) {
     console.debug('Logout status sync notice:', err);
   }
   return { status: 'success' };
-}
-
-/**
- * Fetch live activity logs from Admin DB
- */
-export async function fetchAdminActivity(limit = 50) {
-  try {
-    const res = await fetch(`${API_BASE}/admin/activity-log?limit=${limit}`, {
-      headers: authHeaders()
-    });
-    if (!res.ok) return [];
-    return await res.json();
-  } catch {
-    return [];
-  }
 }
 
 /**
