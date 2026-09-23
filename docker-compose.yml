@@ -26,14 +26,17 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-gdp_db}
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
       OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen2.5:3b}
       DATALAB_API_KEY: ${DATALAB_API_KEY:-}
       JWT_SECRET: ${JWT_SECRET:-gdp_production_secret_key_2026}
+      ALLOWED_ORIGINS: "http://localhost:5173,http://localhost:5174,http://localhost:80,http://127.0.0.1:5174"
     ports:
-      - "8000:8000"
+      - "${BACKEND_PORT:-8000}:8000"
     volumes:
       - ./backend/data:/app/backend/data
       - ./uploads:/app/uploads
@@ -48,7 +51,7 @@ services:
     depends_on:
       - backend
     ports:
-      - "5174:80"
+      - "${FRONTEND_PORT:-5174}:80"
 
 volumes:
   gdp_pgdata:

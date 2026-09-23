@@ -167,44 +167,65 @@ If the service fails to start or database connectivity is lost:
 
 ---
 
-## 4. Docker Compose Deployment
+## 4. Docker Deployment Models
 
-For containerized deployments using Docker:
+GDP Assistant offers two container deployment workflows:
 
-### Quick Start
+---
+
+### Option A: All-in-One Standalone Container (Simplest - Zero Dependencies)
+Run the entire application (React Frontend + FastAPI AI Backend + SQLite DB) in a single portable container image on any system:
+
 ```bash
-# 1. Copy and configure environment
+# 1. Build the unified Docker image
+docker build -t gdp-assistant:latest .
+
+# 2. Run the container
+docker run -d \
+  -p 8000:8000 \
+  -v $(pwd)/backend/data:/app/backend/data \
+  -v $(pwd)/uploads:/app/uploads \
+  --name gdp_assistant \
+  gdp-assistant:latest
+
+# 3. Access in your browser:
+#    👉 Web Application: http://localhost:8000/
+#    👉 API Documentation: http://localhost:8000/api/v1/docs
+#    👉 Health Diagnostics: http://localhost:8000/api/v1/health
+```
+
+---
+
+### Option B: Docker Compose Multi-Service Stack (Production Intranet / Cloud)
+For multi-user deployments requiring PostgreSQL 16 + pgvector and Nginx reverse proxying:
+
+```bash
+# 1. Prepare environment
 cp .env.example .env
-# Edit .env with production values (SECRET_KEY, POSTGRES_PASSWORD, etc.)
+# Edit .env with your environment configuration
 
 # 2. Build and launch all services
 docker compose up -d --build
 
-# 3. Verify all containers are healthy
+# 3. Verify container health
 docker compose ps
 
-# 4. View logs
-docker compose logs -f backend
-docker compose logs -f frontend
+# 4. View live logs
+docker compose logs -f
 ```
 
-### Architecture
+#### Service Topography:
 ```
 docker compose up -d
 ├── gdp_postgres   (pgvector/pgvector:pg16)  → Port 5432
 ├── gdp_backend    (Python 3.11 + FastAPI)   → Port 8000
-└── gdp_frontend   (Node 20 + Nginx)         → Port 5174
+└── gdp_frontend   (Node 20 + Nginx)         → Port 5174 / 80
 ```
 
-### Scaling Backend Workers
+#### Stopping & Lifecycle:
 ```bash
-docker compose up -d --scale backend=3
-```
-
-### Stopping & Cleanup
-```bash
-docker compose down          # Stop containers
-docker compose down -v       # Stop + remove volumes (⚠️ deletes database)
+docker compose down          # Gracefully stop containers
+docker compose down -v       # Stop and purge volumes (⚠️ deletes database data)
 ```
 
 ---
