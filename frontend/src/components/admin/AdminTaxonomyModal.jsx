@@ -12,6 +12,7 @@ import {
   Users,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   X,
   Check,
   AlertCircle,
@@ -347,13 +348,7 @@ export default function AdminTaxonomyModal({ onClose }) {
         {/* Top Header */}
         <header className="taxonomy-header">
           <div className="taxonomy-header-title-area">
-            <div className="taxonomy-badge-pill">
-              <span>CM Helpline Master Redressal System</span>
-            </div>
-            <h2>CM Grievance Mappings & Intake Channels</h2>
-            <p className="taxonomy-subtitle">
-              Comprehensive Tamil Nadu deterministic routing table across {stats.total_departments || 40} department groups, {stats.total_mappings ? stats.total_mappings.toLocaleString() : '1,861'} sub-types, and {channels.length || 21} intake channels.
-            </p>
+            <h2>CM Grievance Mappings &amp; Intake Channels</h2>
           </div>
           <div className="taxonomy-header-actions">
             <button
@@ -506,23 +501,27 @@ export default function AdminTaxonomyModal({ onClose }) {
                       </option>
                     ))}
                   </select>
+                  <ChevronDown size={14} className="select-chevron-icon" />
                 </div>
 
                 <div className="page-size-wrapper">
                   <label>Rows:</label>
-                  <select
-                    className="taxonomy-size-select"
-                    value={pageSize}
-                    onChange={(e) => {
-                      setPageSize(Number(e.target.value));
-                      setCurrentPage(1);
-                    }}
-                  >
-                    <option value={10}>10</option>
-                    <option value={25}>25</option>
-                    <option value={50}>50</option>
-                    <option value={100}>100</option>
-                  </select>
+                  <div className="size-select-wrapper">
+                    <select
+                      className="taxonomy-size-select"
+                      value={pageSize}
+                      onChange={(e) => {
+                        setPageSize(Number(e.target.value));
+                        setCurrentPage(1);
+                      }}
+                    >
+                      <option value={10}>10</option>
+                      <option value={25}>25</option>
+                      <option value={50}>50</option>
+                      <option value={100}>100</option>
+                    </select>
+                    <ChevronDown size={13} className="select-chevron-icon" />
+                  </div>
                 </div>
               </div>
             </section>
@@ -667,92 +666,50 @@ export default function AdminTaxonomyModal({ onClose }) {
         {/* TAB 2: Intake Channels */}
         {activeTab === 'channels' && (
           <section className="channels-tab-content">
-            {/* Channels Filter Toolbar */}
+            {/* Channels Header Strip */}
             <div className="channels-header-strip">
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                <Layers size={18} style={{ color: '#2563eb' }} />
-                <span style={{ fontWeight: 700, fontSize: '0.95rem', color: '#0f172a' }}>
-                  {filteredChannels.length} of {channels.length} Intake Channels
+                <span style={{ fontWeight: 700, fontSize: '0.95rem', color: '#080505ff' }}>
+                  {channels.length} Total Intake Channels Configured
                 </span>
-                <span className="channel-status-pill active" style={{ marginLeft: '0.5rem' }}>
-                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#047857', display: 'inline-block' }} />
-                  {channels.filter(c => c.is_active).length} Active
-                </span>
-                <span className="channel-status-pill inactive">
-                  {channels.filter(c => !c.is_active).length} Inactive
-                </span>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                <div className="dept-select-wrapper">
-                  <Filter size={15} className="select-icon" />
-                  <select
-                    className="taxonomy-dept-select"
-                    value={channelFilter}
-                    onChange={(e) => setChannelFilter(e.target.value)}
-                    style={{ minWidth: '160px' }}
-                  >
-                    <option value="all">All Channels</option>
-                    <option value="active">Active Only</option>
-                    <option value="inactive">Inactive Only</option>
-                  </select>
-                </div>
               </div>
             </div>
 
             {/* Grouped Channel Cards */}
             {VECTOR_CATEGORIES.map((cat) => {
               const matchKeys = [cat.key, ...(cat.extraKeys || [])];
-              const catChannels = filteredChannels.filter(c => matchKeys.includes(c.category));
+              const catChannels = channels.filter(c => matchKeys.includes(c.category));
               if (catChannels.length === 0) return null;
-              const CatIcon = cat.icon;
               return (
                 <div key={cat.key} className="channels-vector-group">
                   <div className="vector-group-title">
-                    <CatIcon size={18} style={{ color: '#2563eb' }} />
                     <span>{cat.label}</span>
                     <span className="tab-counter-pill" style={{ marginLeft: 'auto' }}>{catChannels.length}</span>
                   </div>
                   <p style={{ margin: 0, fontSize: '0.8rem', color: '#64748b', marginTop: '-0.5rem' }}>{cat.desc}</p>
                   <div className="channels-grid">
                     {catChannels.map((ch) => (
-                      <div key={ch.id} className={`channel-card ${ch.is_active ? '' : 'inactive-card'}`}>
+                      <div key={ch.id} className="channel-card">
                         <div className="channel-card-top">
                           <h4 className="channel-name">{ch.channel_name}</h4>
                           <span className="channel-code-badge">{ch.channel_code}</span>
                         </div>
-                        <p className="channel-desc">{ch.description || 'No description available.'}</p>
+                        <p className="channel-desc">{ch.description || 'Official grievance intake channel.'}</p>
                         <div className="channel-footer">
-                          <span className={`channel-status-pill ${ch.is_active ? 'active' : 'inactive'}`}>
-                            <span style={{
-                              width: 7, height: 7, borderRadius: '50%',
-                              background: ch.is_active ? '#047857' : '#94a3b8',
-                              display: 'inline-block'
-                            }} />
-                            {ch.is_active ? 'Active' : 'Inactive'}
-                          </span>
-                          <div className="channel-footer-actions">
+                          <div className="channel-footer-actions" style={{ marginLeft: 'auto' }}>
                             <button
-                              className="action-icon-btn edit"
+                              className="btn-card-action edit"
                               onClick={() => handleOpenEditChannel(ch)}
                               title="Edit Channel"
                             >
-                              <Pencil size={14} />
+                              Edit
                             </button>
                             <button
-                              className="action-icon-btn delete"
+                              className="btn-card-action remove"
                               onClick={() => setDeletingChannel(ch)}
                               title="Delete Channel"
                             >
-                              <Trash2 size={14} />
-                            </button>
-                            <button
-                              className={`taxonomy-action-btn ${ch.is_active ? 'secondary' : 'primary'}`}
-                              style={{ padding: '0.35rem 0.75rem', fontSize: '0.78rem' }}
-                              onClick={() => handleToggleChannel(ch)}
-                              title={ch.is_active ? 'Deactivate this channel' : 'Activate this channel'}
-                            >
-                              {ch.is_active ? <X size={13} /> : <Check size={13} />}
-                              <span>{ch.is_active ? 'Deactivate' : 'Activate'}</span>
+                              Delete
                             </button>
                           </div>
                         </div>
@@ -766,7 +723,6 @@ export default function AdminTaxonomyModal({ onClose }) {
             {/* Empty State */}
             {filteredChannels.length === 0 && (
               <div className="taxonomy-empty-state" style={{ padding: '3rem 2rem' }}>
-                <Layers size={36} />
                 <p>No intake channels match the current filter.</p>
                 <button
                   className="taxonomy-action-btn secondary"

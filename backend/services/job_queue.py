@@ -42,7 +42,7 @@ class PostgresJobQueue:
         # Deduplication: check if an active job already exists for this source and job_type
         existing = await db.execute(text("""
             SELECT id FROM job_queue
-            WHERE source_id = CAST(:source_id AS UUID)
+            WHERE source_id = :source_id
               AND job_type = :job_type
               AND status IN ('pending', 'processing')
             LIMIT 1
@@ -54,7 +54,7 @@ class PostgresJobQueue:
 
         result = await db.execute(text("""
             INSERT INTO job_queue (job_type, source_id, payload, status, created_at)
-            VALUES (:job_type, CAST(:source_id AS UUID), :payload, 'pending', CURRENT_TIMESTAMP)
+            VALUES (:job_type, :source_id, :payload, 'pending', CURRENT_TIMESTAMP)
             RETURNING id
         """), {
             "job_type": job_type,
@@ -192,7 +192,7 @@ class PostgresJobQueue:
                 try:
                     await db.execute(text("""
                         UPDATE sources SET status = 'failed', updated_at = CURRENT_TIMESTAMP
-                        WHERE source_id = CAST(:source_id AS UUID)
+                        WHERE source_id = :source_id
                     """), {"source_id": str(job["source_id"])})
                 except Exception as ex:
                     logger.warning(f"Could not update source {job['source_id']} status to failed: {ex}")
@@ -204,7 +204,7 @@ class PostgresJobQueue:
         """DAG Convergence Barrier: Triggers ai_analysis only when both vector_indexing and entity_extraction are complete."""
         res = await db.execute(text("""
             SELECT job_type, status FROM job_queue
-            WHERE source_id = CAST(:source_id AS UUID)
+            WHERE source_id = :source_id
               AND job_type IN ('vector_indexing', 'entity_extraction')
         """), {"source_id": source_id})
         rows = res.mappings().all()
@@ -235,7 +235,7 @@ class PostgresJobQueue:
 
         elif job_type == "vector_indexing":
             res = await db.execute(
-                text("SELECT page_number, full_text FROM ocr_results WHERE source_id = CAST(:source_id AS UUID) ORDER BY page_number"),
+                text("SELECT page_number, full_text FROM ocr_results WHERE source_id = :source_id ORDER BY page_number"),
                 {"source_id": source_id}
             )
             pages = res.mappings().all()

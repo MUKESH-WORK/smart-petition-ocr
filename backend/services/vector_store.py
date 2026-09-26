@@ -162,10 +162,10 @@ class PGVectorStore:
         for chunk, emb in zip(chunks, embeddings):
             chunk_id = str(uuid.uuid4())
             emb_list = emb.tolist() if hasattr(emb, "tolist") else list(emb)
-            emb_val = json.dumps(emb_list) if is_sqlite else emb_list
+            emb_val = json.dumps(emb_list)
             await db.execute(text("""
                 INSERT INTO document_chunks (id, source_id, page_number, chunk_index, chunk_text, embedding, metadata)
-                VALUES (CAST(:id AS UUID), CAST(:source_id AS UUID), :page_number, :chunk_index, :chunk_text, :embedding, :metadata)
+                VALUES (:id, :source_id, :page_number, :chunk_index, :chunk_text, :embedding, :metadata)
             """), {
                 "id": chunk_id,
                 "source_id": str(source_id),
@@ -189,7 +189,7 @@ class PGVectorStore:
                     sql = """
                         SELECT id, chunk_text, metadata, page_number, 1 - (embedding <=> :query_embedding::vector) AS similarity
                         FROM document_chunks
-                        WHERE source_id = CAST(:source_id AS UUID)
+                        WHERE source_id = :source_id
                         ORDER BY embedding <=> :query_embedding::vector
                         LIMIT :top_k
                     """
@@ -212,7 +212,7 @@ class PGVectorStore:
             sql = """
                 SELECT id, chunk_text, metadata, page_number, embedding
                 FROM document_chunks
-                WHERE source_id = CAST(:source_id AS UUID)
+                WHERE source_id = :source_id
             """
             result = await db.execute(text(sql), {"source_id": str(source_id)})
         else:
@@ -258,7 +258,7 @@ class PGVectorStore:
                         SELECT id, chunk_text, metadata, page_number,
                             ts_rank(to_tsvector('simple', chunk_text), plainto_tsquery('simple', :query)) AS rank
                         FROM document_chunks
-                        WHERE source_id = CAST(:source_id AS UUID)
+                        WHERE source_id = :source_id
                           AND to_tsvector('simple', chunk_text) @@ plainto_tsquery('simple', :query)
                         ORDER BY rank DESC
                         LIMIT :top_k
@@ -285,7 +285,7 @@ class PGVectorStore:
                 sql = """
                     SELECT id, chunk_text, metadata, page_number, 1.0 AS rank
                     FROM document_chunks
-                    WHERE source_id = CAST(:source_id AS UUID)
+                    WHERE source_id = :source_id
                       AND chunk_text LIKE :q_like
                     LIMIT :top_k
                 """

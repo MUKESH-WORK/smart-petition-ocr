@@ -1,5 +1,5 @@
-# Production Dockerfile for GDP Assistant Backend
-# Multi-stage / optimized Debian-based Python 3.11 image
+# Production Dockerfile for GDP Assistant Backend & Worker
+# Multi-stage optimized Debian-based Python 3.11 image
 
 FROM python:3.11-slim
 
@@ -15,7 +15,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# Install system dependencies for OpenCV, PDF processing, and health probes
+# Install minimal OS dependencies for PDF, imaging, and network health probes
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     curl \
@@ -25,30 +25,28 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     poppler-utils \
     && rm -rf /var/lib/apt/lists/*
 
-# Create cache, upload, model cache, and database bundle directories
-RUN mkdir -p /app/temp_cache /app/uploads /app/data /app/model_cache
+# Create application, storage, and cache directories
+RUN mkdir -p /app/temp_cache /app/uploads /app/storage/uploads /app/data /app/model_cache
 
-# 1. Install lightweight CPU PyTorch first (~180MB instead of 2.8GB CUDA wheel)
+# 1. Install lightweight CPU PyTorch wheel
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
 
-# 2. Install remaining Python dependencies
-COPY backend/requirements.txt /app/requirements.txt
+# 2. Install application Python dependencies (leveraging Docker layer caching)
+COPY requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir --extra-index-url https://download.pytorch.org/whl/cpu -r /app/requirements.txt
 
-# 3. Pre-download and bake SentenceTransformer model into the image
-RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2')"
+# 3. Copy application codebase into image
+COPY . /app
 
-# Copy backend source code
-COPY backend /app/backend
-
-# Set Python path to find app modules
+# 4. Set Python paths so both app and worker packages are discoverable
 ENV PYTHONPATH=/app/backend:/app
 
 EXPOSE 8000
 
 # Health check
-HEALTHCHECK --interval=10s --timeout=5s --retries=3 \
-    CMD curl -f http://localhost:8000/api/v1/health || exit 1
+HEALTHCHECK --interval=15s --timeout=5s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
 
-CMD ["uvicorn", "backend.app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Default command runs FastAPI API; overridden by worker service in docker-compose
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { ArrowRight, Eye, EyeOff, AlertCircle } from 'lucide-react';
+import GeminiLegalModal from '../common/GeminiLegalModal';
 import './LoginPage.css';
 
 const MOTTO_VARIANTS = [
@@ -24,6 +25,7 @@ export default function LoginPage({ onLogin }) {
   const [isFading, setIsFading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [legalModalTab, setLegalModalTab] = useState(null); // 'privacy' | 'terms' | null
 
   // Rotating bilingual motto
   useEffect(() => {
@@ -120,8 +122,11 @@ export default function LoginPage({ onLogin }) {
     <main className="login-page">
       <aside className="login-identity" aria-label="Government of Tamil Nadu">
         <header className="login-brand">
-          <h2>Erode Collectorate</h2>
-          <p>AI Administrative Co-Pilot</p>
+          <img src="/tn-emblem.png" alt="Government of Tamil Nadu" className="login-brand-emblem" />
+          <div className="login-brand-text">
+            <h2>Erode Collectorate</h2>
+            <p>AI Administrative Co-Pilot</p>
+          </div>
         </header>
 
         <div className="login-emblem" aria-hidden="true" />
@@ -213,6 +218,16 @@ export default function LoginPage({ onLogin }) {
               </p>
             )}
 
+            {/* Anti-bot honeypot field (hidden from real users) */}
+            <input
+              type="text"
+              name="website_url_hp"
+              aria-hidden="true"
+              style={{ display: 'none', position: 'absolute', left: '-9999px' }}
+              tabIndex={-1}
+              autoComplete="off"
+            />
+
             <button
               className="login-submit"
               type="submit"
@@ -221,12 +236,39 @@ export default function LoginPage({ onLogin }) {
               <span>{loading ? 'Authenticating…' : 'Sign in'}</span>
               <ArrowRight size={18} aria-hidden="true" />
             </button>
+
+            <div className="flex items-center justify-between mt-4 pt-3 border-t border-slate-100 text-xs text-slate-500" style={{ display: 'flex', justifyContent: 'space-between', marginTop: '12px', paddingTop: '10px', borderTop: '1px solid #e2e8f0', fontSize: '0.75rem', color: '#64748b' }}>
+              <button
+                type="button"
+                onClick={() => setLegalModalTab('privacy')}
+                style={{ background: 'none', border: 'none', color: '#2563eb', cursor: 'pointer', padding: 0, fontSize: '0.75rem', textDecoration: 'none' }}
+              >
+                Privacy Policy
+              </button>
+              <span>•</span>
+              <button
+                type="button"
+                onClick={() => setLegalModalTab('terms')}
+                style={{ background: 'none', border: 'none', color: '#2563eb', cursor: 'pointer', padding: 0, fontSize: '0.75rem', textDecoration: 'none' }}
+              >
+                Terms of Operation
+              </button>
+              <span>•</span>
+              <span>TLS 1.3 Encrypted</span>
+            </div>
+
             <p className="login-demo">
               District Administration Portal <span>Erode Collectorate • Revenue & Disaster Management</span>
             </p>
           </form>
         </section>
       </div>
+
+      <GeminiLegalModal
+        isOpen={Boolean(legalModalTab)}
+        initialTab={legalModalTab || 'privacy'}
+        onClose={() => setLegalModalTab(null)}
+      />
     </main>
   );
 }

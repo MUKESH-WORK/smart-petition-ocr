@@ -1,12 +1,18 @@
 import os
+import sys
 import json
 import tempfile
 import asyncio
 import logging
 from contextlib import asynccontextmanager
 
+# Ensure backend directory is in sys.path for robust imports across all processes
+_backend_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if _backend_dir not in sys.path:
+    sys.path.insert(0, _backend_dir)
+
 # Ensure all uploads & temp buffers use workspace temp cache
-_workspace_temp = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "temp_cache"))
+_workspace_temp = os.path.abspath(os.path.join(_backend_dir, "temp_cache"))
 os.makedirs(_workspace_temp, exist_ok=True)
 os.environ["TEMP"] = _workspace_temp
 os.environ["TMP"] = _workspace_temp
@@ -100,6 +106,81 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+# ------------------------------------------------------------------------------
+# Security Hardening & Rate Limiting Middleware (OWASP & Industry Best Practices)
+# ------------------------------------------------------------------------------
+from collections import defaultdict
+import time
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import JSONResponse
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "SAMEORIGIN"
+        response.headers["X-XSS-Protection"] = "1; mode=block"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+        response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+        return response
+
+class RateLimitMiddleware(BaseHTTPMiddleware):
+    """
+    In-memory IP rate limiter protecting against automated brute-force DDoS.
+    Exempts localhost/internal testing to avoid locking developers and workstations out.
+    """
+    def __init__(self, app):
+        super().__init__(app)
+        self.requests = defaultdict(list)
+        self.cleanup_counter = 0
+
+    async def dispatch(self, request: Request, call_next):
+        # Extract true client IP from proxy headers if present
+        forwarded = request.headers.get("CF-Connecting-IP") or request.headers.get("X-Real-IP") or request.headers.get("X-Forwarded-For")
+        if forwarded:
+            client_ip = forwarded.split(",")[0].strip()
+        else:
+            client_ip = request.client.host if request.client else "127.0.0.1"
+        
+        # Local development / loopback / container bridge addresses are exempt
+        if client_ip in ["127.0.0.1", "localhost", "::1", "testclient"]:
+            return await call_next(request)
+
+        now = time.time()
+        path = request.url.path
+
+        # Exempt high-frequency real-time polling and status endpoints
+        if any(p in path for p in ["/mobile-status", "/health", "/metrics", "/static", "/ws", "/stream", "/ping"]):
+            return await call_next(request)
+
+        # Cleanup old entries every 500 requests
+        self.cleanup_counter += 1
+        if self.cleanup_counter > 500:
+            self.cleanup_counter = 0
+            for ip in list(self.requests.keys()):
+                self.requests[ip] = [ts for ts in self.requests[ip] if now - ts < 60]
+                if not self.requests[ip]:
+                    del self.requests[ip]
+
+        # Rate limits supporting 10-20 concurrent officers & mobile citizens seamlessly
+        is_login_post = request.method == "POST" and ("/login" in path)
+        max_requests = 300 if is_login_post else 5000
+
+        recent = [ts for ts in self.requests[client_ip] if now - ts < 60]
+        if len(recent) >= max_requests:
+            return JSONResponse(
+                status_code=429,
+                content={"detail": "Too many requests. Please wait a moment before trying again."}
+            )
+
+        recent.append(now)
+        self.requests[client_ip] = recent
+        return await call_next(request)
+
+app.add_middleware(SecurityHeadersMiddleware)
+app.add_middleware(RateLimitMiddleware)
+
 # CORS configuration
 raw_origins = getattr(settings, "ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:5174")
 allowed_origins = [orig.strip() for orig in raw_origins.split(",") if orig.strip()]
@@ -107,9 +188,10 @@ is_wildcard = "*" in allowed_origins
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=allowed_origins if allowed_origins else ["http://localhost:5173"],
-    allow_credentials=not is_wildcard,
-    allow_methods=["*"],
+    allow_origins=allowed_origins if allowed_origins else ["*"],
+    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+)(:\d+)?$",
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     allow_headers=["*"],
 )
 
@@ -122,6 +204,17 @@ app.include_router(search.router, prefix=settings.API_V1_STR)
 app.include_router(admin.router, prefix=settings.API_V1_STR)
 app.include_router(translate.router, prefix=settings.API_V1_STR)
 app.include_router(petitions.router, prefix=settings.API_V1_STR)
+
+# Mount Architecture Pipeline Routers (Async OCR, Redis Queue, Documents API)
+try:
+    from app.api.routes.documents import router as documents_router
+    from app.api.routes.auth import router as auth_router
+    from app.api.routes.status import router as status_router
+    app.include_router(documents_router)
+    app.include_router(auth_router)
+    app.include_router(status_router)
+except Exception as _r_err:
+    logger.warning(f"Architecture pipeline routes notice: {_r_err}")
 
 # Locate pre-built frontend distribution
 frontend_dist = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "frontend", "dist"))
@@ -251,9 +344,15 @@ async def serve_ui():
     raise HTTPException(status_code=404, detail="Frontend distribution build not found. Run 'npm run build' in frontend/.")
 
 
-# Static root files for the frontend (icons, logos)
-for static_asset in ["favicon.svg", "icons.svg", "tn-emblem.png"]:
+# Static root files for the frontend (icons, logos, robots, sitemap)
+for static_asset in ["favicon.svg", "icons.svg", "tn-emblem.png", "robots.txt", "sitemap.xml"]:
     asset_path = os.path.join(frontend_dist, static_asset)
+    if not os.path.isfile(asset_path):
+        # Also check public folder if not yet built
+        fallback_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "frontend", "public", static_asset))
+        if os.path.isfile(fallback_path):
+            asset_path = fallback_path
+
     if os.path.isfile(asset_path):
         def _make_static_route(p):
             async def _serve():

@@ -27,10 +27,38 @@ export function generateLocalSessionId() {
  * Create a new upload session via backend API (with fallback)
  */
 export async function createUploadSession() {
+  const tunnelHeaders = {
+    'Content-Type': 'application/json',
+    'bypass-tunnel-reminder': 'true',
+    'Bypass-Tunnel-Reminder': '1',
+    'ngrok-skip-browser-warning': 'true'
+  };
+
   try {
+    // 1. Try FastAPI backend route first
+    const backendRes = await fetch('/api/v1/petitions/mobile-session', {
+      method: 'POST',
+      headers: tunnelHeaders,
+      body: JSON.stringify({})
+    });
+    if (backendRes.ok) {
+      const data = await backendRes.json();
+      if (data.sessionId) {
+        return {
+          sessionId: data.sessionId,
+          networkHost: data.networkHost || null
+        };
+      }
+    }
+  } catch (err) {
+    console.warn('FastAPI mobile-session check:', err);
+  }
+
+  try {
+    // 2. Fallback to Vite dev middleware route
     const res = await fetch('/api/upload/session', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' }
+      headers: tunnelHeaders
     });
 
     if (res.ok) {
@@ -43,10 +71,10 @@ export async function createUploadSession() {
       }
     }
   } catch (err) {
-    console.warn('Backend session API unavailable, using local fallback sessionId:', err);
+    console.warn('Vite session API fallback warning:', err);
   }
 
-  // Fallback if backend is unreachable
+  // 3. Fallback if offline
   const localId = generateLocalSessionId();
   try {
     sessionStorage.setItem(`session_init_${localId}`, Date.now().toString());
@@ -102,7 +130,7 @@ export async function uploadPetitionImage(sessionId, file, customFileName) {
     uploadedAt: new Date().toISOString()
   };
 
-  // 1. Broadcast locally
+  // 1. Broadcast locally (if running in same browser/tab)
   try {
     localStorage.setItem(`qr_upload_${sessionId}`, JSON.stringify(payload));
     if (broadcastChannel) {
@@ -115,23 +143,93 @@ export async function uploadPetitionImage(sessionId, file, customFileName) {
     console.warn('Local broadcast sync warning:', err);
   }
 
-  // 2. Send to backend REST API via multipart/form-data
+  // 2. Send to server endpoints (FastAPI backend + Vite server with bypass headers)
+  let serverAcknowledged = false;
+
+  const tunnelHeaders = {
+    'bypass-tunnel-reminder': 'true',
+    'Bypass-Tunnel-Reminder': '1',
+    'ngrok-skip-browser-warning': 'true'
+  };
+
+  // 2A. Try FastAPI JSON endpoint (clean, universal, high reliability)
+  if (dataUrl) {
+    try {
+      const fastApiRes = await fetch('/api/v1/petitions/mobile-upload', {
+        method: 'POST',
+        headers: {
+          ...tunnelHeaders,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          sessionId,
+          fileName: effectiveFileName,
+          fileType: resolvedFileType,
+          fileSize: sizeFormatted,
+          dataUrl
+        })
+      });
+
+      if (fastApiRes.ok) {
+        serverAcknowledged = true;
+      }
+    } catch (err) {
+      console.warn('FastAPI mobile-upload route check:', err);
+    }
+  }
+
+  // 2B. Also forward to Vite middleware via multipart/form-data with timeout
   try {
     const formData = new FormData();
     formData.append('sessionId', sessionId);
     formData.append('fileName', effectiveFileName);
     formData.append('petition', file, effectiveFileName);
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 25000); // 25s timeout
+
     const res = await fetch('/api/upload/petition', {
       method: 'POST',
-      body: formData
+      headers: tunnelHeaders,
+      body: formData,
+      signal: controller.signal
     });
+    clearTimeout(timeoutId);
 
     if (res.ok) {
-      return { success: true, ...payload };
+      serverAcknowledged = true;
     }
   } catch (err) {
-    console.warn('Backend upload API error, fallback to client state:', err);
+    console.warn('Vite multipart upload check:', err);
+  }
+
+  // 2C. Fallback to Vite JSON base64 route
+  if (!serverAcknowledged && dataUrl) {
+    try {
+      const jsonRes = await fetch('/api/upload/petition', {
+        method: 'POST',
+        headers: {
+          ...tunnelHeaders,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          sessionId,
+          fileName: effectiveFileName,
+          fileType: resolvedFileType,
+          dataUrl
+        })
+      });
+
+      if (jsonRes.ok) {
+        serverAcknowledged = true;
+      }
+    } catch (jsonErr) {
+      console.error('Vite JSON fallback error:', jsonErr);
+    }
+  }
+
+  if (!serverAcknowledged) {
+    throw new Error('Could not transfer document to workstation. Please check your network connection and tap Upload again.');
   }
 
   return { success: true, ...payload };
@@ -144,7 +242,14 @@ export async function uploadPetitionImage(sessionId, file, customFileName) {
 export async function checkUploadStatus(sessionId) {
   if (!sessionId) return { uploaded: false };
 
-  // 1. Check local storage first
+  const tunnelHeaders = {
+    'bypass-tunnel-reminder': 'true',
+    'Bypass-Tunnel-Reminder': '1',
+    'ngrok-skip-browser-warning': 'true',
+    'Cache-Control': 'no-cache'
+  };
+
+  // 1. Check local storage first (instant if same browser)
   try {
     const localRecord = localStorage.getItem(`qr_upload_${sessionId}`);
     if (localRecord) {
@@ -155,9 +260,33 @@ export async function checkUploadStatus(sessionId) {
     // Ignore storage errors
   }
 
-  // 2. Poll backend REST API
+  // 2. Poll FastAPI backend route
+  try {
+    const res = await fetch(`/api/v1/petitions/mobile-status/${sessionId}`, {
+      headers: tunnelHeaders,
+      cache: 'no-store'
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.uploaded) {
+        return {
+          uploaded: true,
+          sessionId,
+          fileName: data.fileName,
+          fileSize: data.fileSize,
+          fileType: data.fileType,
+          dataUrl: data.dataUrl
+        };
+      }
+    }
+  } catch {
+    // Backend polling retry
+  }
+
+  // 3. Poll Vite dev REST API
   try {
     const res = await fetch(`/api/upload/status/${sessionId}`, {
+      headers: tunnelHeaders,
       cache: 'no-store'
     });
     if (res.ok) {

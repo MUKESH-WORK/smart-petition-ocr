@@ -56,6 +56,7 @@
   display: flex;
   flex-direction: column;
   cursor: pointer;
+  min-width: 0;
 }
 
 .brand-title-row {
@@ -65,25 +66,28 @@
 }
 
 .brand-title {
-  font-size: var(--font-size-title);
+  font-size: 1.05rem;
   font-weight: 700;
   letter-spacing: -0.01em;
   color: #FFFFFF;
   line-height: 1.2;
+  white-space: nowrap;
 }
 
 .brand-subtitle {
-  font-size: var(--font-size-label);
+  font-size: 0.76rem;
   color: #EADBC8;
   font-weight: 500;
   opacity: 0.95;
+  white-space: nowrap;
 }
 
 /* Header Right Area */
 .header-right {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
+  flex-shrink: 0;
 }
 
 /* Language Translation Icon Button */
@@ -97,6 +101,7 @@
   padding: 5px 12px;
   color: #EADBC8;
   cursor: pointer;
+  flex-shrink: 0;
   transition: all var(--transition-fast, 0.15s ease);
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
 }
@@ -134,6 +139,7 @@
 /* Officer Profile Badge & Dropdown */
 .officer-profile-wrapper {
   position: relative;
+  flex-shrink: 0;
 }
 
 .officer-profile-card {
@@ -144,6 +150,9 @@
   background: rgba(234, 219, 200, 0.15);
   border: 1px solid rgba(218, 192, 163, 0.3);
   border-radius: var(--radius-pill);
+  max-width: 220px;
+  min-height: 38px;
+  box-sizing: border-box;
 }
 
 .officer-profile-card.clickable {
@@ -162,8 +171,8 @@
 }
 
 .officer-avatar {
-  width: 28px;
-  height: 28px;
+  width: 26px;
+  height: 26px;
   border-radius: 50%;
   background-color: #102C57;
   border: 1.5px solid #DAC0A3;
@@ -177,20 +186,32 @@
 .officer-info {
   display: flex;
   flex-direction: column;
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-align: left;
 }
 
 .officer-name {
-  font-size: var(--font-size-label);
+  font-size: 0.8rem;
   font-weight: 700;
   color: #FFFFFF;
-  line-height: 1.15;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: block;
 }
 
 .officer-role {
-  font-size: var(--font-size-btn-secondary);
+  font-size: 0.7rem;
   color: #EADBC8;
-  line-height: 1.15;
+  line-height: 1.2;
   font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: block;
 }
 
 .officer-chevron {

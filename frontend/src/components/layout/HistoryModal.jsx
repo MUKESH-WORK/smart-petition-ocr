@@ -7,7 +7,8 @@ export default function HistoryModal({
   isOpen, 
   onClose, 
   currentPetitionId, 
-  onSelectPetition 
+  onSelectPetition,
+  officerId = null
 }) {
   const [petitions, setPetitions] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -15,7 +16,9 @@ export default function HistoryModal({
   useEffect(() => {
     if (!isOpen) return;
     setLoading(true);
-    fetch('/api/v1/grievance/recent?limit=25', {
+    const effOfficer = officerId || localStorage.getItem('officer_id') || '';
+    const queryParam = effOfficer && effOfficer !== 'all' ? `&officer_id=${encodeURIComponent(effOfficer)}` : '';
+    fetch(`/api/v1/grievance/recent?limit=25${queryParam}`, {
       headers: authHeaders()
     })
       .then(res => res.ok ? res.json() : [])
@@ -27,7 +30,7 @@ export default function HistoryModal({
         setPetitions([]);
       })
       .finally(() => setLoading(false));
-  }, [isOpen]);
+  }, [isOpen, officerId]);
 
   if (!isOpen) return null;
 

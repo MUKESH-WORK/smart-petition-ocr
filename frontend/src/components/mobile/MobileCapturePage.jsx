@@ -50,6 +50,35 @@ export default function MobileCapturePage({ sessionId: propSessionId }) {
   const docInputRef = useRef(null);
   const galleryInputRef = useRef(null);
 
+  // Restore draft from sessionStorage if mobile browser reloaded after opening camera
+  useEffect(() => {
+    if (!sessionId) return;
+    try {
+      const savedDraft = sessionStorage.getItem(`mobile_draft_${sessionId}`);
+      if (savedDraft) {
+        const parsed = JSON.parse(savedDraft);
+        if (parsed.dataUrl && parsed.fileDetails) {
+          setPreviewUrl(parsed.dataUrl);
+          setCustomFileName(parsed.customFileName || parsed.fileDetails.name || '');
+          setFileDetails(parsed.fileDetails);
+          
+          // Reconstruct File from dataUrl
+          fetch(parsed.dataUrl)
+            .then(res => res.blob())
+            .then(blob => {
+              const file = new File([blob], parsed.fileDetails.name || 'petition.jpg', {
+                type: parsed.fileDetails.type || blob.type || 'image/jpeg'
+              });
+              setSelectedFile(file);
+            })
+            .catch(err => console.warn('Draft restoration warning:', err));
+        }
+      }
+    } catch (e) {
+      console.warn('Session draft recovery error:', e);
+    }
+  }, [sessionId]);
+
   // Clean up object URLs on unmount or file change
   useEffect(() => {
     return () => {
@@ -96,14 +125,37 @@ export default function MobileCapturePage({ sessionId: propSessionId }) {
       ? file.name 
       : `petition_${new Date().toISOString().slice(0, 10)}${defaultExt}`;
 
-    setCustomFileName(initialName);
-    setFileDetails({
+    const meta = {
       name: initialName,
       size: sizeFormatted,
       type: file.type || (isPdf ? 'application/pdf' : 'image/jpeg'),
       isPdf: isPdf,
       lastModified: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    });
+    };
+
+    setCustomFileName(initialName);
+    setFileDetails(meta);
+
+    // Cache to sessionStorage for mobile browser reload resilience
+    try {
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (reader.result && sessionId) {
+          try {
+            sessionStorage.setItem(`mobile_draft_${sessionId}`, JSON.stringify({
+              dataUrl: reader.result,
+              customFileName: initialName,
+              fileDetails: meta
+            }));
+          } catch {
+            // Storage quota exceeded on giant images is safely ignored
+          }
+        }
+      };
+      reader.readAsDataURL(file);
+    } catch {
+      // Ignore FileReader errors
+    }
   };
 
   const handleRetake = () => {
@@ -115,6 +167,9 @@ export default function MobileCapturePage({ sessionId: propSessionId }) {
     setFileDetails(null);
     setCustomFileName('');
     setErrorMessage('');
+    try {
+      if (sessionId) sessionStorage.removeItem(`mobile_draft_${sessionId}`);
+    } catch {}
     if (cameraInputRef.current) cameraInputRef.current.value = '';
     if (docInputRef.current) docInputRef.current.value = '';
     if (galleryInputRef.current) galleryInputRef.current.value = '';
@@ -148,12 +203,15 @@ export default function MobileCapturePage({ sessionId: propSessionId }) {
     try {
       await uploadPetitionImage(sessionId, selectedFile, finalFileName);
       setFileDetails(prev => ({ ...prev, name: finalFileName }));
+      try {
+        if (sessionId) sessionStorage.removeItem(`mobile_draft_${sessionId}`);
+      } catch {}
       setIsUploading(false);
       setUploadSuccess(true);
     } catch (err) {
       console.error('Upload failed:', err);
       setIsUploading(false);
-      setErrorMessage('Failed to upload petition. Please try again.');
+      setErrorMessage(err.message || 'Failed to upload petition. Please tap Upload Petition to retry.');
     }
   };
 

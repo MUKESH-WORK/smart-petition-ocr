@@ -230,19 +230,15 @@ export default function AdminHierarchyModal({ onClose }) {
   return (
     <div className="hierarchy-overlay" role="dialog" aria-modal="true">
       <div className="hierarchy-dialog">
-        {/* Header matching Image 1 */}
+        {/* Header */}
         <header className="hierarchy-header">
           <div className="hierarchy-header-content">
             <div className="hierarchy-title-row">
               <Layers size={22} className="hierarchy-title-icon" />
               <h2>Administrative Hierarchy &amp; Revenue Jurisdiction</h2>
-              <span className="hierarchy-badge-rag">
-                <span className="hierarchy-rag-dot"></span>
-                384-d RAG Vector Store Active
-              </span>
             </div>
             <p className="hierarchy-subtitle">
-              Authoritative district administrative hierarchy for {district.name ? `${district.name} Collectorate` : 'Collectorate'}. All taluks and firkas are indexed with vector embeddings for AI grievance routing.
+              Authoritative district administrative hierarchy for {district.name ? `${district.name} Collectorate` : 'Collectorate'}. All taluks and firkas are synchronized for grievance routing.
             </p>
           </div>
           <button className="hierarchy-close-btn" onClick={onClose} aria-label="Close modal">
@@ -350,10 +346,16 @@ export default function AdminHierarchyModal({ onClose }) {
           {/* 3-Column Taluk Card Grid */}
           <div className="hierarchy-taluk-grid">
             {visibleTaluks.map((taluk) => {
-              const isFirstDivision = taluk.division === (divisions[0]?.name || '');
+              const subDepts = taluk.subDepartments && taluk.subDepartments.length > 0
+                ? taluk.subDepartments.join(', ')
+                : 'General Administration';
+              const firkasList = taluk.firkas && taluk.firkas.length > 0
+                ? taluk.firkas.join(', ')
+                : 'None configured';
+
               return (
                 <article className="taluk-card" key={`${taluk.division}-${taluk.name}`}>
-                  {/* Card Header: Title + Division Badge */}
+                  {/* Card Header: Title + Division */}
                   <div className="taluk-card-header">
                     <div className="taluk-title-area">
                       <h3>
@@ -363,95 +365,44 @@ export default function AdminHierarchyModal({ onClose }) {
                         )}
                       </h3>
                     </div>
-                    <span className={`taluk-division-badge ${isFirstDivision ? 'erode' : 'gobi'}`} title={taluk.division || ''}>
+                    <span className="taluk-division-label" title={taluk.division || ''}>
                       {taluk.division ? taluk.division.replace(/\s*Division/i, '').toUpperCase() : ''}
                     </span>
                   </div>
 
-                  {/* Section 1: SUB-DEPARTMENTS */}
-                  <div className="taluk-section-header">
-                    <Landmark size={12} className="taluk-section-icon" />
-                    SUB-DEPARTMENTS
-                  </div>
-                  <div className="subdept-badges-row">
-                    {(taluk.subDepartments || []).map((dept) => (
-                      <span className="subdept-pill" key={dept}>
-                        {dept}
-                      </span>
-                    ))}
-                    {(!taluk.subDepartments || taluk.subDepartments.length === 0) && (
-                      <span className="subdept-pill">General Administration</span>
-                    )}
+                  {/* Section 1: SUB-DEPARTMENTS (Clean structured data) */}
+                  <div className="taluk-data-row">
+                    <span className="taluk-data-label">
+                      <Landmark size={13} className="taluk-section-icon" />
+                      Sub-Departments:
+                    </span>
+                    <p className="taluk-data-value">{subDepts}</p>
                   </div>
 
-                  {/* Section 2: LOCAL BODY CLASSIFICATION */}
-                  <div className="taluk-section-header">
-                    <MapPin size={12} className="taluk-section-icon" />
-                    LOCAL BODY CLASSIFICATION
-                  </div>
-                  <div className="localbody-tag-container">
-                    {taluk.localBody ? (
-                      <span className={`localbody-tag ${getLocalBodyClass(taluk.localBody)}`}>
-                        {taluk.localBody}
-                      </span>
-                    ) : (
-                      <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Unspecified</span>
-                    )}
+                  {/* Section 2: AVAILABLE FIRKAS (Clean structured data) */}
+                  <div className="taluk-data-row">
+                    <span className="taluk-data-label">
+                      <Tag size={13} className="taluk-section-icon" />
+                      Firkas ({taluk.firkas?.length || 0}):
+                    </span>
+                    <p className="taluk-data-value">{firkasList}</p>
                   </div>
 
-                  {/* Section 3: AVAILABLE FIRKAS */}
-                  <div className="taluk-section-header">
-                    <Tag size={12} className="taluk-section-icon" />
-                    AVAILABLE FIRKAS ({taluk.firkas?.length || 0})
-                  </div>
-                  <div className="firka-tags-container">
-                    {(taluk.firkas || []).map((firka) => (
-                      <span className="firka-pill" key={firka}>
-                        {firka}
-                        <button
-                          type="button"
-                          className="firka-remove-x"
-                          title={`Remove ${firka}`}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleRemoveFirka(taluk, firka);
-                          }}
-                        >
-                          &times;
-                        </button>
-                      </span>
-                    ))}
-                    <button
-                      type="button"
-                      className="firka-btn-add-inline"
-                      onClick={() => handleAddFirkaQuick(taluk)}
-                    >
-                      + Firka
-                    </button>
-                  </div>
-
-                  {/* Card Actions Footer */}
+                  {/* Card Actions Footer (Only Edit Taluk and Remove) */}
                   <div className="taluk-card-actions">
                     <button
                       type="button"
                       className="btn-card-action edit"
                       onClick={() => handleEditTaluk(taluk)}
                     >
-                      <Pencil size={12} /> Edit Taluk
-                    </button>
-                    <button
-                      type="button"
-                      className="btn-card-action add-firka"
-                      onClick={() => handleAddFirkaQuick(taluk)}
-                    >
-                      <Plus size={12} /> Add Firka
+                      <Pencil size={13} /> Edit Taluk
                     </button>
                     <button
                       type="button"
                       className="btn-card-action remove"
                       onClick={() => handleRemoveTaluk(taluk)}
                     >
-                      <Trash2 size={12} /> Remove
+                      <Trash2 size={13} /> Remove
                     </button>
                   </div>
                 </article>

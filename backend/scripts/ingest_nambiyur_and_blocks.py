@@ -152,8 +152,8 @@ async def run_pipeline():
             if not existing:
                 await db.execute(text("""
                     INSERT INTO cm_grievance_channels (category, channel_name, channel_code, is_active, description)
-                    VALUES (:category, :channel_name, :channel_code, 1, :description)
-                """), ch)
+                    VALUES (:category, :channel_name, :channel_code, :is_active, :description)
+                """), {**ch, "is_active": True})
         await db.commit()
         ch_count = (await db.execute(text("SELECT COUNT(*) FROM cm_grievance_channels"))).scalar_one()
         logger.info(f"Total CM Grievance Ingestion Channels in DB: {ch_count}")

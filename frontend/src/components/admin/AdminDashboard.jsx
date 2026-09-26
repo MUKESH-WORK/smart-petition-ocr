@@ -138,12 +138,6 @@ export default function AdminDashboard({ state, dbHealth, commit, onNavigate, cu
       <div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           <h1>{getTranslation(currentLanguage, 'dashboard', 'Dashboard')}</h1>
-          {dbHealth && (
-            <span className={`admin-header-db-pill ${isDbDisconnected ? 'disconnected' : 'connected'}`}>
-              <span className="dot" />
-              {isDbDisconnected ? getTranslation(currentLanguage, 'databaseDisconnected', 'Database Disconnected') : `${getTranslation(currentLanguage, 'databaseLive', 'Database Live')} (${dbHealth.admin_db?.latency_ms ?? 0}ms)`}
-            </span>
-          )}
         </div>
         <p className="admin-welcome">{getTranslation(currentLanguage, 'welcomeAdmin', 'Welcome, District Administrator')}</p>
       </div>

@@ -137,21 +137,34 @@ class SafeVector(TypeDecorator):
 
 class MasterLocation(Base):
     __tablename__ = "master_locations"
-    __table_args__ = (
-        UniqueConstraint("district_code", "taluk_code", "block_code", "firka_code", "village_code", name="uq_master_location"),
-    )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    district_code = Column(String(10), nullable=False)
-    district_name_tamil = Column(String(100))
-    taluk_code = Column(String(10), nullable=False)
-    taluk_name_tamil = Column(String(100))
-    block_code = Column(String(10))
-    block_name_tamil = Column(String(100))
-    firka_code = Column(String(10))
-    firka_name_tamil = Column(String(100))
-    village_code = Column(String(10))
-    village_name_tamil = Column(String(100))
+    district_code = Column(String(50))
+    district_name_tamil = Column(String(200))
+    district_name_en = Column(String(200))
+    division_code = Column(String(50))
+    division_name_tamil = Column(String(200))
+    division_name_en = Column(String(200))
+    taluk_code = Column(String(50))
+    taluk_name_tamil = Column(String(200))
+    taluk_name_en = Column(String(200))
+    firka_code = Column(String(50))
+    firka_name_tamil = Column(String(200))
+    firka_name_en = Column(String(200))
+    block_code = Column(String(50))
+    block_name_tamil = Column(String(200))
+    block_name_en = Column(String(200))
+    village_code = Column(String(50))
+    village_name_tamil = Column(String(200))
+    village_name_en = Column(String(200))
+    local_body_type = Column(String(200))
+    ward_no = Column(Integer)
+    ward_name_tamil = Column(String(200))
+    ward_name_en = Column(String(200))
+    pincode = Column(String(20))
+    search_text = Column(Text)
+    embedding = Column(SafeVector(384))
+    sub_departments = Column(String(500))
 
 
 class Officer(Base):

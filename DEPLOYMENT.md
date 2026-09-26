@@ -173,31 +173,33 @@ GDP Assistant offers two container deployment workflows:
 
 ---
 
-### Option A: All-in-One Standalone Container (Simplest - Zero Dependencies)
-Run the entire application (React Frontend + FastAPI AI Backend + SQLite DB) in a single portable container image on any system:
+### Option A: All-in-One Standalone Container (Single Complete Image)
+Run the entire application (React 19 Frontend + FastAPI AI Backend + OCR Worker + Embedded Redis + Nginx) in a single portable container on any system:
 
 ```bash
-# 1. Build the unified Docker image
+# 1. Build the unified Docker image (or load from .tar)
 docker build -t gdp-assistant:latest .
 
-# 2. Run the container
+# 2. Run the container with your .env configuration
 docker run -d \
-  -p 8000:8000 \
-  -v $(pwd)/backend/data:/app/backend/data \
-  -v $(pwd)/uploads:/app/uploads \
+  -p 80:80 \
+  --env-file .env \
+  --restart unless-stopped \
+  -v gdp_storage:/app/storage \
+  --add-host host.docker.internal:host-gateway \
   --name gdp_assistant \
   gdp-assistant:latest
 
 # 3. Access in your browser:
-#    👉 Web Application: http://localhost:8000/
-#    👉 API Documentation: http://localhost:8000/api/v1/docs
-#    👉 Health Diagnostics: http://localhost:8000/api/v1/health
+#    👉 Web Application: http://localhost/
+#    👉 API Documentation: http://localhost/api/v1/docs
+#    👉 Health Diagnostics: http://localhost/health
 ```
 
 ---
 
 ### Option B: Docker Compose Multi-Service Stack (Production Intranet / Cloud)
-For multi-user deployments requiring PostgreSQL 16 + pgvector and Nginx reverse proxying:
+For distributed deployments with separate PostgreSQL 16 + pgvector, Redis, and dedicated worker containers:
 
 ```bash
 # 1. Prepare environment
@@ -214,29 +216,41 @@ docker compose ps
 docker compose logs -f
 ```
 
-#### Service Topography:
-```
-docker compose up -d
-├── gdp_postgres   (pgvector/pgvector:pg16)  → Port 5432
-├── gdp_backend    (Python 3.11 + FastAPI)   → Port 8000
-└── gdp_frontend   (Node 20 + Nginx)         → Port 5174 / 80
-```
+---
 
-#### Stopping & Lifecycle:
+## 5. Azure Container Apps Deployment (`azd`)
+
+Deploy the containerized application to Azure Container Apps with zero-infrastructure configuration:
+
 ```bash
-docker compose down          # Gracefully stop containers
-docker compose down -v       # Stop and purge volumes (⚠️ deletes database data)
+# 1. Authenticate with Azure CLI
+azd auth login
+
+# 2. Initialize environment (if needed)
+azd env new prod
+
+# 3. Provision Infrastructure + Build & Deploy to Azure Container Apps
+azd up
 ```
 
 ---
 
-## 5. Operational Maintenance & Monitoring
+## 6. GitHub Actions CI/CD Pipeline
+
+The `.github/workflows/deploy.yml` pipeline automates:
+1. Automated backend test execution (`pytest`) and frontend asset validation (`npm run build`).
+2. Multi-architecture image compilation (`linux/amd64` & `linux/arm64`) with layer caching.
+3. Automated push to GitHub Container Registry (`ghcr.io`) or Azure Container Registry.
+
+---
+
+## 7. Operational Maintenance & Monitoring
 
 - **Log Inspections**: `journalctl -u gdp-backend -f -n 100` (ensure zero citizen PII).
 - **Docker Logs**: `docker compose logs -f --tail=100 backend`.
 - **Disk Usage**: Keep `temp_cache/` and `uploads/` monitored to ensure storage doesn't exceed workstation capacity.
 - **Scheduled Backups**: Set up a weekly cron job on the production server:
   ```cron
-  0 2 * * 0 /usr/bin/python3 /opt/smart-petition-ocr/scripts/manage_db.py export --output /var/backups/gdp/weekly_$(date +\%Y\%m\%d).tar.gz
+  0 2 * * 0 /usr/bin/python3 /opt/smart-petition-ocr/backend/scripts/manage_db.py export --output /var/backups/gdp/weekly_$(date +\%Y\%m\%d).tar.gz
   ```
 - **Translation Cache**: The LLM translation engine uses an LRU cache. No manual cache management needed, but restart the backend to clear the cache if translations seem stale.

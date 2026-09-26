@@ -1,4 +1,4 @@
-# Root .dockerignore for GDP Assistant
+# Root .dockerignore for GDP Assistant Single Image Build
 .git
 .gitignore
 .agents
@@ -9,12 +9,13 @@
 *.tmp
 *.bak*
 
-# Virtual environments
+# Virtual environments & node_modules
 .venv
 venv
 ENV
 env
 backend/.venv
+backend/venv
 frontend/node_modules
 
 # Python cache & test artifacts
@@ -30,11 +31,27 @@ htmlcov
 frontend/dist
 .npm
 
-# Temporary cache and binary uploads
+# Temporary cache, old uploads, and media
 temp_cache
 backend/temp_cache
 uploads
 backend/uploads
+storage
+backend/storage
+static/media/*
+backend/static/media/*
+!static/media/.gitkeep
+!backend/static/media/.gitkeep
+model_cache
+backend/model_cache
 models_cache
 backend/models_cache
 scratch
+backups
+backend/backups
+*.tar.gz
+*.tar
+*.db
+*.sqlite
+*.sqlite3
+sample_petitions

@@ -39,6 +39,10 @@ _backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _repo_root = os.path.dirname(_backend_dir)
 
 def _find_sqlite_path(db_name: str) -> str:
+    target_dir = os.path.join(_backend_dir, "temp_cache")
+    os.makedirs(target_dir, exist_ok=True)
+    
+    # Check existing candidates
     for candidate in [
         os.path.join(_backend_dir, "temp_cache", db_name),
         os.path.join(_repo_root, "temp_cache", db_name),
@@ -47,10 +51,38 @@ def _find_sqlite_path(db_name: str) -> str:
     ]:
         if os.path.isfile(candidate) and os.path.getsize(candidate) > 0:
             return os.path.abspath(candidate).replace("\\", "/")
+            
+    # If not found or empty, check if database bundle archive is present and unpack it
+    for bundle_path in [
+        os.path.join(_backend_dir, "gdp_database_bundle.tar.gz"),
+        os.path.join(_repo_root, "gdp_database_bundle.tar.gz"),
+        os.path.join(os.getcwd(), "gdp_database_bundle.tar.gz"),
+        os.path.join(os.getcwd(), "backend", "gdp_database_bundle.tar.gz"),
+        "/app/gdp_database_bundle.tar.gz"
+    ]:
+        if os.path.isfile(bundle_path):
+            try:
+                import tarfile
+                with tarfile.open(bundle_path, "r:gz") as tar:
+                    tar.extractall(target_dir)
+                logger.info(f"Automatically unpacked database bundle from {bundle_path} to {target_dir}")
+                extracted_file = os.path.join(target_dir, db_name)
+                if os.path.isfile(extracted_file) and os.path.getsize(extracted_file) > 0:
+                    return os.path.abspath(extracted_file).replace("\\", "/")
+            except Exception as e:
+                logger.warning(f"Notice during automatic bundle extraction: {e}")
+                
     return os.path.abspath(os.path.join(_backend_dir, "temp_cache", db_name)).replace("\\", "/")
 
 # Determine database URLs with automatic SQLite fallback
-use_sqlite = getattr(settings, "USE_SQLITE", True) or os.getenv("USE_SQLITE", "true").lower() in ("true", "1", "yes")
+if hasattr(settings, "USE_SQLITE"):
+    if isinstance(settings.USE_SQLITE, bool):
+        use_sqlite = settings.USE_SQLITE
+    else:
+        use_sqlite = str(settings.USE_SQLITE).lower() in ("true", "1", "yes")
+else:
+    use_sqlite = os.getenv("USE_SQLITE", "false").lower() in ("true", "1", "yes")
+
 pg_configured = not use_sqlite and bool(settings.DATABASE_URL and ("postgres" in settings.DATABASE_URL or "asyncpg" in settings.DATABASE_URL))
 pg_online = _is_postgres_available(settings.DATABASE_URL) if pg_configured else False
 
@@ -109,6 +141,12 @@ if is_sqlite:
 if is_admin_sqlite:
     _attach_sqlite_compat(admin_engine)
 
+# Dedicated SQLite Engine for Decoupled Audit Logging & Movement History
+audit_sqlite_path = _find_sqlite_path("dro_audit.db")
+audit_db_url = f"sqlite+aiosqlite:///{audit_sqlite_path}"
+audit_engine = create_async_engine(audit_db_url, **_get_engine_kwargs(True))
+_attach_sqlite_compat(audit_engine)
+
 # Async Session Factories
 UserAsyncSessionLocal = async_sessionmaker(
     bind=user_engine,
@@ -121,6 +159,14 @@ AsyncSessionLocal = UserAsyncSessionLocal  # Backwards compatibility
 
 AdminAsyncSessionLocal = async_sessionmaker(
     bind=admin_engine,
+    class_=AsyncSession,
+    expire_on_commit=False,
+    autocommit=False,
+    autoflush=False
+)
+
+AuditAsyncSessionLocal = async_sessionmaker(
+    bind=audit_engine,
     class_=AsyncSession,
     expire_on_commit=False,
     autocommit=False,
@@ -147,6 +193,14 @@ async def get_admin_db():
             await session.close()
 
 
+async def get_audit_db():
+    async with AuditAsyncSessionLocal() as session:
+        try:
+            yield session
+        finally:
+            await session.close()
+
+
 def _ensure_sqlite_dir(url: str):
     db_path = url.replace("sqlite+aiosqlite:///", "").replace("sqlite:///", "")
     if db_path and not db_path.startswith(":memory:"):
@@ -164,88 +218,125 @@ async def init_db_schema():
 
     import models.orm  # noqa: F401
 
-    # 1. Initialize User Database
+    # 1. Initialize User Database (ensure pgvector extension is ready for SafeVector columns)
+    if not is_sqlite:
+        try:
+            async with user_engine.begin() as ext_conn:
+                await ext_conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector;"))
+        except Exception as e:
+            logger.warning(f"Vector extension note on user db: {e}")
+
     async with user_engine.begin() as conn:
         await conn.run_sync(UserBase.metadata.create_all)
-        if not is_sqlite:
+
+    if not is_sqlite:
+        # PostgreSQL dynamic column safety
+        pg_safe_alters = [
+            "ALTER TABLE extracted_entities DROP CONSTRAINT IF EXISTS extracted_entities_extracted_by_check;",
+            "ALTER TABLE grievance_drafts ADD COLUMN IF NOT EXISTS complainant_signatory VARCHAR(200);",
+            "ALTER TABLE officers ADD COLUMN IF NOT EXISTS name VARCHAR(100);",
+            "ALTER TABLE officers ADD COLUMN IF NOT EXISTS email VARCHAR(150);",
+            "ALTER TABLE officers ADD COLUMN IF NOT EXISTS mobile VARCHAR(20);",
+            "ALTER TABLE officers ADD COLUMN IF NOT EXISTS is_admin BOOLEAN DEFAULT FALSE;",
+            "ALTER TABLE officers ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'Inactive';",
+            "ALTER TABLE officers ADD COLUMN IF NOT EXISTS last_login TIMESTAMP;",
+            "ALTER TABLE officers ADD COLUMN IF NOT EXISTS designation VARCHAR(100);",
+            "ALTER TABLE officers ADD COLUMN IF NOT EXISTS department VARCHAR(100);",
+            "ALTER TABLE sources ADD COLUMN IF NOT EXISTS phash VARCHAR(64);",
+            "ALTER TABLE semantic_cache ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP;",
+            "ALTER TABLE semantic_cache ADD COLUMN IF NOT EXISTS prompt_text TEXT;",
+            "ALTER TABLE master_locations ADD COLUMN IF NOT EXISTS embedding JSONB;",
+            "ALTER TABLE master_locations ADD COLUMN IF NOT EXISTS sub_departments VARCHAR(500);",
+            "ALTER TABLE master_locations ADD COLUMN IF NOT EXISTS district_name_en VARCHAR(200);",
+            "ALTER TABLE master_locations ADD COLUMN IF NOT EXISTS division_code VARCHAR(50);",
+            "ALTER TABLE master_locations ADD COLUMN IF NOT EXISTS division_name_tamil VARCHAR(200);",
+            "ALTER TABLE master_locations ADD COLUMN IF NOT EXISTS division_name_en VARCHAR(200);",
+            "ALTER TABLE master_locations ADD COLUMN IF NOT EXISTS taluk_name_en VARCHAR(200);",
+            "ALTER TABLE master_locations ADD COLUMN IF NOT EXISTS firka_name_en VARCHAR(200);",
+            "ALTER TABLE master_locations ADD COLUMN IF NOT EXISTS block_name_en VARCHAR(200);",
+            "ALTER TABLE master_locations ADD COLUMN IF NOT EXISTS village_name_en VARCHAR(200);",
+            "ALTER TABLE master_locations ADD COLUMN IF NOT EXISTS local_body_type VARCHAR(200);",
+            "ALTER TABLE master_locations ADD COLUMN IF NOT EXISTS ward_no INTEGER;",
+            "ALTER TABLE master_locations ADD COLUMN IF NOT EXISTS ward_name_tamil VARCHAR(200);",
+            "ALTER TABLE master_locations ADD COLUMN IF NOT EXISTS ward_name_en VARCHAR(200);",
+            "ALTER TABLE master_locations ADD COLUMN IF NOT EXISTS pincode VARCHAR(20);",
+            "ALTER TABLE master_locations ADD COLUMN IF NOT EXISTS search_text TEXT;"
+        ]
+        for alter_sql in pg_safe_alters:
             try:
-                await conn.execute(text("ALTER TABLE extracted_entities DROP CONSTRAINT IF EXISTS extracted_entities_extracted_by_check;"))
+                async with user_engine.begin() as alter_conn:
+                    await alter_conn.execute(text(alter_sql))
             except Exception as e:
-                logger.debug(f"User DB constraint note: {e}")
-            try:
-                await conn.execute(text("ALTER TABLE sources DROP CONSTRAINT IF EXISTS sources_status_check;"))
-                await conn.execute(text("""
-                    ALTER TABLE sources ADD CONSTRAINT sources_status_check 
-                    CHECK (status IN (
-                        'uploaded', 'pending', 'processing', 'ocr_processing', 'ocr_complete',
-                        'ocr_review', 'vector_indexing', 'vector_indexed', 'entity_extracting',
-                        'entity_extracted', 'ai_analyzing', 'draft_ready', 'officer_approved',
-                        'pushed_to_dro', 'flagged_for_review', 'rejected', 'completed', 'failed'
-                    ));
+                logger.debug(f"Schema alter note: {e}")
+    else:
+        # SQLite dynamic column safety
+        async with user_engine.begin() as sqlite_conn:
+            for col_sql in [
+                "ALTER TABLE officers ADD COLUMN name VARCHAR(100);",
+                "ALTER TABLE officers ADD COLUMN email VARCHAR(150);",
+                "ALTER TABLE officers ADD COLUMN mobile VARCHAR(20);",
+                "ALTER TABLE officers ADD COLUMN is_admin BOOLEAN DEFAULT 0;",
+                "ALTER TABLE officers ADD COLUMN status VARCHAR(20) DEFAULT 'Inactive';",
+                "ALTER TABLE officers ADD COLUMN last_login TIMESTAMP;",
+                "ALTER TABLE officers ADD COLUMN designation VARCHAR(100);",
+                "ALTER TABLE officers ADD COLUMN department VARCHAR(100);",
+                "ALTER TABLE sources ADD COLUMN phash VARCHAR(64);",
+                "ALTER TABLE semantic_cache ADD COLUMN expires_at TIMESTAMP;",
+                "ALTER TABLE semantic_cache ADD COLUMN prompt_text TEXT;"
+            ]:
+                try:
+                    await sqlite_conn.execute(text(col_sql))
+                except Exception:
+                    pass
+
+        # Ensure AI Semantic Cache table exists in User DB with correct VARCHAR(50) schema
+        async with user_engine.begin() as sem_conn:
+            if is_sqlite:
+                try:
+                    table_check = await sem_conn.execute(text("PRAGMA table_info(semantic_cache);"))
+                    cols = table_check.fetchall()
+                    id_col = next((c for c in cols if c[1] == "id"), None)
+                    if id_col and "INT" in id_col[2].upper():
+                        logger.info("Migrating semantic_cache table to VARCHAR(50) primary key...")
+                        await sem_conn.execute(text("DROP TABLE semantic_cache;"))
+                except Exception as ex:
+                    logger.debug(f"Semantic cache table schema inspect notice: {ex}")
+
+                await sem_conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS semantic_cache (
+                        id VARCHAR(50) PRIMARY KEY,
+                        prompt_hash VARCHAR(64) NOT NULL,
+                        prompt_text TEXT NOT NULL,
+                        embedding JSON,
+                        response_json TEXT NOT NULL,
+                        hit_count INTEGER DEFAULT 0,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        expires_at TIMESTAMP
+                    );
                 """))
-            except Exception as e:
-                logger.debug(f"Could not update sources_status_check constraint: {e}")
-            try:
-                await conn.execute(text("ALTER TABLE grievance_drafts ADD COLUMN IF NOT EXISTS complainant_signatory VARCHAR(200);"))
-            except Exception as e:
-                logger.debug(f"Could not add complainant_signatory column: {e}")
-
-        # Ensure dynamic officer columns & sources.phash exist across SQLite and Postgres
-        for col_sql in [
-            "ALTER TABLE officers ADD COLUMN name VARCHAR(100);",
-            "ALTER TABLE officers ADD COLUMN email VARCHAR(150);",
-            "ALTER TABLE officers ADD COLUMN mobile VARCHAR(20);",
-            "ALTER TABLE officers ADD COLUMN is_admin BOOLEAN DEFAULT 0;",
-            "ALTER TABLE officers ADD COLUMN status VARCHAR(20) DEFAULT 'Inactive';",
-            "ALTER TABLE officers ADD COLUMN last_login TIMESTAMP;",
-            "ALTER TABLE officers ADD COLUMN designation VARCHAR(100);",
-            "ALTER TABLE officers ADD COLUMN department VARCHAR(100);",
-            "ALTER TABLE sources ADD COLUMN phash VARCHAR(64);",
-            "ALTER TABLE semantic_cache ADD COLUMN expires_at TIMESTAMP;",
-            "ALTER TABLE semantic_cache ADD COLUMN prompt_text TEXT;"
-        ]:
-            try:
-                await conn.execute(text(col_sql))
-            except Exception:
-                pass
-
-        # Ensure AI Semantic Cache table exists in User DB
-        if is_sqlite:
-            await conn.execute(text("""
-                CREATE TABLE IF NOT EXISTS semantic_cache (
-                    id VARCHAR(50) PRIMARY KEY,
-                    prompt_hash VARCHAR(64) NOT NULL,
-                    prompt_text TEXT NOT NULL,
-                    embedding JSON,
-                    response_json TEXT NOT NULL,
-                    hit_count INTEGER DEFAULT 0,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    expires_at TIMESTAMP
-                );
-            """))
-            await conn.execute(text("CREATE INDEX IF NOT EXISTS idx_sem_cache_hash ON semantic_cache(prompt_hash);"))
-        else:
-            await conn.execute(text("""
-                CREATE TABLE IF NOT EXISTS semantic_cache (
-                    id VARCHAR(50) PRIMARY KEY,
-                    prompt_hash VARCHAR(64) NOT NULL,
-                    prompt_text TEXT NOT NULL,
-                    embedding vector(384),
-                    response_json JSONB NOT NULL,
-                    hit_count INTEGER DEFAULT 0,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    expires_at TIMESTAMP
-                );
-            """))
-            await conn.execute(text("CREATE INDEX IF NOT EXISTS idx_sem_cache_hash ON semantic_cache(prompt_hash);"))
+                await sem_conn.execute(text("CREATE INDEX IF NOT EXISTS idx_sem_cache_hash ON semantic_cache(prompt_hash);"))
+            else:
+                await sem_conn.execute(text("""
+                    CREATE TABLE IF NOT EXISTS semantic_cache (
+                        id VARCHAR(50) PRIMARY KEY,
+                        prompt_hash VARCHAR(64) NOT NULL,
+                        prompt_text TEXT NOT NULL,
+                        embedding JSONB,
+                        response_json JSONB NOT NULL,
+                        hit_count INTEGER DEFAULT 0,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        expires_at TIMESTAMP
+                    );
+                """))
+                await sem_conn.execute(text("CREATE INDEX IF NOT EXISTS idx_sem_cache_hash ON semantic_cache(prompt_hash);"))
 
     # 2. Initialize Admin Database
     if not is_admin_sqlite:
         try:
-            async with admin_engine.connect() as conn:
-                await conn.execution_options(isolation_level="AUTOCOMMIT").execute(text("CREATE EXTENSION IF NOT EXISTS vector;"))
+            async with admin_engine.begin() as ext_conn:
+                await ext_conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector;"))
         except Exception as e:
-            logger.debug(f"Could not enable pgvector on admin db: {e}")
+            logger.debug(f"Vector extension note on admin db: {e}")
 
     async with admin_engine.begin() as conn:
 
@@ -389,45 +480,45 @@ async def init_db_schema():
             await conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS master_locations (
                     id SERIAL PRIMARY KEY,
-                    district_code VARCHAR(10),
-                    district_name_tamil VARCHAR(100),
-                    district_name_en VARCHAR(100),
-                    division_code VARCHAR(10),
-                    division_name_tamil VARCHAR(100),
-                    division_name_en VARCHAR(100),
-                    taluk_code VARCHAR(10),
-                    taluk_name_tamil VARCHAR(100),
-                    taluk_name_en VARCHAR(100),
-                    firka_code VARCHAR(10),
-                    firka_name_tamil VARCHAR(100),
-                    firka_name_en VARCHAR(100),
-                    block_code VARCHAR(10),
-                    block_name_tamil VARCHAR(100),
-                    block_name_en VARCHAR(100),
-                    village_code VARCHAR(10),
-                    village_name_tamil VARCHAR(100),
-                    village_name_en VARCHAR(100),
-                    local_body_type VARCHAR(100),
+                    district_code VARCHAR(50),
+                    district_name_tamil VARCHAR(200),
+                    district_name_en VARCHAR(200),
+                    division_code VARCHAR(50),
+                    division_name_tamil VARCHAR(200),
+                    division_name_en VARCHAR(200),
+                    taluk_code VARCHAR(50),
+                    taluk_name_tamil VARCHAR(200),
+                    taluk_name_en VARCHAR(200),
+                    firka_code VARCHAR(50),
+                    firka_name_tamil VARCHAR(200),
+                    firka_name_en VARCHAR(200),
+                    block_code VARCHAR(50),
+                    block_name_tamil VARCHAR(200),
+                    block_name_en VARCHAR(200),
+                    village_code VARCHAR(50),
+                    village_name_tamil VARCHAR(200),
+                    village_name_en VARCHAR(200),
+                    local_body_type VARCHAR(200),
                     ward_no INTEGER,
                     ward_name_tamil VARCHAR(200),
                     ward_name_en VARCHAR(200),
-                    pincode VARCHAR(10),
+                    pincode VARCHAR(20),
                     search_text TEXT,
-                    embedding vector(384),
-                    sub_departments VARCHAR(255)
+                    embedding JSONB,
+                    sub_departments VARCHAR(500)
                 );
             """))
             await conn.execute(text("""
                 CREATE TABLE IF NOT EXISTS cm_taxonomy_mappings (
                     id SERIAL PRIMARY KEY,
-                    department VARCHAR(200) NOT NULL,
-                    department_code VARCHAR(50),
-                    sub_department VARCHAR(200),
+                    department VARCHAR(255) NOT NULL,
+                    department_code VARCHAR(100),
+                    sub_department VARCHAR(255),
                     grievance_type VARCHAR(255) NOT NULL,
                     grievance_sub_type VARCHAR(255) NOT NULL,
                     responsible_officer VARCHAR(255),
                     search_text TEXT,
-                    embedding vector(384)
+                    embedding JSONB
                 );
             """))
             await conn.execute(text("""
@@ -451,7 +542,46 @@ async def init_db_schema():
                 except Exception:
                     pass
 
-    logger.info(f"Database schemas initialized successfully (User DB: {'SQLite' if is_sqlite else 'PostgreSQL'}, Admin DB: {'SQLite' if is_admin_sqlite else 'PostgreSQL'}).")
+    # 3. Initialize SQLite Decoupled Audit Log & Movement History
+    _ensure_sqlite_dir(audit_db_url)
+    async with audit_engine.begin() as a_conn:
+        await a_conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS audit_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                source_id VARCHAR(50),
+                officer_id VARCHAR(50),
+                action VARCHAR(100) NOT NULL,
+                details TEXT,
+                ip_address VARCHAR(50)
+            );
+        """))
+        await a_conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS admin_activity_log (
+                id VARCHAR(50) PRIMARY KEY,
+                type VARCHAR(50) NOT NULL,
+                detail TEXT NOT NULL,
+                date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                officer_id VARCHAR(50)
+            );
+        """))
+        await a_conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS petition_movements (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                petition_id VARCHAR(50) NOT NULL,
+                movement_type VARCHAR(50) NOT NULL,
+                from_officer VARCHAR(100),
+                to_officer VARCHAR(100),
+                status VARCHAR(50),
+                remark TEXT,
+                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        """))
+        await a_conn.execute(text("CREATE INDEX IF NOT EXISTS idx_audit_officer ON audit_log(officer_id);"))
+        await a_conn.execute(text("CREATE INDEX IF NOT EXISTS idx_audit_time ON audit_log(timestamp);"))
+        await a_conn.execute(text("CREATE INDEX IF NOT EXISTS idx_mov_pet ON petition_movements(petition_id);"))
+
+    logger.info(f"Database schemas initialized successfully (User DB: {'SQLite' if is_sqlite else 'PostgreSQL'}, Admin DB: {'SQLite' if is_admin_sqlite else 'PostgreSQL'}, Audit Store: SQLite).")
 
 
 async def get_asyncpg_pool():

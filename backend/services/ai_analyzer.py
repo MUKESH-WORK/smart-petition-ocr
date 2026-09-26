@@ -372,7 +372,7 @@ class AIAnalyzer:
         # 1. Gather all OCR pages text
         ocr_res = await db.execute(text("""
             SELECT page_number, full_text FROM ocr_results
-            WHERE source_id = CAST(:source_id AS UUID)
+            WHERE source_id = :source_id
             ORDER BY page_number
         """), {"source_id": source_id})
         pages = ocr_res.mappings().all()
@@ -412,7 +412,7 @@ class AIAnalyzer:
         # Gather any regex pre-extracted entities (e.g. phone, aadhaar)
         ent_result = await db.execute(text("""
             SELECT entity_type, entity_value, source_page FROM extracted_entities 
-            WHERE source_id = CAST(:source_id AS UUID)
+            WHERE source_id = :source_id
             ORDER BY source_page ASC, confidence DESC
         """), {"source_id": source_id})
         existing_entities = [dict(e) for e in ent_result.mappings().all()]
@@ -1302,7 +1302,7 @@ class AIAnalyzer:
         analysis_result = self._verify_claims(analysis_result, doc_context)
 
         # 4. Upsert ai_analysis table
-        await db.execute(text("DELETE FROM ai_analysis WHERE source_id = CAST(:source_id AS UUID)"), {"source_id": source_id})
+        await db.execute(text("DELETE FROM ai_analysis WHERE source_id = :source_id"), {"source_id": source_id})
         await db.execute(text("""
             INSERT INTO ai_analysis 
                 (source_id, grievance_type_suggested, grievance_subtype_suggested, 
@@ -1310,7 +1310,7 @@ class AIAnalyzer:
                  description_summary_english, action_items, claims, hallucination_score, 
                  grounding_score, raw_ai_response)
             VALUES 
-                (CAST(:source_id AS UUID), :gt, :gst, :dept, :pri, :sum_ta, :sum_en, :actions, :claims, :hall, :ground, :raw)
+                (:source_id, :gt, :gst, :dept, :pri, :sum_ta, :sum_en, :actions, :claims, :hall, :ground, :raw)
         """), {
             "source_id": source_id,
             "gt": p_gtype,
@@ -1328,7 +1328,7 @@ class AIAnalyzer:
 
         # 5. Upsert grievance_drafts table (ref_number from regex only; dro_grievance_id NULL until push_to_dro)
         existing_draft = await db.execute(
-            text("SELECT id FROM grievance_drafts WHERE source_id = CAST(:source_id AS UUID)"),
+            text("SELECT id FROM grievance_drafts WHERE source_id = :source_id"),
             {"source_id": source_id}
         )
         draft_row = existing_draft.mappings().one_or_none()
@@ -1363,7 +1363,7 @@ class AIAnalyzer:
                     description = :desc,
                     priority = :priority,
                     updated_at = NOW()
-                WHERE source_id = CAST(:source_id AS UUID)
+                WHERE source_id = :source_id
             """), {
                 "source_id": source_id,
                 "name": p_name,
@@ -1406,7 +1406,7 @@ class AIAnalyzer:
                     status, dro_status, is_whatsapp_appeal, is_whatsapp_tracking, is_whatsapp_receipt,
                     ex_servicemen_relationship, officer_approved
                 ) VALUES (
-                    CAST(:id AS UUID), CAST(:source_id AS UUID), :name, :father, :complainant, NULL, :phone,
+                    :id, :source_id, :name, :father, :complainant, NULL, :phone,
                     :is_own_phone, :alt_phone, :addr, :gender, NULL,
                     'Individual', :desc, 'DRO Camp / மாவட்ட வருவாய் அலுவலர் முகாம்', :ref_no,
                     :dept, :sub_dept, :local_body_type, :g_type, :g_sub,
@@ -1474,7 +1474,7 @@ class AIAnalyzer:
             if e_val and e_val != "-":
                 await db.execute(text("""
                     INSERT INTO extracted_entities (source_id, entity_type, entity_value, confidence, validation_status, extracted_by)
-                    VALUES (CAST(:source_id AS UUID), :type, :val, :conf, 'pending', 'ai_ner')
+                    VALUES (:source_id, :type, :val, :conf, 'pending', 'ai_ner')
                     ON CONFLICT DO NOTHING
                 """), {"source_id": source_id, "type": e_type, "val": e_val, "conf": ai_grounding})
 
@@ -1483,7 +1483,7 @@ class AIAnalyzer:
             UPDATE sources SET 
                 status = 'draft_ready', 
                 updated_at = NOW() 
-            WHERE source_id = CAST(:source_id AS UUID)
+            WHERE source_id = :source_id
         """), {"source_id": source_id})
 
         await db.commit()

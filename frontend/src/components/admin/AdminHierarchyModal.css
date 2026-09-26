@@ -17,8 +17,13 @@
 }
 
 @keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
 }
 
 .hierarchy-dialog {
@@ -298,167 +303,51 @@
   color: #475569;
 }
 
-.taluk-division-badge {
-  font-size: 0.65rem;
+.taluk-division-label {
+  font-size: 0.72rem;
   font-weight: 700;
-  letter-spacing: 0.03em;
-  padding: 0.2rem 0.5rem;
+  letter-spacing: 0.04em;
+  padding: 0.15rem 0.45rem;
   border-radius: 4px;
+  background: #f1f5f9;
+  color: #334155;
+  border: 1px solid #e2e8f0;
   text-transform: uppercase;
   white-space: nowrap;
   flex-shrink: 0;
-  max-width: 45%;
-  text-align: right;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
-.taluk-division-badge.erode {
-  background: #eff6ff;
-  color: #1d4ed8;
-  border: 1px solid #bfdbfe;
+/* Structured Data Rows in Cards */
+.taluk-data-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-top: 0.75rem;
+  margin-bottom: 0.5rem;
 }
 
-.taluk-division-badge.gobi {
-  background: #f0fdf4;
-  color: #16a34a;
-  border: 1px solid #bbf7d0;
-}
-
-/* Section Header in Cards */
-.taluk-section-header {
-  font-size: 0.68rem;
+.taluk-data-label {
+  font-size: 0.72rem;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.04em;
   color: #64748b;
   display: flex;
   align-items: center;
   gap: 0.35rem;
-  margin: 0.75rem 0 0.35rem 0;
 }
 
 .taluk-section-icon {
-  color: #94a3b8;
+  color: #64748b;
 }
 
-/* Sub-Department Badges */
-.subdept-badges-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-content: flex-start;
-  gap: 0.35rem;
-  min-height: 48px;
-  max-height: 72px;
-  overflow-y: auto;
-}
-
-.subdept-pill {
-  font-size: 0.74rem;
-  font-weight: 500;
-  background: #f1f5f9;
-  color: #334155;
-  border: 1px solid #e2e8f0;
-  padding: 0.2rem 0.55rem;
-  border-radius: 4px;
-}
-
-/* Local Body Classification Tag */
-.localbody-tag-container {
-  min-height: 32px;
-  display: flex;
-  align-items: center;
-}
-
-.localbody-tag {
-  font-size: 0.75rem;
-  font-weight: 600;
-  padding: 0.22rem 0.65rem;
-  border-radius: 6px;
-  display: inline-block;
-}
-
-.localbody-tag.corporation {
-  background: #fdf2f8;
-  color: #db2777;
-  border: 1px solid #fbcfe8;
-}
-
-.localbody-tag.municipality {
-  background: #eff6ff;
-  color: #1d4ed8;
-  border: 1px solid #bfdbfe;
-}
-
-.localbody-tag.panchayats {
-  background: #fefce8;
-  color: #b45309;
-  border: 1px solid #fef08a;
-}
-
-.localbody-tag.tribal {
-  background: #ecfdf5;
-  color: #047857;
-  border: 1px solid #a7f3d0;
-}
-
-/* Available Firkas List */
-.firka-tags-container {
-  display: flex;
-  flex-wrap: wrap;
-  align-content: flex-start;
-  gap: 0.4rem;
-  margin-top: 0.3rem;
-  min-height: 68px;
-  max-height: 110px;
-  overflow-y: auto;
-}
-
-.firka-pill {
-  font-size: 0.75rem;
-  font-weight: 500;
-  background: #f0fdfa;
-  color: #0f766e;
-  border: 1px solid #ccfbf1;
-  padding: 0.2rem 0.55rem;
-  border-radius: 6px;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-}
-
-.firka-remove-x {
-  background: transparent;
-  border: none;
-  color: #0f766e;
-  opacity: 0.6;
+.taluk-data-value {
+  margin: 0;
   font-size: 0.85rem;
-  line-height: 1;
-  cursor: pointer;
-  padding: 0 1px;
-}
-
-.firka-remove-x:hover {
-  opacity: 1;
-  color: #b91c1c;
-}
-
-.firka-btn-add-inline {
-  font-size: 0.74rem;
   font-weight: 500;
-  background: #ffffff;
-  color: #475569;
-  border: 1px dashed #94a3b8;
-  padding: 0.2rem 0.55rem;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.firka-btn-add-inline:hover {
-  border-color: #0f766e;
-  color: #0f766e;
-  background: #f0fdfa;
+  color: #1e293b;
+  line-height: 1.45;
+  word-break: break-word;
 }
 
 /* Card Actions Footer */
@@ -468,14 +357,14 @@
   border-top: 1px solid #f1f5f9;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 0.45rem;
+  justify-content: flex-end;
+  gap: 0.65rem;
 }
 
 .btn-card-action {
-  font-size: 0.78rem;
+  font-size: 0.8rem;
   font-weight: 600;
-  padding: 0.38rem 0.75rem;
+  padding: 0.42rem 0.85rem;
   border-radius: 6px;
   cursor: pointer;
   transition: all 0.15s ease;
@@ -485,34 +374,24 @@
 }
 
 .btn-card-action.edit {
-  background: #0284c7;
+  background: #102C57;
   color: #ffffff;
   border: none;
 }
 
 .btn-card-action.edit:hover {
-  background: #0369a1;
-}
-
-.btn-card-action.add-firka {
-  background: #ffffff;
-  border: 1px solid #cbd5e1;
-  color: #334155;
-}
-
-.btn-card-action.add-firka:hover {
-  background: #f8fafc;
-  border-color: #94a3b8;
+  background: #1d4ed8;
 }
 
 .btn-card-action.remove {
   background: #ffffff;
-  border: 1px solid #fecdd3;
-  color: #e11d48;
+  border: 1px solid #fecaca;
+  color: #dc2626;
 }
 
 .btn-card-action.remove:hover {
-  background: #fff1f2;
+  background: #fef2f2;
+  border-color: #ef4444;
 }
 
 /* ==============================================================================

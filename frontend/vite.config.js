@@ -50,7 +50,7 @@ const sessions = new Map()
 
 // Helper to get local network IP address (cross-platform: Linux, macOS, Windows, Docker)
 function getLocalIpAddress() {
-  if (process.env.VITE_PUBLIC_URL || process.env.PUBLIC_URL) {
+  if (process.env.PORTLESS_URL || process.env.VITE_PUBLIC_URL || process.env.PUBLIC_URL) {
     return null
   }
   try {
@@ -124,11 +124,22 @@ function qrUploadApiPlugin() {
             file: null
           })
 
-          const localIp = getLocalIpAddress()
-          const hostHeader = req.headers.host || 'localhost:5174'
-          const port = hostHeader.includes(':') ? hostHeader.split(':')[1] : '5174'
-          const publicDomain = process.env.VITE_PUBLIC_URL || process.env.PUBLIC_URL || null
-          const networkHost = publicDomain || (localIp ? `http://${localIp}:${port}` : null)
+          const forwardedHost = req.headers['x-forwarded-host'] || req.headers.host || 'localhost:5173'
+          const forwardedProto = req.headers['x-forwarded-proto'] || (req.socket.encrypted ? 'https' : 'http')
+          const isProxiedPublic = forwardedHost.includes('.trycloudflare.com') || 
+                                  forwardedHost.includes('.loca.lt') || 
+                                  forwardedHost.includes('.ngrok') || 
+                                  forwardedHost.includes('.pinggy.link') ||
+                                  forwardedHost.includes('.pages.dev')
+
+          let networkHost = null
+          if (isProxiedPublic || process.env.PORTLESS_URL || process.env.VITE_PUBLIC_URL || process.env.PUBLIC_URL) {
+            networkHost = `${forwardedProto}://${forwardedHost}`
+          } else {
+            const localIp = getLocalIpAddress()
+            const port = forwardedHost.includes(':') ? forwardedHost.split(':')[1] : '5173'
+            networkHost = localIp ? `http://${localIp}:${port}` : null
+          }
 
           res.setHeader('Content-Type', 'application/json')
           res.statusCode = 200
@@ -285,7 +296,22 @@ export default defineConfig({
   plugins: [react(), qrUploadApiPlugin()],
   server: {
     host: true, // Listen on all network interfaces
-    port: Number(process.env.PORT || process.env.VITE_PORT || 5174),
+    port: Number(process.env.PORT || process.env.VITE_PORT || 5173),
+    allowedHosts: true, // Allow Cloudflare tunnel and public proxies
+    watch: {
+      ignored: [
+        '**/dist/**',
+        '**/temp_cache/**',
+        '**/uploads/**',
+        '**/backend/**',
+        '**/.system_generated/**',
+        '**/*.db',
+        '**/*.db-journal',
+        '**/*.tar.gz',
+        '**/.git/**',
+        '**/node_modules/**'
+      ]
+    },
     proxy: {
       '/api/v1': {
         target: explicitBackendUrl || `http://${backendHost}:${activeBackendPort}`,

@@ -50,20 +50,32 @@ async def get_current_officer(
         except Exception as e:
             logger.debug(f"Admin DB lookup error in get_current_officer: {e}")
 
-        # Fallback for recognized administrative demo accounts
-        is_adm = ("ADM" in oid.upper() or "COLLECTOR" in oid.upper() or "DRO" in oid.upper())
-        return {
-            "officer_id": oid,
-            "name": "District Administrator" if is_adm else "Department Officer",
-            "name_tamil": "மாவட்ட ஆட்சியர்" if is_adm else "வருவாய் ஆய்வாளர்",
-            "department": "District Administration / Collectorate" if is_adm else "வருவாய்த்துறை",
-            "role": "Admin" if is_adm else "Department User",
-            "is_admin": is_adm
-        }
+        # Check User DB officers table if not found in admin_users
+        try:
+            from models.database import UserAsyncSessionLocal
+            async with UserAsyncSessionLocal() as u_db:
+                u_res = await u_db.execute(
+                    text("SELECT officer_id as id, name, department, role, status FROM officers WHERE officer_id = :id OR LOWER(email) = :id_lower LIMIT 1"),
+                    {"id": oid, "id_lower": oid.lower()}
+                )
+                officer_rec = u_res.mappings().one_or_none()
+                if officer_rec:
+                    return {
+                        "officer_id": officer_rec["id"],
+                        "name": officer_rec["name"],
+                        "name_tamil": "",
+                        "email": "",
+                        "department": officer_rec.get("department") or "Revenue Administration",
+                        "role": officer_rec.get("role") or "Department User",
+                        "is_admin": False,
+                        "status": officer_rec.get("status") or "Active"
+                    }
+        except Exception as e:
+            logger.debug(f"User DB lookup note in get_current_officer: {e}")
 
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Authentication required: missing or invalid credentials",
+        detail="Authentication required: missing or invalid official credentials",
         headers={"WWW-Authenticate": "Bearer"}
     )
 
@@ -90,7 +102,7 @@ async def log_audit_event(
     db: Optional[AsyncSession] = None
 ):
     """
-    Writes 1:1 audit event into partitioned audit_log table.
+    Writes 1:1 audit event into the decoupled SQLite audit store.
     Uses an independent database session so audit writes are fully isolated
     and never commit or roll back caller transactions.
     """
@@ -99,31 +111,19 @@ async def log_audit_event(
         if ip_address and (ip_address.replace(".", "").isdigit() or ":" in ip_address):
             valid_ip = ip_address
 
-        async with AsyncSessionLocal() as audit_db:
-            from models.database import is_sqlite
-            if is_sqlite:
-                await audit_db.execute(text("""
-                    INSERT INTO audit_log (id, timestamp, source_id, officer_id, action, details, ip_address)
-                    VALUES ((SELECT COALESCE(MAX(id), 0) + 1 FROM audit_log), CURRENT_TIMESTAMP, :source_id, :officer_id, :action, :details, :ip_address)
-                """), {
-                    "source_id": str(source_id) if source_id else None,
-                    "officer_id": officer_id,
-                    "action": action,
-                    "details": json.dumps(details or {}, ensure_ascii=False),
-                    "ip_address": valid_ip
-                })
-            else:
-                await audit_db.execute(text("""
-                    INSERT INTO audit_log (timestamp, source_id, officer_id, action, details, ip_address)
-                    VALUES (NOW(), CAST(:source_id AS UUID), :officer_id, :action, :details, CAST(:ip_address AS INET))
-                """), {
-                    "source_id": source_id,
-                    "officer_id": officer_id,
-                    "action": action,
-                    "details": json.dumps(details or {}, ensure_ascii=False),
-                    "ip_address": valid_ip
-                })
+        from models.database import AuditAsyncSessionLocal
+        async with AuditAsyncSessionLocal() as audit_db:
+            await audit_db.execute(text("""
+                INSERT INTO audit_log (timestamp, source_id, officer_id, action, details, ip_address)
+                VALUES (CURRENT_TIMESTAMP, :source_id, :officer_id, :action, :details, :ip_address)
+            """), {
+                "source_id": str(source_id) if source_id else None,
+                "officer_id": officer_id,
+                "action": action,
+                "details": json.dumps(details or {}, ensure_ascii=False),
+                "ip_address": valid_ip
+            })
             await audit_db.commit()
     except Exception as e:
-        logger.error(f"Failed to log audit event: {e}")
+        logger.error(f"Failed to log audit event to decoupled SQLite audit store: {e}")
 

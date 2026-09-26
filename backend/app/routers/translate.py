@@ -2,10 +2,23 @@ import json
 import logging
 import asyncio
 from typing import List, Dict, Optional
+from collections import OrderedDict
 from fastapi import APIRouter
 from pydantic import BaseModel, Field
-from cachetools import LRUCache
 from core.llm_client import llm_client
+
+try:
+    from cachetools import LRUCache
+except ImportError:
+    class LRUCache(OrderedDict):
+        def __init__(self, maxsize=20000, *args, **kwargs):
+            self.maxsize = maxsize
+            super().__init__(*args, **kwargs)
+
+        def __setitem__(self, key, value):
+            if len(self) >= self.maxsize:
+                self.popitem(last=False)
+            super().__setitem__(key, value)
 
 logger = logging.getLogger(__name__)
 
@@ -13,39 +26,10 @@ router = APIRouter(prefix="/translate", tags=["Translation"])
 
 
 class TranslateRequest(BaseModel):
-    text: Optional[str] = None
-    texts: Optional[List[str]] = None
-    target_language: str = Field(default="ta", description="Target language code ('ta' for Tamil, 'en' for English)")
-    source_language: str = Field(default="auto", description="Source language code")
-
-
-class TranslateResponse(BaseModel):
-    translated_text: Optional[str] = None
-    translated_texts: Optional[List[str]] = None
-    target_language: str
-    source_language: str
-    cached: bool = False
-
-
-import json
-import logging
-import asyncio
-from typing import List, Dict, Optional
-from fastapi import APIRouter
-from pydantic import BaseModel, Field
-from cachetools import LRUCache
-from core.llm_client import llm_client
-
-logger = logging.getLogger(__name__)
-
-router = APIRouter(prefix="/translate", tags=["Translation"])
-
-
-class TranslateRequest(BaseModel):
-    text: Optional[str] = None
-    texts: Optional[List[str]] = None
-    target_language: str = Field(default="ta", description="Target language code ('ta' for Tamil, 'en' for English)")
-    source_language: str = Field(default="auto", description="Source language code")
+    text: Optional[str] = Field(None, max_length=10000, description="Single text payload to translate (max 10,000 characters)")
+    texts: Optional[List[str]] = Field(None, max_length=100, description="Batch of texts (max 100 items)")
+    target_language: str = Field(default="ta", max_length=10, description="Target language code ('ta' for Tamil, 'en' for English)")
+    source_language: str = Field(default="auto", max_length=10, description="Source language code")
 
 
 class TranslateResponse(BaseModel):

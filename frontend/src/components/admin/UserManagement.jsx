@@ -288,13 +288,6 @@ function UserDialog({ user, users, sections, onSaveSuccess, onDeleteSuccess, onO
                 <option key={sec} value={sec} />
               ))}
             </datalist>
-            <label className="admin-field admin-span-2">
-              Account Status
-              <select {...field('status')} disabled={isProtectedAdmin}>
-                <option value="Active">Active (Live Logged In / Enabled)</option>
-                <option value="Inactive">Inactive (Logged Out / Disabled)</option>
-              </select>
-            </label>
           </div>
         </fieldset>
 
@@ -446,10 +439,6 @@ export default function UserManagement({
         <div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             <h1>{getTranslation(currentLanguage, 'allUsers', 'All Users')}</h1>
-            <span className={`admin-header-db-pill ${isDbDisconnected ? 'disconnected' : 'connected'}`}>
-              <span className="dot" />
-              {isDbDisconnected ? getTranslation(currentLanguage, 'databaseDisconnected', 'Database Disconnected') : getTranslation(currentLanguage, 'databaseLive', 'Database Live')}
-            </span>
           </div>
           <p aria-live="polite">
             {loading ? 'Refreshing user accounts…' : `${filteredUsers.length} of ${users.length} official accounts in database`}
@@ -570,31 +559,17 @@ export default function UserManagement({
                     {user.lastLogin ? new Date(user.lastLogin).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' }) : 'Never'}
                   </td>
                   <td style={{ textAlign: 'right', paddingRight: '16px' }}>
-                    <div style={{ display: 'inline-flex', gap: '8px', alignItems: 'center', justifyContent: 'flex-end' }}>
-                      <button
-                        type="button"
-                        className="admin-button admin-button-secondary"
-                        style={{ padding: '4px 10px', fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: '5px' }}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setPasswordDialogUser(user);
-                        }}
-                        title={`Edit password for ${displayName}`}
-                      >
-                        <Key size={13} /> {getTranslation(currentLanguage, 'editPassword', 'Edit Password')}
-                      </button>
-                      <button
-                        type="button"
-                        className="admin-button admin-button-secondary"
-                        style={{ padding: '4px 10px', fontSize: '0.78rem' }}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setDialog({ user });
-                        }}
-                      >
-                        {getTranslation(currentLanguage, 'editProfile', 'Edit Profile')}
-                      </button>
-                    </div>
+                    <button
+                      type="button"
+                      className="admin-button admin-button-secondary"
+                      style={{ padding: '4px 12px', fontSize: '0.78rem' }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setDialog({ user });
+                      }}
+                    >
+                      {getTranslation(currentLanguage, 'editProfile', 'Edit Profile')}
+                    </button>
                   </td>
                 </tr>
               );

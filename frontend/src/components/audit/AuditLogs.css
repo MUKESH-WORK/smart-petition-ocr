@@ -126,6 +126,7 @@
 }
 
 .audit-search-box {
+  position: relative;
   flex: 1 1 240px;
   min-width: 200px;
   height: 38px;
@@ -147,9 +148,20 @@
   box-shadow: 0 0 0 3px rgba(16, 44, 87, 0.15);
 }
 
-.search-icon {
+.audit-search-icon,
+.audit-search-box .search-icon,
+.audit-logs-page .audit-search-box .search-icon {
+  position: static !important;
+  top: auto !important;
+  left: auto !important;
+  transform: none !important;
   color: var(--text-light, #94A3B8);
   flex-shrink: 0;
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 1;
 }
 
 .audit-search-input {

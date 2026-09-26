@@ -1398,7 +1398,7 @@ Petition Text:
         res = await db.execute(text("""
             SELECT page_number, full_text 
             FROM ocr_results 
-            WHERE source_id = CAST(:source_id AS UUID)
+            WHERE source_id = :source_id
             ORDER BY page_number
         """), {"source_id": source_id})
         pages = res.mappings().all()
@@ -1440,7 +1440,7 @@ Petition Text:
 
         # 4. Clean previous entities for this source
         await db.execute(
-            text("DELETE FROM extracted_entities WHERE source_id = CAST(:source_id AS UUID)"),
+            text("DELETE FROM extracted_entities WHERE source_id = :source_id"),
             {"source_id": source_id}
         )
 
@@ -1464,12 +1464,12 @@ Petition Text:
                 INSERT INTO extracted_entities 
                     (source_id, entity_type, entity_value, confidence, validation_status, source_page, source_chunk_id, extracted_by, officer_corrected)
                 VALUES 
-                    (CAST(:source_id AS UUID), :type, :value, :conf, :status, :page, :chunk_id, :by, :corrected)
+                    (:source_id, :type, :value, :conf, :status, :page, :chunk_id, :by, :corrected)
             """), batch_params)
 
         # 6. Update source status
         await db.execute(text("""
-            UPDATE sources SET status = 'entity_extracted', updated_at = NOW() WHERE source_id = CAST(:source_id AS UUID)
+            UPDATE sources SET status = 'entity_extracted', updated_at = NOW() WHERE source_id = :source_id
         """), {"source_id": source_id})
         await db.commit()
 

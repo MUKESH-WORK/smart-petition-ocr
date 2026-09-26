@@ -22,10 +22,10 @@ class Settings(BaseSettings):
     API_V1_STR: str = "/api/v1"
     
     # Database Settings
-    USE_SQLITE: bool = True
+    USE_SQLITE: bool = False
     POSTGRES_USER: str = "dro_user"
     POSTGRES_PASSWORD: str = os.environ.get("POSTGRES_PASSWORD", "")
-    POSTGRES_HOST: str = "localhost"
+    POSTGRES_HOST: str = "postgres"
     POSTGRES_PORT: int = 5432
     POSTGRES_DB: str = "dro_grievance_db"
     
@@ -45,17 +45,17 @@ class Settings(BaseSettings):
     
     # LLM Engine (ollama, llama_cpp, openai_compat)
     LLM_PROVIDER: str = "ollama"
-    LLM_API_BASE_URL: str = "http://localhost:11434/v1"
+    LLM_API_BASE_URL: str = "http://host.docker.internal:11434/v1"
     LLM_MODEL_NAME: str = "qwen2.5:3b-instruct"
     LLM_TEMPERATURE: float = 0.1
     LLM_MAX_TOKENS: int = 1024
     
     # DRO External Portal Bridge
-    DRO_PORTAL_BASE_URL: str = "http://localhost:9000"
+    DRO_PORTAL_BASE_URL: str = "http://host.docker.internal:9000"
     
     # File Storage
-    UPLOAD_DIR: str = "uploads"
-    STATIC_MEDIA_DIR: str = "static/media"
+    UPLOAD_DIR: str = "/app/storage/uploads"
+    STATIC_MEDIA_DIR: str = "/app/static/media"
     STORE_FILE_BYTEA: bool = False
     
     # OCR Engine (chandra_cloud / chandra_local / datalab)

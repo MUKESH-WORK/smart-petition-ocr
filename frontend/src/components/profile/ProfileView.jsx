@@ -22,7 +22,7 @@ function resolveInitialProfile(p) {
   try {
     const raw = localStorage.getItem('officer_profile') || localStorage.getItem('tn_gdp_officer_profile');
     if (raw) stored = JSON.parse(raw);
-  } catch {}
+  } catch { }
 
   const isAdm =
     p?.role === 'admin' ||
@@ -49,8 +49,7 @@ function resolveInitialProfile(p) {
   const name =
     p?.fullName ||
     p?.name ||
-    stored.name ||
-    (isAdm ? 'Tmt. Raja Gopal Sunkara, I.A.S.' : 'Department Officer');
+    stored.name;
 
   const nameTamil = p?.nameTamil || p?.name_tamil || stored.nameTamil || stored.name_tamil || '';
 

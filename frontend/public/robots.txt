@@ -1,0 +1,9 @@
+# Robots.txt for GDP Assistant (DRO Grievance Pre-Processing Portal)
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /admin/
+Disallow: /uploads/
+
+# Sitemap location
+Sitemap: https://dro-grievance.tn.gov.in/sitemap.xml

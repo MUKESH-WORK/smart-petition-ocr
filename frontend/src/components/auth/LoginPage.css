@@ -22,16 +22,27 @@
 .login-brand {
   position: relative;
   z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 16px;
 }
 
-.login-brand h2 {
+.login-brand-emblem {
+  width: 54px;
+  height: 54px;
+  object-fit: contain;
+  filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.35));
+  flex-shrink: 0;
+}
+
+.login-brand-text h2 {
   font-size: 22px;
   font-weight: 600;
   letter-spacing: -0.4px;
 }
 
-.login-brand p {
-  margin-top: 6px;
+.login-brand-text p {
+  margin-top: 4px;
   font-size: 13px;
   color: var(--sand-soft);
 }
@@ -130,7 +141,7 @@
   background-repeat: no-repeat;
   background-position: center;
   background-size: contain;
-  opacity: 0.17;
+  opacity: 0.16;
   pointer-events: none;
   user-select: none;
 }

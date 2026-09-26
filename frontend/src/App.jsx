@@ -15,7 +15,18 @@ import AdminNotifications from './components/admin/AdminNotifications';
 import { ChevronRight, ChevronLeft } from 'lucide-react';
 import { fetchAuditHistory, fetchPetitionBySourceId, logoutAdminSession, updateMyProfile, fetchAdminUsers } from './services/apiService';
 import ErrorBoundary from './components/common/ErrorBoundary';
+import PrivacyPolicyPage from './components/pages/PrivacyPolicyPage';
+import TermsPage from './components/pages/TermsPage';
 import './styles/index.css';
+
+function getStaticPageRoute() {
+  if (typeof window === 'undefined') return null;
+  const path = window.location.pathname.toLowerCase();
+  const hash = window.location.hash.toLowerCase();
+  if (path === '/privacy' || path.startsWith('/privacy/') || hash === '#/privacy' || hash === '#privacy') return 'privacy';
+  if (path === '/terms' || path.startsWith('/terms/') || hash === '#/terms' || hash === '#terms') return 'terms';
+  return null;
+}
 
 function getCaptureSessionFromUrl() {
   if (typeof window === 'undefined') return null;
@@ -36,42 +47,89 @@ function getCaptureSessionFromUrl() {
 }
 
 function createProfileFromSession(session) {
-  const isAdm = session?.role === 'admin' || session?.isAdmin || session?.user?.isAdmin || session?.user?.is_admin;
-  const u = session?.user || session?.profile || session || {};
-
-  let stored = {};
-  try {
-    const raw = localStorage.getItem('officer_profile');
-    if (raw) stored = JSON.parse(raw);
-  } catch {}
-
-  const email = u.email || session?.email || stored.email || localStorage.getItem('officer_email') || (isAdm ? 'collector.erode@tn.gov.in' : '');
-  const phone = u.mobile || u.phone || session?.mobile || session?.phone || stored.mobile || stored.phone || localStorage.getItem('officer_phone') || (isAdm ? '+91 424 2262000' : '');
-  const name = u.name || u.fullName || session?.name || stored.name || (isAdm ? 'Tmt. Raja Gopal Sunkara, I.A.S.' : 'Department Officer');
-  const designation = u.designation || session?.designation || (isAdm ? 'District Administrator' : 'Revenue Officer');
-  const department = u.department || session?.department || (isAdm ? 'District Administration / Collectorate' : 'Revenue Administration');
-  const officerId = u.id || u.officerId || session?.id || session?.officerId || (isAdm ? 'ADM-ERODE-001' : 'OFF-USER-001');
+  if (!session) return null;
+  const isAdm = Boolean(session.role === 'admin' || session.isAdmin || session.user?.isAdmin || session.user?.is_admin);
+  const u = session.user || session.profile || session || {};
 
   return {
-    fullName: name,
-    name: name,
+    fullName: u.name || u.fullName || '',
+    name: u.name || u.fullName || '',
     nameTamil: u.name_tamil || u.nameTamil || '',
-    designation: designation,
-    department: department,
-    officerId: officerId,
-    id: officerId,
-    email: email,
-    phone: phone,
-    mobile: phone,
-    role: isAdm ? 'District Administrator' : (u.role || session?.role || 'Department User'),
-    assignedOffice: 'Erode District Collectorate, Tamil Nadu'
+    designation: u.designation || (isAdm ? 'District Administrator' : 'Department Officer'),
+    department: u.department || '',
+    officerId: u.id || u.officerId || '',
+    id: u.id || u.officerId || '',
+    email: u.email || '',
+    phone: u.mobile || u.phone || '',
+    mobile: u.mobile || u.phone || '',
+    role: isAdm ? 'District Administrator' : (u.role || session.role || 'Department User'),
+    assignedOffice: u.assignedOffice || 'Erode District Collectorate, Tamil Nadu'
   };
 }
 
 const PROFILE_STORAGE_KEY = 'tn_gdp_officer_profile';
+const SESSION_STORAGE_KEY = 'gdp_user_session';
+const ACTIVE_PETITION_KEY = 'gdp_active_petition';
+
+function getInitialSession() {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = sessionStorage.getItem(SESSION_STORAGE_KEY) || localStorage.getItem(SESSION_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && (parsed.id || parsed.officerId || parsed.user?.id)) {
+        return parsed;
+      }
+    }
+    const token = localStorage.getItem('auth_token') || localStorage.getItem('token');
+    const officerId = localStorage.getItem('officer_id');
+    const officerName = localStorage.getItem('officer_name');
+    const officerRole = localStorage.getItem('officer_role');
+    if (token && officerId) {
+      const isAdm = officerRole === 'admin';
+      return {
+        id: officerId,
+        officerId: officerId,
+        name: officerName || officerId,
+        role: isAdm ? 'admin' : 'user',
+        isAdmin: isAdm,
+        access_token: token
+      };
+    }
+  } catch (e) {
+    console.warn('Session restoration notice:', e);
+  }
+  return null;
+}
 
 export default function App() {
-  const [session, setSession] = useState(null);
+  const [session, setSession] = useState(() => getInitialSession());
+  const [staticPage, setStaticPage] = useState(() => getStaticPageRoute());
+
+  useEffect(() => {
+    const handlePop = () => setStaticPage(getStaticPageRoute());
+    window.addEventListener('popstate', handlePop);
+    window.addEventListener('hashchange', handlePop);
+    return () => {
+      window.removeEventListener('popstate', handlePop);
+      window.removeEventListener('hashchange', handlePop);
+    };
+  }, []);
+
+  const handleLoginSuccess = (newSession) => {
+    try {
+      if (newSession) {
+        sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(newSession));
+        localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(newSession));
+      } else {
+        sessionStorage.removeItem(SESSION_STORAGE_KEY);
+        localStorage.removeItem(SESSION_STORAGE_KEY);
+      }
+    } catch (e) {
+      console.warn('Session save notice:', e);
+    }
+    setSession(newSession);
+  };
 
   const handleAppLogout = async () => {
     try {
@@ -82,14 +140,33 @@ export default function App() {
     } catch (err) {
       console.warn('Logout session cleanup warning:', err);
     } finally {
+      sessionStorage.removeItem(SESSION_STORAGE_KEY);
+      localStorage.removeItem(SESSION_STORAGE_KEY);
+      sessionStorage.removeItem(ACTIVE_PETITION_KEY);
       localStorage.removeItem('auth_token');
       localStorage.removeItem('token');
+      localStorage.removeItem('officer_id');
+      localStorage.removeItem('officer_name');
+      localStorage.removeItem('officer_role');
       setSession(null);
     }
   };
 
-  if (!session && !getCaptureSessionFromUrl()) {
-    return <LoginPage onLogin={setSession} />;
+  if (staticPage === 'privacy') {
+    return <PrivacyPolicyPage onBack={() => { window.history.pushState({}, '', '/'); setStaticPage(null); }} />;
+  }
+  if (staticPage === 'terms') {
+    return <TermsPage onBack={() => { window.history.pushState({}, '', '/'); setStaticPage(null); }} />;
+  }
+
+  // Render Mobile QR Capture directly at root level without workstation overhead
+  const captureSessionId = getCaptureSessionFromUrl();
+  if (captureSessionId) {
+    return <MobileCapturePage sessionId={captureSessionId} />;
+  }
+
+  if (!session) {
+    return <LoginPage onLogin={handleLoginSuccess} />;
   }
 
   return <Workstation session={session} onLogout={handleAppLogout} />;
@@ -144,11 +221,27 @@ function Workstation({ session, onLogout }) {
   // Navigation Modules: 'gdp' | 'audit' | 'settings'
   const [activeModule, setActiveModule] = useState(isAdmin ? 'dashboard' : 'gdp');
 
-  // GDP Assistant internal view state: 'landing' | 'processing' | 'workspace'
-  const [viewState, setViewState] = useState('landing');
-  
   // Current active petition (Single source of truth for uploaded document)
-  const [activePetition, setActivePetition] = useState(null);
+  const [activePetition, setActivePetition] = useState(() => {
+    if (typeof window === 'undefined') return null;
+    try {
+      const saved = sessionStorage.getItem(ACTIVE_PETITION_KEY);
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
+
+  // GDP Assistant internal view state: 'landing' | 'processing' | 'workspace'
+  const [viewState, setViewState] = useState(() => {
+    if (typeof window === 'undefined') return 'landing';
+    try {
+      const saved = sessionStorage.getItem(ACTIVE_PETITION_KEY);
+      return saved ? 'workspace' : 'landing';
+    } catch {
+      return 'landing';
+    }
+  });
 
   // Session audit records list (Maintains real activity records in current session)
   const [auditRecords, setAuditRecords] = useState([]);
@@ -202,28 +295,36 @@ function Workstation({ session, onLogout }) {
 
   const handleRefreshAudit = useCallback(async (officerId = null) => {
     try {
-      const records = await fetchAuditHistory(officerId);
+      const activeOfficerId = officerId || (!isAdmin ? (session?.officerId || session?.id || session?.user?.id || localStorage.getItem('officer_id')) : null);
+      const records = await fetchAuditHistory(activeOfficerId);
       if (Array.isArray(records)) {
         setAuditRecords(records);
       }
     } catch (err) {
       console.warn('Failed to refresh audit history:', err);
     }
-  }, []);
+  }, [isAdmin, session]);
 
   // Fetch officer audit records from backend on mount and officer/session change
   useEffect(() => {
     handleRefreshAudit();
-  }, [session?.officerId, session?.id, session?.email, handleRefreshAudit]);
+  }, [session?.officerId, session?.id, session?.email, isAdmin, handleRefreshAudit]);
 
   // Upload / Petition Selection handler
   const handleSelectPetition = useCallback((petition) => {
     setActivePetition((prev) => {
-      if (prev?.previewUrl && prev.previewUrl !== petition.previewUrl) {
-        URL.revokeObjectURL(prev.previewUrl);
+      if (prev?.previewUrl && prev.previewUrl !== petition?.previewUrl) {
+        try { URL.revokeObjectURL(prev.previewUrl); } catch (e) {}
       }
       return petition;
     });
+    try {
+      if (petition) {
+        sessionStorage.setItem(ACTIVE_PETITION_KEY, JSON.stringify(petition));
+      } else {
+        sessionStorage.removeItem(ACTIVE_PETITION_KEY);
+      }
+    } catch (e) {}
     setActiveModule('gdp');
     setViewState('processing');
   }, []);
@@ -233,6 +334,9 @@ function Workstation({ session, onLogout }) {
     setActivePetition((prev) => {
       const finalPetition = analyzedPetition || prev;
       if (finalPetition) {
+        try {
+          sessionStorage.setItem(ACTIVE_PETITION_KEY, JSON.stringify(finalPetition));
+        } catch (e) {}
         const auditEntry = {
           id: `AUD-${Date.now()}`,
           timestamp: new Date().toISOString(),
@@ -271,8 +375,9 @@ function Workstation({ session, onLogout }) {
   // Reset to Upload Landing (cleans up memory)
   const handleNewPetition = () => {
     if (activePetition?.previewUrl) {
-      URL.revokeObjectURL(activePetition.previewUrl);
+      try { URL.revokeObjectURL(activePetition.previewUrl); } catch (e) {}
     }
+    try { sessionStorage.removeItem(ACTIVE_PETITION_KEY); } catch (e) {}
     setActivePetition(null);
     setActiveModule('gdp');
     setViewState('landing');

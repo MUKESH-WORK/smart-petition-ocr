@@ -110,7 +110,7 @@ async def upload_petition(
         file_data_db = content if getattr(settings, "STORE_FILE_BYTEA", False) else None
         res_insert = await db.execute(text("""
             INSERT INTO sources (source_id, officer_id, file_name, file_type, file_size_bytes, file_hash, page_count, status, file_data, created_at, updated_at)
-            VALUES (CAST(:source_id AS UUID), :officer_id, :file_name, :file_type, :file_size, :file_hash, 0, 'uploaded', :file_data, NOW(), NOW())
+            VALUES (:source_id, :officer_id, :file_name, :file_type, :file_size, :file_hash, 0, 'uploaded', :file_data, NOW(), NOW())
             ON CONFLICT (file_hash) DO UPDATE SET
                 file_name = EXCLUDED.file_name,
                 updated_at = NOW()
@@ -157,7 +157,7 @@ async def upload_petition(
                         officer_notes, forward_acknowledged
                     )
                     SELECT
-                        'dft_' || SUBSTR(HEX(RANDOMBLOB(8)), 1, 16), CAST(:new_id AS UUID), petitioner_name, father_husband_name, complainant_signatory,
+                        'dft_' || SUBSTR(HEX(RANDOMBLOB(8)), 1, 16), :new_id, petitioner_name, father_husband_name, complainant_signatory,
                         phone, is_own_phone, alternate_phone, address, gender, age,
                         applicant_category, description, grievance_channel, reference_number,
                         department, sub_department, local_body_type, grievance_type, grievance_subtype,
@@ -166,11 +166,11 @@ async def upload_petition(
                         deadline_date, 'draft', is_flagged_for_review, is_urgent, is_court_case,
                         officer_notes, forward_acknowledged
                     FROM grievance_drafts
-                    WHERE source_id = CAST(:old_id AS UUID)
+                    WHERE source_id = :old_id
                     LIMIT 1
                 """), {"new_id": source_id, "old_id": str(existing_match["source_id"])})
                 
-                await db.execute(text("UPDATE sources SET status = 'draft_ready', updated_at = NOW() WHERE source_id = CAST(:sid AS UUID)"), {"sid": source_id})
+                await db.execute(text("UPDATE sources SET status = 'draft_ready', updated_at = NOW() WHERE source_id = :sid"), {"sid": source_id})
                 await db.commit()
 
                 return SourceUploadResponse(
@@ -186,7 +186,7 @@ async def upload_petition(
         # Check if an existing approved draft exists for this source
         existing_draft = await db.execute(text("""
             SELECT id FROM grievance_drafts 
-            WHERE source_id = CAST(:source_id AS UUID)
+            WHERE source_id = :source_id
             LIMIT 1
         """), {"source_id": source_id})
         has_draft = existing_draft.mappings().one_or_none() is not None
@@ -194,7 +194,7 @@ async def upload_petition(
         # If processing is already underway in job queue, return processing status immediately
         active_job = await db.execute(text("""
             SELECT id FROM job_queue 
-            WHERE source_id = CAST(:source_id AS UUID) 
+            WHERE source_id = :source_id 
               AND status IN ('pending', 'processing')
             LIMIT 1
         """), {"source_id": source_id})
@@ -236,7 +236,7 @@ async def upload_petition(
         )
 
         # Refresh row status
-        res_final = await db.execute(text("SELECT source_id, file_name, file_size_bytes, page_count, status, created_at FROM sources WHERE source_id = CAST(:source_id AS UUID)"), {"source_id": source_id})
+        res_final = await db.execute(text("SELECT source_id, file_name, file_size_bytes, page_count, status, created_at FROM sources WHERE source_id = :source_id"), {"source_id": source_id})
         row_final = res_final.mappings().one()
 
         return SourceUploadResponse(
@@ -261,19 +261,19 @@ async def get_status(source_id: str, db: AsyncSession = Depends(get_db)):
     """
     Return comprehensive processing and verification status for the petition
     """
-    src_res = await db.execute(text("SELECT * FROM sources WHERE source_id = CAST(:source_id AS UUID)"), {"source_id": source_id})
+    src_res = await db.execute(text("SELECT * FROM sources WHERE source_id = :source_id"), {"source_id": source_id})
     src = src_res.mappings().one_or_none()
     if not src:
         raise HTTPException(status_code=404, detail="Source document not found")
 
-    ocr_res = await db.execute(text("SELECT AVG(avg_confidence) as avg_conf FROM ocr_results WHERE source_id = CAST(:source_id AS UUID)"), {"source_id": source_id})
+    ocr_res = await db.execute(text("SELECT AVG(avg_confidence) as avg_conf FROM ocr_results WHERE source_id = :source_id"), {"source_id": source_id})
     avg_conf_row = ocr_res.mappings().one_or_none()
     avg_conf = float(avg_conf_row["avg_conf"]) if avg_conf_row and avg_conf_row["avg_conf"] is not None else None
 
-    chunk_cnt = await db.execute(text("SELECT COUNT(*) FROM document_chunks WHERE source_id = CAST(:source_id AS UUID)"), {"source_id": source_id})
-    entity_cnt = await db.execute(text("SELECT COUNT(*) FROM extracted_entities WHERE source_id = CAST(:source_id AS UUID)"), {"source_id": source_id})
-    ai_res = await db.execute(text("SELECT id FROM ai_analysis WHERE source_id = CAST(:source_id AS UUID)"), {"source_id": source_id})
-    draft_res = await db.execute(text("SELECT * FROM grievance_drafts WHERE source_id = CAST(:source_id AS UUID)"), {"source_id": source_id})
+    chunk_cnt = await db.execute(text("SELECT COUNT(*) FROM document_chunks WHERE source_id = :source_id"), {"source_id": source_id})
+    entity_cnt = await db.execute(text("SELECT COUNT(*) FROM extracted_entities WHERE source_id = :source_id"), {"source_id": source_id})
+    ai_res = await db.execute(text("SELECT id FROM ai_analysis WHERE source_id = :source_id"), {"source_id": source_id})
+    draft_res = await db.execute(text("SELECT * FROM grievance_drafts WHERE source_id = :source_id"), {"source_id": source_id})
     draft = draft_res.mappings().one_or_none()
     ai_ready = ai_res.mappings().one_or_none() is not None
     is_terminal = src["status"] in ('draft_ready', 'officer_approved', 'pushed_to_dro')
@@ -309,7 +309,7 @@ async def stream_status(source_id: str, request: Request, db: AsyncSession = Dep
                 break
 
             try:
-                res = await db.execute(text("SELECT status FROM sources WHERE source_id = CAST(:sid AS UUID)"), {"sid": source_id})
+                res = await db.execute(text("SELECT status FROM sources WHERE source_id = :sid"), {"sid": source_id})
                 row = res.mappings().one_or_none()
                 if not row:
                     yield f"data: {json.dumps({'error': 'Source not found'})}\n\n"
@@ -355,7 +355,7 @@ async def get_ocr_results(source_id: str, db: AsyncSession = Depends(get_db)):
     res = await db.execute(text("""
         SELECT page_number, full_text, avg_confidence, ocr_engine, processing_time_ms, blocks, tables
         FROM ocr_results
-        WHERE source_id = CAST(:source_id AS UUID)
+        WHERE source_id = :source_id
         ORDER BY page_number
     """), {"source_id": source_id})
     pages_raw = res.mappings().all()
@@ -408,7 +408,7 @@ async def get_document_file(source_id: str, db: AsyncSession = Depends(get_db)):
         return FileResponse(path, media_type=media)
 
     # Check BYTEA stored in PostgreSQL
-    res = await db.execute(text("SELECT file_name, file_type, file_data FROM sources WHERE source_id = CAST(:source_id AS UUID)"), {"source_id": source_id})
+    res = await db.execute(text("SELECT file_name, file_type, file_data FROM sources WHERE source_id = :source_id"), {"source_id": source_id})
     row = res.mappings().one_or_none()
     if row and row["file_data"]:
         from fastapi.responses import Response
@@ -494,10 +494,10 @@ async def get_ai_analysis(source_id: str, db: AsyncSession = Depends(get_db)):
     """
     Retrieve pre-computed AI analysis and summaries
     """
-    res = await db.execute(text("SELECT * FROM ai_analysis WHERE source_id = CAST(:source_id AS UUID) ORDER BY id DESC LIMIT 1"), {"source_id": source_id})
+    res = await db.execute(text("SELECT * FROM ai_analysis WHERE source_id = :source_id ORDER BY id DESC LIMIT 1"), {"source_id": source_id})
     row = res.mappings().one_or_none()
     if row:
-        draft_res = await db.execute(text("SELECT petitioner_name, father_husband_name, complainant_signatory FROM grievance_drafts WHERE source_id = CAST(:source_id AS UUID)"), {"source_id": source_id})
+        draft_res = await db.execute(text("SELECT petitioner_name, father_husband_name, complainant_signatory FROM grievance_drafts WHERE source_id = :source_id"), {"source_id": source_id})
         d_row = draft_res.mappings().one_or_none()
         raw_actions = row["action_items"]
         if isinstance(raw_actions, str):
@@ -531,7 +531,7 @@ async def get_ai_analysis(source_id: str, db: AsyncSession = Depends(get_db)):
     # If background queue is currently processing jobs for this source, do not trigger competing execution
     active_job = await db.execute(text("""
         SELECT id, job_type FROM job_queue 
-        WHERE source_id = CAST(:source_id AS UUID) 
+        WHERE source_id = :source_id 
         AND status IN ('pending', 'processing')
         LIMIT 1
     """), {"source_id": source_id})
@@ -611,7 +611,7 @@ async def get_draft(source_id: str, db: AsyncSession = Depends(get_db)):
     """
     Retrieve auto-populated draft for officer review
     """
-    res = await db.execute(text("SELECT * FROM grievance_drafts WHERE source_id = CAST(:source_id AS UUID)"), {"source_id": source_id})
+    res = await db.execute(text("SELECT * FROM grievance_drafts WHERE source_id = :source_id"), {"source_id": source_id})
     draft = res.mappings().one_or_none()
     if not draft:
         raise HTTPException(status_code=404, detail="Draft has not been generated yet for this source")
@@ -638,7 +638,7 @@ async def update_draft(
     sql = f"""
         UPDATE grievance_drafts 
         SET {', '.join(set_clauses)}, updated_at = NOW()
-        WHERE id = CAST(:draft_id AS UUID)
+        WHERE id = :draft_id
         RETURNING *
     """
     params = {**fields_to_update, "draft_id": draft_id}
@@ -676,7 +676,7 @@ async def approve_draft(
     res = await db.execute(text("""
         UPDATE grievance_drafts
         SET officer_approved = TRUE, officer_id = :officer_id, officer_notes = :notes, approved_at = NOW(), updated_at = NOW()
-        WHERE id = CAST(:draft_id AS UUID)
+        WHERE id = :draft_id
         RETURNING *
     """), {"draft_id": draft_id, "officer_id": approve_req.officer_id, "notes": approve_req.officer_notes})
     draft = res.mappings().one_or_none()
@@ -684,7 +684,7 @@ async def approve_draft(
         raise HTTPException(status_code=404, detail="Draft not found")
 
     if draft["source_id"]:
-        await db.execute(text("UPDATE sources SET status = 'officer_approved', updated_at = NOW() WHERE source_id = CAST(:source_id AS UUID)"), {"source_id": str(draft["source_id"])})
+        await db.execute(text("UPDATE sources SET status = 'officer_approved', updated_at = NOW() WHERE source_id = :source_id"), {"source_id": str(draft["source_id"])})
 
     await db.commit()
 
@@ -712,7 +712,7 @@ async def push_to_dro(
     """
     Finalize and mark approved draft as submitted in database
     """
-    result = await db.execute(text("SELECT * FROM grievance_drafts WHERE id = CAST(:id AS UUID)"), {"id": draft_id})
+    result = await db.execute(text("SELECT * FROM grievance_drafts WHERE id = :id"), {"id": draft_id})
     draft = result.mappings().one_or_none()
     if not draft:
         raise HTTPException(status_code=404, detail=f"Draft with ID {draft_id} not found")
@@ -725,7 +725,7 @@ async def push_to_dro(
             dro_status = 'submitted',
             dro_grievance_id = :dro_id,
             updated_at = NOW()
-        WHERE id = CAST(:id AS UUID)
+        WHERE id = :id
     """), {"id": draft_id, "dro_id": dro_id})
     await db.commit()
 
@@ -757,57 +757,74 @@ async def get_history(
 ):
     """
     List sources and petitions processed by the requesting officer alone (or all officers if Admin).
-    Guarantees officer data isolation for normal officers, while permitting administrative audit review.
+    Strict Officer Isolation Query:
+    Queries strictly filter WHERE s.officer_id = :officer_id joined with officers o ON s.officer_id = o.officer_id.
+    Authenticated requests via query param, JWT bearer token, or X-Officer-Id header return only records for that specific officer.
     """
-    # Detect if requester is an administrator
+    # 1. Extract officer from token, header, or query param
+    eff_officer_id = None
     is_admin = False
+
     if current_officer:
+        eff_officer_id = current_officer.get("officer_id") or current_officer.get("id")
         is_admin = (
             current_officer.get("is_admin") is True or
             current_officer.get("isAdmin") is True or
             current_officer.get("role") in ["Admin", "District Administrator", "admin"] or
-            (current_officer.get("officer_id") and "ADM" in str(current_officer.get("officer_id")).upper())
+            (eff_officer_id and "ADM" in str(eff_officer_id).upper())
         )
-    if not is_admin:
-        header_off = request.headers.get("x-officer-id") or request.headers.get("X-Officer-Id") or ""
-        if "ADM" in header_off.upper():
-            is_admin = True
 
-    target_officer = officer_id
-    if target_officer in ["all", "ALL", ""]:
-        target_officer = None
+    if not eff_officer_id:
+        auth_header = request.headers.get("authorization") or request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            try:
+                from core.security import decode_access_token
+                payload = decode_access_token(auth_header[7:].strip())
+                if payload:
+                    eff_officer_id = payload.get("officer_id") or payload.get("id") or payload.get("sub")
+                    if payload.get("is_admin") or (eff_officer_id and "ADM" in str(eff_officer_id).upper()):
+                        is_admin = True
+            except Exception:
+                pass
 
-    if is_admin and not target_officer:
-        # Admin viewing all officer audit histories
+    if not eff_officer_id:
+        eff_officer_id = request.headers.get("x-officer-id") or request.headers.get("X-Officer-Id")
+
+    # Priority to explicit officer_id query param if provided
+    if officer_id and officer_id.strip() and officer_id not in ["all", "ALL"]:
+        eff_officer_id = officer_id.strip()
+    elif officer_id in ["all", "ALL"] and is_admin:
+        eff_officer_id = None
+
+    if is_admin and (not eff_officer_id or officer_id in ["all", "ALL"]):
+        # Admin viewing global audit history
         sql = """
             SELECT s.source_id, s.file_name, s.file_type, s.file_size_bytes, s.page_count, s.status, s.created_at, s.officer_id,
                    d.id as draft_id, d.petitioner_name, d.phone, d.address, d.grievance_type, d.department, d.description,
-                   d.dro_grievance_id, d.dro_status
+                   d.dro_grievance_id, d.dro_status,
+                   o.name as officer_name, o.designation as officer_designation
             FROM sources s
             LEFT JOIN grievance_drafts d ON s.source_id = d.source_id
+            LEFT JOIN officers o ON s.officer_id = o.officer_id
             ORDER BY s.created_at DESC
             LIMIT :limit
         """
         res = await db.execute(text(sql), {"limit": limit})
     else:
-        eff_officer_id = (
-            target_officer
-            or (current_officer.get("officer_id") if current_officer else None)
-            or request.headers.get("x-officer-id")
-            or request.headers.get("X-Officer-Id")
-            or "DRO_ERODE_01"
-        )
+        target_officer = eff_officer_id or "DRO_ERODE_01"
         sql = """
             SELECT s.source_id, s.file_name, s.file_type, s.file_size_bytes, s.page_count, s.status, s.created_at, s.officer_id,
                    d.id as draft_id, d.petitioner_name, d.phone, d.address, d.grievance_type, d.department, d.description,
-                   d.dro_grievance_id, d.dro_status
+                   d.dro_grievance_id, d.dro_status,
+                   o.name as officer_name, o.designation as officer_designation
             FROM sources s
             LEFT JOIN grievance_drafts d ON s.source_id = d.source_id
+            LEFT JOIN officers o ON s.officer_id = o.officer_id
             WHERE s.officer_id = :officer_id
             ORDER BY s.created_at DESC
             LIMIT :limit
         """
-        res = await db.execute(text(sql), {"officer_id": eff_officer_id, "limit": limit})
+        res = await db.execute(text(sql), {"officer_id": target_officer, "limit": limit})
 
     rows = []
     for r in res.mappings().all():
@@ -830,7 +847,7 @@ async def get_recent(
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Recent audit log and document history processed by officer (or all officers for admin).
+    Recent audit log and document history strictly isolated by officer (or all officers for admin).
     """
     raw_history = await get_history(
         request=request,
@@ -862,6 +879,8 @@ async def get_recent(
             "created_at": item.get("created_at"),
             "uploadedAt": uploaded_label,
             "officer_id": item.get("officer_id"),
+            "officer_name": item.get("officer_name"),
+            "officer_designation": item.get("officer_designation"),
             "petitionerName": item.get("petitioner_name") or "Processing...",
             "petitioner_name": item.get("petitioner_name"),
             "phone": item.get("phone") or "-",

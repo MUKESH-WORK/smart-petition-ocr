@@ -473,7 +473,7 @@ class HybridOCRRouter:
                 FROM sources s1
                 JOIN sources s2 ON s1.file_hash = s2.file_hash AND s2.status IN ('ocr_complete', 'draft_ready')
                 JOIN ocr_results o2 ON s2.source_id = o2.source_id AND o2.ocr_engine = 'datalab_chandra'
-                WHERE s1.source_id = CAST(:sid AS UUID) AND s2.source_id != CAST(:sid AS UUID)
+                WHERE s1.source_id = :sid AND s2.source_id != :sid
                 LIMIT 1
             """), {"sid": source_id})
             cached = result.scalar_one_or_none()
@@ -495,12 +495,12 @@ class HybridOCRRouter:
 
         # 0. Instant reuse if this source_id already has completed OCR results
         existing_ocr = await db.execute(
-            text("SELECT COUNT(*) FROM ocr_results WHERE source_id = CAST(:sid AS UUID)"),
+            text("SELECT COUNT(*) FROM ocr_results WHERE source_id = :sid"),
             {"sid": source_id}
         )
         if existing_ocr.scalar_one() > 0:
             count_res = await db.execute(
-                text("SELECT page_count FROM sources WHERE source_id = CAST(:sid AS UUID)"),
+                text("SELECT page_count FROM sources WHERE source_id = :sid"),
                 {"sid": source_id}
             )
             page_count = count_res.scalar() or 1
@@ -508,7 +508,7 @@ class HybridOCRRouter:
             await db.execute(text("""
                 UPDATE sources
                 SET page_count = :page_count, status = 'ocr_complete', updated_at = NOW()
-                WHERE source_id = CAST(:source_id AS UUID)
+                WHERE source_id = :source_id
             """), {"source_id": source_id, "page_count": page_count})
             await db.commit()
             return {
@@ -526,9 +526,9 @@ class HybridOCRRouter:
             logger.info(f"⚡ Cache HIT for source {source_id}: copying OCR results from {cached_source_id}")
             await db.execute(text("""
                 INSERT INTO ocr_results (source_id, page_number, full_text, blocks, tables, avg_confidence, ocr_engine, processing_time_ms)
-                SELECT CAST(:new_id AS UUID), page_number, full_text, blocks, tables, avg_confidence, ocr_engine, 0
+                SELECT :new_id, page_number, full_text, blocks, tables, avg_confidence, ocr_engine, 0
                 FROM ocr_results
-                WHERE source_id = CAST(:cached_id AS UUID)
+                WHERE source_id = :cached_id
                 ON CONFLICT (source_id, page_number) DO UPDATE SET
                     full_text = EXCLUDED.full_text,
                     blocks = EXCLUDED.blocks,
@@ -537,7 +537,7 @@ class HybridOCRRouter:
             """), {"new_id": source_id, "cached_id": cached_source_id})
 
             count_res = await db.execute(
-                text("SELECT page_count FROM sources WHERE source_id = CAST(:cid AS UUID)"),
+                text("SELECT page_count FROM sources WHERE source_id = :cid"),
                 {"cid": cached_source_id}
             )
             page_count = count_res.scalar() or 1
@@ -545,7 +545,7 @@ class HybridOCRRouter:
             await db.execute(text("""
                 UPDATE sources
                 SET page_count = :page_count, status = 'ocr_complete', updated_at = NOW()
-                WHERE source_id = CAST(:source_id AS UUID)
+                WHERE source_id = :source_id
             """), {"source_id": source_id, "page_count": page_count})
             await db.commit()
 
@@ -615,7 +615,7 @@ class HybridOCRRouter:
                 phash_val = compute_dhash(images[0])
                 if phash_val:
                     await db.execute(text("""
-                        UPDATE sources SET phash = :phash WHERE source_id = CAST(:sid AS UUID)
+                        UPDATE sources SET phash = :phash WHERE source_id = :sid
                     """), {"phash": phash_val, "sid": source_id})
                     await db.commit()
             except Exception as ex_phash:
@@ -704,7 +704,7 @@ class HybridOCRRouter:
 
             await db.execute(text("""
                 INSERT INTO ocr_results (source_id, page_number, full_text, blocks, tables, avg_confidence, ocr_engine, processing_time_ms)
-                VALUES (CAST(:source_id AS UUID), :page_number, :full_text, :blocks, :tables, :avg_confidence, :ocr_engine, :processing_time_ms)
+                VALUES (:source_id, :page_number, :full_text, :blocks, :tables, :avg_confidence, :ocr_engine, :processing_time_ms)
                 ON CONFLICT (source_id, page_number) DO UPDATE SET
                     full_text = EXCLUDED.full_text,
                     blocks = EXCLUDED.blocks,
@@ -735,7 +735,7 @@ class HybridOCRRouter:
         await db.execute(text("""
             UPDATE sources
             SET page_count = :page_count, status = 'ocr_complete', updated_at = NOW()
-            WHERE source_id = CAST(:source_id AS UUID)
+            WHERE source_id = :source_id
         """), {"source_id": source_id, "page_count": page_count})
         await db.commit()
 

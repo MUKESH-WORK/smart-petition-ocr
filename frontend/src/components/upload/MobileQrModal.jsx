@@ -16,10 +16,12 @@ import {
 export default function MobileQrModal({ isOpen, onClose, onDocumentUploaded }) {
   const [sessionId, setSessionId] = useState('');
   const [qrDataUrl, setQrDataUrl] = useState('');
+  const [captureUrl, setCaptureUrl] = useState('');
   const [secondsRemaining, setSecondsRemaining] = useState(299); // 04:59
   const [isReceived, setIsReceived] = useState(false);
   const [receivedFileMeta, setReceivedFileMeta] = useState(null);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   const unsubscribeRef = useRef(null);
   const sessionIdRef = useRef('');
@@ -81,6 +83,7 @@ export default function MobileQrModal({ isOpen, onClose, onDocumentUploaded }) {
     setIsReceived(false);
     setReceivedFileMeta(null);
     setSecondsRemaining(299);
+    setCopied(false);
 
     if (unsubscribeRef.current) {
       unsubscribeRef.current();
@@ -95,13 +98,14 @@ export default function MobileQrModal({ isOpen, onClose, onDocumentUploaded }) {
       setSessionId(newSessionId);
       sessionIdRef.current = newSessionId;
 
-      // Prioritize LAN Wi-Fi network host so phone cameras connect immediately
+      // Automatically route to public host if available or local network host
       let targetOrigin = window.location.origin;
       if ((window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') && networkHost) {
         targetOrigin = networkHost;
       }
 
       const targetUrl = `${targetOrigin}/capture/${newSessionId}`;
+      setCaptureUrl(targetUrl);
 
       const dataUrl = await QRCode.toDataURL(targetUrl, {
         width: 320,
@@ -244,6 +248,30 @@ export default function MobileQrModal({ isOpen, onClose, onDocumentUploaded }) {
               <p className="qr-modal-instruction">
                 Scan this QR code with your phone to upload the petition (PDF document, camera photo, JPG, PNG & any image format).
               </p>
+
+              {captureUrl && (
+                <div style={{ textAlign: 'center', margin: '2px 0 10px', fontSize: '0.78rem' }}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard?.writeText(captureUrl);
+                      setCopied(true);
+                      setTimeout(() => setCopied(false), 2000);
+                    }}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      color: '#2563EB',
+                      cursor: 'pointer',
+                      textDecoration: 'underline',
+                      padding: 0,
+                      fontSize: '0.78rem'
+                    }}
+                  >
+                    {copied ? '✓ Direct Link Copied!' : 'Copy Direct Mobile Link'}
+                  </button>
+                </div>
+              )}
 
               {/* Waiting Status Pill with Pulsing Dot */}
               <div className="qr-modal-waiting-pill">

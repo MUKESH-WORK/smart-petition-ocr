@@ -1,10 +1,10 @@
 # ==============================================================================
-# All-In-One Production Dockerfile for GDP Assistant
-# Bundles React Frontend + FastAPI AI Backend into a single deployable container
+# Complete All-In-One Single Production Dockerfile for GDP Assistant
+# Bundles React 19 Frontend + FastAPI Backend + OCR Worker + Redis + Nginx into ONE Image
 # ==============================================================================
 
 # ------------------------------------------------------------------------------
-# Stage 1: Build React Frontend
+# Stage 1: Build React 19 Frontend
 # ------------------------------------------------------------------------------
 FROM node:20-alpine AS frontend-builder
 WORKDIR /build
@@ -16,7 +16,7 @@ COPY frontend/ ./
 RUN npm run build
 
 # ------------------------------------------------------------------------------
-# Stage 2: Python 3.11 AI Backend Runtime
+# Stage 2: Unified Python + Nginx + Redis + Worker Runtime
 # ------------------------------------------------------------------------------
 FROM python:3.11-slim AS runner
 
@@ -29,46 +29,49 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     HF_HOME=/app/model_cache \
     SENTENCE_TRANSFORMERS_HOME=/app/model_cache \
     PIP_NO_CACHE_DIR=1 \
-    PORT=8000
+    PYTHONPATH=/app/backend:/app
 
 WORKDIR /app
 
-# Install system dependencies for OpenCV, PDF rendering, and health probes
+# Install OS packages (Nginx, Supervisor, Redis, PDF & CV libraries)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     curl \
+    wget \
     libgl1 \
     libglib2.0-0 \
     libgomp1 \
     poppler-utils \
+    nginx \
+    supervisor \
+    redis-server \
     && rm -rf /var/lib/apt/lists/*
 
-# Create application directories
-RUN mkdir -p /app/temp_cache /app/uploads /app/backend/data /app/model_cache
+# Create application, storage, media, and cache directories
+RUN mkdir -p /app/temp_cache /app/uploads /app/storage/uploads /app/static/media /app/data /app/model_cache /var/log/supervisor
 
-# Install lightweight CPU PyTorch and requirements
+# 1. Install lightweight CPU PyTorch wheel
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
 
+# 2. Install application Python dependencies
 COPY backend/requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir --extra-index-url https://download.pytorch.org/whl/cpu -r /app/requirements.txt
 
-# Pre-download and bake the multilingual SentenceTransformer embedding model into the image
-RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2')"
+# 3. Copy built frontend distribution to Nginx html folder
+COPY --from=frontend-builder /build/dist /usr/share/nginx/html
 
-# Copy backend source code
-COPY backend /app/backend
+# 4. Copy Nginx and Supervisor configs
+RUN rm -f /etc/nginx/sites-enabled/default /etc/nginx/sites-available/default
+COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
+COPY docker/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 
-# Copy built frontend distribution from Stage 1
-COPY --from=frontend-builder /build/dist /app/frontend/dist
+# 5. Copy backend source code
+COPY backend /app
 
-# Set Python path
-ENV PYTHONPATH=/app/backend:/app
+EXPOSE 80
 
-EXPOSE 8000
+HEALTHCHECK --interval=20s --timeout=5s --retries=3 --start-period=15s \
+    CMD curl -f http://localhost/health || exit 1
 
-# Health check
-HEALTHCHECK --interval=15s --timeout=5s --retries=3 \
-    CMD curl -f http://localhost:8000/api/v1/health || exit 1
-
-CMD ["uvicorn", "backend.app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]

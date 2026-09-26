@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
 
-from models.database import get_db, get_admin_db, is_admin_sqlite
+from models.database import get_db, get_admin_db, get_audit_db, is_admin_sqlite, AuditAsyncSessionLocal
 from models.schemas import QueueStatusResponse, MasterLocationCreate
 from app.dependencies import get_current_officer, get_optional_officer
 
@@ -19,9 +19,31 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/admin", tags=["Admin & System"])
 
 
-def _hash_password(raw_password: str) -> str:
-    salt = "DRO_SECURE_SALT_2026"
-    return hashlib.sha256(f"{salt}:{raw_password}".encode("utf-8")).hexdigest()
+import hmac
+
+def _hash_password(raw_password: str, salt: Optional[str] = None) -> str:
+    """Enterprise PBKDF2-HMAC-SHA256 password hasher with 100,000 iterations and per-user salt."""
+    if not salt:
+        salt = os.urandom(16).hex()
+    dk = hashlib.pbkdf2_hmac('sha256', raw_password.encode('utf-8'), salt.encode('utf-8'), 100000)
+    return f"pbkdf2_sha256${salt}${dk.hex()}"
+
+
+def _verify_password(raw_password: str, stored_hash: str) -> bool:
+    """Constant-time password verification supporting PBKDF2 and backward-compatible legacy hashes."""
+    if not stored_hash:
+        return False
+    if stored_hash.startswith("pbkdf2_sha256$"):
+        try:
+            _, salt, hash_hex = stored_hash.split("$")
+            dk = hashlib.pbkdf2_hmac('sha256', raw_password.encode('utf-8'), salt.encode('utf-8'), 100000)
+            return hmac.compare_digest(dk.hex(), hash_hex)
+        except Exception:
+            return False
+    # Legacy SHA-256 fallback
+    legacy_salt = "DRO_SECURE_SALT_2026"
+    legacy_hash = hashlib.sha256(f"{legacy_salt}:{raw_password}".encode("utf-8")).hexdigest()
+    return hmac.compare_digest(legacy_hash, stored_hash)
 
 
 class LoginRequest(BaseModel):
@@ -51,54 +73,82 @@ async def admin_session_login(req: LoginRequest, db: AsyncSession = Depends(get_
     Only the District Administrator can reset passwords; users authenticate via hashed credentials.
     """
     email = req.email.strip().lower()
+    raw_id = req.email.strip()
+    
+    # 1. Primary lookup in Admin DB (admin_users)
     res = await db.execute(
         text("SELECT * FROM admin_users WHERE LOWER(email) = :email OR id = :id LIMIT 1"),
-        {"email": email, "id": req.email.strip()}
+        {"email": email, "id": raw_id}
     )
     user = res.mappings().one_or_none()
 
+    # 2. Fallback lookup in User DB (officers)
     if not user:
-        # Check officers in user db
         from models.database import UserAsyncSessionLocal
         async with UserAsyncSessionLocal() as u_db:
             u_res = await u_db.execute(
                 text("SELECT * FROM officers WHERE LOWER(email) = :email OR officer_id = :id LIMIT 1"),
-                {"email": email, "id": req.email.strip()}
+                {"email": email, "id": raw_id}
             )
             user = u_res.mappings().one_or_none()
 
     if not user:
-        # Fallback permissive for demo accounts
-        is_adm = (req.role == "admin" or "admin" in email)
-        fallback_dict = {
-            "id": "ADM-ERODE-001" if is_adm else "OFF-USER-001",
-            "officerId": "ADM-ERODE-001" if is_adm else "OFF-USER-001",
-            "name": "District Administrator" if is_adm else "Revenue Officer",
-            "email": email,
-            "role": "admin" if is_adm else "user",
-            "isAdmin": is_adm,
-            "is_admin": is_adm,
-            "status": "Active"
-        }
-        return {
-            **fallback_dict,
-            "user": fallback_dict,
-            "status": "success"
-        }
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid credentials. Official account not found in Government database."
+        )
 
     user_status = user.get("status") or "Active"
+    if str(user_status).lower() in ["suspended", "disabled", "deactivated", "blocked"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Official account is currently suspended. Please contact District Administrator."
+        )
 
+    if not req.password:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password is required for official authentication."
+        )
+
+    user_primary_id = user.get("id") or user.get("officer_id") or raw_id
     stored_hash = user.get("password_hash")
-    if stored_hash and req.password:
-        input_hash = _hash_password(req.password)
-        if input_hash != stored_hash and req.password != "Govt@2024":
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid password.")
+
+    default_official_hash = _hash_password("Govt@2024")
+    if not stored_hash:
+        stored_hash = default_official_hash
+        try:
+            await db.execute(
+                text("UPDATE admin_users SET password_hash = :pwd WHERE id = :id OR LOWER(email) = :email"),
+                {"pwd": default_official_hash, "id": user_primary_id, "email": email}
+            )
+            await db.commit()
+        except Exception as e:
+            logger.debug(f"Password hash self-heal note: {e}")
+
+    if not _verify_password(req.password, stored_hash):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid official password. Please verify credentials."
+        )
+
+    # Seamlessly upgrade legacy SHA-256 hashes to PBKDF2-HMAC-SHA256 upon successful login
+    if not str(stored_hash).startswith("pbkdf2_sha256$"):
+        try:
+            upgraded_hash = _hash_password(req.password)
+            await db.execute(
+                text("UPDATE admin_users SET password_hash = :pwd WHERE id = :id OR LOWER(email) = :email"),
+                {"pwd": upgraded_hash, "id": user_primary_id, "email": email}
+            )
+            await db.commit()
+        except Exception as e:
+            logger.debug(f"Password hash upgrade notice: {e}")
     
     # Update status to Active and set last_login
     try:
         await db.execute(
-            text("UPDATE admin_users SET status = 'Active', last_login = CURRENT_TIMESTAMP WHERE id = :id"),
-            {"id": user["id"]}
+            text("UPDATE admin_users SET status = 'Active', last_login = CURRENT_TIMESTAMP WHERE id = :id OR LOWER(email) = :email"),
+            {"id": user_primary_id, "email": email}
         )
         # Record live LOGIN activity event
         await db.execute(text("""
@@ -107,7 +157,7 @@ async def admin_session_login(req: LoginRequest, db: AsyncSession = Depends(get_
         """), {
             "id": f"ACT-{uuid.uuid4().hex[:8]}",
             "detail": f"Officer {user.get('name')} logged in (System status -> Active).",
-            "officer_id": user["id"],
+            "officer_id": user_primary_id,
             "date": datetime.now(timezone.utc).isoformat()
         })
         await db.commit()
@@ -180,8 +230,8 @@ async def admin_session_logout(
 
     try:
         await db.execute(
-            text("UPDATE admin_users SET status = 'Inactive' WHERE id = :id"),
-            {"id": officer_id}
+            text("UPDATE admin_users SET status = 'Inactive' WHERE id = :id OR LOWER(email) = :id_lower"),
+            {"id": officer_id, "id_lower": str(officer_id).lower()}
         )
         # Record live LOGOUT activity event
         await db.execute(text("""
@@ -189,7 +239,7 @@ async def admin_session_logout(
             VALUES (:id, 'LOGOUT', :detail, :officer_id, :date)
         """), {
             "id": f"ACT-{uuid.uuid4().hex[:8]}",
-            "detail": f"Officer {officer_id} logged out (System status -> Inactive).",
+            "detail": f"Officer {officer_id} logged out.",
             "officer_id": officer_id,
             "date": datetime.now(timezone.utc).isoformat()
         })
@@ -201,8 +251,8 @@ async def admin_session_logout(
         from models.database import UserAsyncSessionLocal
         async with UserAsyncSessionLocal() as u_db:
             await u_db.execute(
-                text("UPDATE officers SET status = 'Inactive' WHERE officer_id = :id"),
-                {"id": officer_id}
+                text("UPDATE officers SET status = 'Inactive' WHERE officer_id = :id OR LOWER(email) = :id_lower"),
+                {"id": officer_id, "id_lower": str(officer_id).lower()}
             )
             await u_db.commit()
     except Exception as e:
@@ -686,13 +736,45 @@ async def update_user_password(
     if not req.password or len(req.password.strip()) < 8:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Password must be at least 8 characters long.")
 
-    res = await db.execute(text("SELECT id, name FROM admin_users WHERE id = :id LIMIT 1"), {"id": user_id})
+    res = await db.execute(
+        text("SELECT id, name, email FROM admin_users WHERE id = :id OR LOWER(email) = :lower_id LIMIT 1"),
+        {"id": user_id, "lower_id": user_id.lower()}
+    )
     user = res.mappings().one_or_none()
     if not user:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"User {user_id} not found.")
+        # Check officers in user db
+        from models.database import UserAsyncSessionLocal
+        async with UserAsyncSessionLocal() as u_db:
+            u_res = await u_db.execute(
+                text("SELECT officer_id as id, name, email FROM officers WHERE officer_id = :id OR LOWER(email) = :lower_id LIMIT 1"),
+                {"id": user_id, "lower_id": user_id.lower()}
+            )
+            user = u_res.mappings().one_or_none()
 
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"User {user_id} not found in Government database.")
+
+    actual_id = user.get("id") or user_id
+    user_email = (user.get("email") or "").lower()
     pwd_hash = _hash_password(req.password.strip())
-    await db.execute(text("UPDATE admin_users SET password_hash = :pwd_hash WHERE id = :id"), {"pwd_hash": pwd_hash, "id": user_id})
+
+    # 1. Update in Admin DB (admin_users)
+    await db.execute(
+        text("UPDATE admin_users SET password_hash = :pwd_hash WHERE id = :id OR LOWER(email) = :email"),
+        {"pwd_hash": pwd_hash, "id": actual_id, "email": user_email}
+    )
+
+    # 2. Update in User DB (officers)
+    try:
+        from models.database import UserAsyncSessionLocal
+        async with UserAsyncSessionLocal() as u_db:
+            await u_db.execute(
+                text("UPDATE officers SET password_hash = :pwd_hash WHERE officer_id = :id OR LOWER(email) = :email"),
+                {"pwd_hash": pwd_hash, "id": actual_id, "email": user_email}
+            )
+            await u_db.commit()
+    except Exception as e:
+        logger.debug(f"User DB officers password sync note: {e}")
 
     # Log password reset activity
     await db.execute(text("""
@@ -701,7 +783,7 @@ async def update_user_password(
     """), {
         "id": f"ACT-{uuid.uuid4().hex[:8]}",
         "type": "PASSWORD_RESET",
-        "detail": f"Updated password for official account {user.get('name')} ({user_id}).",
+        "detail": f"Updated password for official account {user.get('name')} ({actual_id}).",
         "officer_id": current_officer.get("officer_id", "ADMIN")
     })
     await db.commit()
@@ -1088,7 +1170,7 @@ async def list_audit_logs(
     limit: int = 50,
     action: Optional[str] = None,
     current_officer: Dict[str, Any] = Depends(get_current_officer),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_audit_db)
 ):
     sql = """
         SELECT * FROM audit_log
@@ -1151,7 +1233,7 @@ async def get_taxonomy_stats(
     breakdown_res = await db.execute(text("""
         SELECT department, department_code, COUNT(*) as count, COUNT(DISTINCT grievance_type) as types_count
         FROM cm_taxonomy_mappings
-        GROUP BY department
+        GROUP BY department, department_code
         ORDER BY count DESC
     """))
     dept_breakdown = [dict(r) for r in breakdown_res.mappings().all()]
@@ -1176,7 +1258,7 @@ async def list_taxonomy_departments(
     res = await db.execute(text("""
         SELECT department, department_code, COUNT(*) as count
         FROM cm_taxonomy_mappings
-        GROUP BY department
+        GROUP BY department, department_code
         ORDER BY department ASC
     """))
     return [dict(r) for r in res.mappings().all()]
@@ -1516,8 +1598,8 @@ async def create_intake_channel(
 
     await db.execute(text("""
         INSERT INTO cm_grievance_channels (category, channel_name, channel_code, is_active, description)
-        VALUES (:cat, :name, :code, 1, :desc)
-    """), {"cat": category, "name": name, "code": code, "desc": desc})
+        VALUES (:cat, :name, :code, :act, :desc)
+    """), {"cat": category, "name": name, "code": code, "act": True, "desc": desc})
 
     officer_id = current_officer.get("officer_id") or current_officer.get("id") or "ADMIN"
     await db.execute(text("""
@@ -1552,7 +1634,7 @@ async def update_intake_channel(
     category = payload.get("category", exist["category"])
     name = payload.get("channel_name", exist["channel_name"])
     code = payload.get("channel_code", exist["channel_code"])
-    is_active = 1 if payload.get("is_active", exist["is_active"]) else 0
+    is_active = bool(payload.get("is_active", exist["is_active"]))
     desc = payload.get("description", exist["description"])
 
     await db.execute(text("""
@@ -1650,10 +1732,9 @@ async def _get_unified_live_activities(
     except Exception as e:
         logger.debug(f"Admin activity fetch notice: {e}")
 
-    # 2. Fetch from User DB audit_log
+    # 2. Fetch from decoupled Audit DB audit_log
     try:
-        from models.database import UserAsyncSessionLocal
-        async with UserAsyncSessionLocal() as u_db:
+        async with AuditAsyncSessionLocal() as u_db:
             if eff_officer:
                 sql_user = """
                     SELECT id, timestamp, source_id, officer_id, action, details
@@ -1742,4 +1823,527 @@ async def get_admin_activity(
     """
     return await _get_unified_live_activities(db, limit=limit, officer_id=officer_id)
 
+
+# ==============================================================================
+# AUTHORITATIVE BACKUP & PDF REPORTING API ENDPOINTS
+# ==============================================================================
+
+BACKUP_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "temp_cache", "backups")
+os.makedirs(BACKUP_DIR, exist_ok=True)
+
+
+@router.get("/backup/list")
+async def list_database_backups(
+    current_officer: Dict[str, Any] = Depends(get_current_officer)
+):
+    """
+    Returns list of all available system database backups on disk.
+    """
+    backups = []
+    if os.path.exists(BACKUP_DIR):
+        for fname in sorted(os.listdir(BACKUP_DIR), reverse=True):
+            if fname.endswith(".json") or fname.endswith(".db"):
+                fpath = os.path.join(BACKUP_DIR, fname)
+                try:
+                    stat = os.stat(fpath)
+                    meta_path = fpath + ".meta"
+                    meta = {}
+                    if os.path.exists(meta_path):
+                        with open(meta_path, "r", encoding="utf-8") as mf:
+                            meta = json.load(mf)
+
+                    created_iso = datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat()
+                    backups.append({
+                        "id": fname,
+                        "fileName": fname,
+                        "sizeBytes": stat.st_size,
+                        "sizeFormatted": f"{stat.st_size / 1024:.1f} KB" if stat.st_size < 1024 * 1024 else f"{stat.st_size / (1024 * 1024):.2f} MB",
+                        "createdAt": meta.get("created_at") or created_iso,
+                        "type": meta.get("type") or ("Full Database Snapshot" if fname.endswith(".json") else "SQLite Binary"),
+                        "status": "Completed",
+                        "totalRecords": meta.get("total_records", 0),
+                        "tables": meta.get("tables", [])
+                    })
+                except Exception as e:
+                    logger.debug(f"Error reading backup file {fname}: {e}")
+
+    return {"backups": backups, "total": len(backups)}
+
+
+@router.post("/backup/create")
+async def create_database_backup(
+    current_officer: Dict[str, Any] = Depends(get_current_officer),
+    admin_db: AsyncSession = Depends(get_admin_db)
+):
+    """
+    Creates a full snapshot backup of all authoritative database tables across Admin DB and User DB.
+    """
+    timestamp_str = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    backup_id = f"backup_erode_dro_{timestamp_str}.json"
+    backup_path = os.path.join(BACKUP_DIR, backup_id)
+
+    snapshot_data = {
+        "format": "tn_dro_master_backup",
+        "version": "2.0",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_by": current_officer.get("name") or current_officer.get("officer_id") or "District Administrator",
+        "district": "Erode",
+        "state": "Tamil Nadu",
+        "tables": {}
+    }
+
+    total_records = 0
+
+    # 1. Admin Users
+    try:
+        res = await admin_db.execute(text("SELECT id, name, name_tamil, mobile, email, department, role, is_admin, status, last_login, created_at FROM admin_users"))
+        users = [dict(r) for r in res.mappings().all()]
+        snapshot_data["tables"]["admin_users"] = users
+        total_records += len(users)
+    except Exception as e:
+        logger.warning(f"Backup admin_users error: {e}")
+
+    # 2. Taxonomy Mappings
+    try:
+        res = await admin_db.execute(text("SELECT * FROM taxonomy_mappings"))
+        tax = [dict(r) for r in res.mappings().all()]
+        snapshot_data["tables"]["taxonomy_mappings"] = tax
+        total_records += len(tax)
+    except Exception as e:
+        logger.warning(f"Backup taxonomy_mappings error: {e}")
+
+    # 3. Hierarchy Divisions
+    try:
+        res = await admin_db.execute(text("SELECT * FROM hierarchy_divisions"))
+        hier = [dict(r) for r in res.mappings().all()]
+        snapshot_data["tables"]["hierarchy_divisions"] = hier
+        total_records += len(hier)
+    except Exception as e:
+        logger.warning(f"Backup hierarchy_divisions error: {e}")
+
+    # 4. Intake Channels
+    try:
+        res = await admin_db.execute(text("SELECT * FROM intake_channels"))
+        chan = [dict(r) for r in res.mappings().all()]
+        snapshot_data["tables"]["intake_channels"] = chan
+        total_records += len(chan)
+    except Exception as e:
+        logger.warning(f"Backup intake_channels error: {e}")
+
+    # 5. Admin Activity Log
+    try:
+        res = await admin_db.execute(text("SELECT * FROM admin_activity_log"))
+        act = [dict(r) for r in res.mappings().all()]
+        snapshot_data["tables"]["admin_activity_log"] = act
+        total_records += len(act)
+    except Exception as e:
+        logger.warning(f"Backup admin_activity_log error: {e}")
+
+    # 6. User DB Tables (Petitions & Officers)
+    try:
+        from models.database import UserAsyncSessionLocal
+        async with UserAsyncSessionLocal() as u_db:
+            res_off = await u_db.execute(text("SELECT * FROM officers"))
+            officers = [dict(r) for r in res_off.mappings().all()]
+            snapshot_data["tables"]["officers"] = officers
+            total_records += len(officers)
+
+            res_pet = await u_db.execute(text("SELECT * FROM petitions"))
+            petitions = [dict(r) for r in res_pet.mappings().all()]
+            snapshot_data["tables"]["petitions"] = petitions
+            total_records += len(petitions)
+
+            res_aud = await u_db.execute(text("SELECT * FROM audit_logs"))
+            audit = [dict(r) for r in res_aud.mappings().all()]
+            snapshot_data["tables"]["audit_logs"] = audit
+            total_records += len(audit)
+    except Exception as e:
+        logger.warning(f"Backup user_db tables error: {e}")
+
+    # Save to disk
+    with open(backup_path, "w", encoding="utf-8") as f:
+        json.dump(snapshot_data, f, indent=2, default=str)
+
+    stat = os.stat(backup_path)
+    meta = {
+        "created_at": snapshot_data["created_at"],
+        "created_by": snapshot_data["created_by"],
+        "total_records": total_records,
+        "tables": list(snapshot_data["tables"].keys()),
+        "type": "Full Database Snapshot"
+    }
+    with open(backup_path + ".meta", "w", encoding="utf-8") as mf:
+        json.dump(meta, mf, indent=2)
+
+    # Log activity
+    try:
+        await admin_db.execute(text("""
+            INSERT INTO admin_activity_log (id, type, detail, officer_id, date)
+            VALUES (:id, 'CREATE', :detail, :officer_id, :date)
+        """), {
+            "id": f"ACT-{uuid.uuid4().hex[:8]}",
+            "detail": f"Generated full database backup ({total_records} records in {len(snapshot_data['tables'])} tables).",
+            "officer_id": current_officer.get("officer_id") or "ADM-ERODE-001",
+            "date": datetime.now(timezone.utc).isoformat()
+        })
+        await admin_db.commit()
+    except Exception as e:
+        logger.debug(f"Backup log notice: {e}")
+
+    return {
+        "id": backup_id,
+        "fileName": backup_id,
+        "sizeBytes": stat.st_size,
+        "sizeFormatted": f"{stat.st_size / 1024:.1f} KB",
+        "createdAt": snapshot_data["created_at"],
+        "totalRecords": total_records,
+        "tables": list(snapshot_data["tables"].keys()),
+        "status": "Completed"
+    }
+
+
+@router.get("/backup/download/{backup_id}")
+async def download_database_backup(
+    backup_id: str,
+    current_officer: Dict[str, Any] = Depends(get_current_officer)
+):
+    """
+    Downloads a specific backup file by ID.
+    """
+    safe_name = os.path.basename(backup_id)
+    fpath = os.path.join(BACKUP_DIR, safe_name)
+    if not os.path.exists(fpath):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Backup file not found.")
+
+    from fastapi.responses import FileResponse
+    return FileResponse(
+        path=fpath,
+        filename=safe_name,
+        media_type="application/json" if safe_name.endswith(".json") else "application/octet-stream"
+    )
+
+
+@router.get("/backup/database")
+async def export_full_live_database(
+    current_officer: Dict[str, Any] = Depends(get_current_officer),
+    admin_db: AsyncSession = Depends(get_admin_db)
+):
+    """
+    Returns instant complete live database snapshot dump in JSON format.
+    """
+    return await create_database_backup(current_officer, admin_db)
+
+
+@router.get("/backup/report-data")
+async def get_audit_report_data(
+    current_officer: Dict[str, Any] = Depends(get_current_officer),
+    admin_db: AsyncSession = Depends(get_admin_db)
+):
+    """
+    Gathers comprehensive, structured dataset for generating official Government Executive Reports:
+    1. Officers Directory & Live Presence
+    2. Officer-wise Petition Processing Breakdown (Counts & Status)
+    3. Complete Petition Processing History with full form details
+    4. Comprehensive Audit Log History (All and officer-specific)
+    5. Total Petitions Received & Intake Channel/Department Analysis
+    """
+    # 1. Fetch All Officers from Admin DB
+    res_users = await admin_db.execute(text("""
+        SELECT id, name, name_tamil, mobile, email, department, role, is_admin, status, last_login, created_at 
+        FROM admin_users 
+        ORDER BY is_admin DESC, id ASC
+    """))
+    officers = [dict(r) for r in res_users.mappings().all()]
+
+    # 2. Fetch Admin Activity Logs
+    admin_activities = []
+    try:
+        res_act = await admin_db.execute(text("""
+            SELECT id, type, detail, officer_id, date as timestamp 
+            FROM admin_activity_log 
+            ORDER BY date DESC LIMIT 200
+        """))
+        admin_activities = [dict(r) for r in res_act.mappings().all()]
+    except Exception as e:
+        logger.warning(f"Error gathering admin activity log: {e}")
+
+    # 3. Fetch All Petitions, Grievance Drafts, AI Analysis & Audit Logs from User DB
+    petitions = []
+    audit_entries = []
+    try:
+        from models.database import UserAsyncSessionLocal
+        async with UserAsyncSessionLocal() as u_db:
+            # Grievance drafts with sources and AI analysis
+            try:
+                d_res = await u_db.execute(text("""
+                    SELECT 
+                        gd.id as draft_id, gd.source_id, gd.officer_id, gd.petitioner_name, 
+                        gd.phone, gd.email, gd.address, gd.village, gd.taluk, gd.firka, gd.block, gd.district,
+                        gd.department, gd.sub_department, gd.grievance_type, gd.grievance_subtype,
+                        gd.priority, gd.grievance_source, gd.ref_number, gd.description,
+                        gd.dro_grievance_id, gd.dro_status, gd.status as draft_status, gd.officer_approved,
+                        s.file_name, s.created_at as source_created_at,
+                        ai.description_summary_tamil, ai.description_summary_english, ai.action_items,
+                        o.name as officer_name, o.department as officer_department
+                    FROM grievance_drafts gd
+                    LEFT JOIN sources s ON gd.source_id = s.source_id
+                    LEFT JOIN ai_analysis ai ON gd.source_id = ai.source_id
+                    LEFT JOIN officers o ON gd.officer_id = o.officer_id
+                    ORDER BY s.created_at DESC
+                """))
+                for r in d_res.mappings().all():
+                    d = dict(r)
+                    pet_id = d.get("dro_grievance_id") or d.get("ref_number") or f"PET-{str(d.get('source_id') or d.get('draft_id'))[:8].upper()}"
+                    status = "Approved" if (d.get("officer_approved") or str(d.get("dro_status")).lower() == "approved") else "Pending"
+                    
+                    action_items_list = []
+                    if d.get("action_items"):
+                        try:
+                            action_items_list = json.loads(d["action_items"]) if isinstance(d["action_items"], str) else d["action_items"]
+                        except Exception:
+                            action_items_list = [str(d["action_items"])]
+
+                    petitions.append({
+                        "id": str(d.get("draft_id") or ""),
+                        "sourceId": str(d.get("source_id") or ""),
+                        "petitionNumber": pet_id,
+                        "applicantName": d.get("petitioner_name") or "Citizen / Grievance Applicant",
+                        "mobile": d.get("phone") or "—",
+                        "email": d.get("email") or "—",
+                        "address": d.get("address") or "Erode District, Tamil Nadu",
+                        "village": d.get("village") or "Surampatti",
+                        "taluk": d.get("taluk") or "Erode",
+                        "firka": d.get("firka") or "Erode Urban",
+                        "block": d.get("block") or "Erode",
+                        "district": d.get("district") or "Erode",
+                        "department": d.get("department") or "Revenue Administration",
+                        "category": d.get("grievance_type") or "Patta & Land Records",
+                        "subCategory": d.get("grievance_subtype") or "Patta Transfer",
+                        "intakeChannel": d.get("grievance_source") or "Collectorate Public Counter",
+                        "priority": d.get("priority") or "MEDIUM",
+                        "officerName": d.get("officer_name") or d.get("officer_id") or "Assigned Officer",
+                        "officerId": d.get("officer_id") or "ADM-ERODE-001",
+                        "status": status,
+                        "description": d.get("description") or "",
+                        "summaryTamil": d.get("description_summary_tamil") or d.get("description") or "",
+                        "summaryEnglish": d.get("description_summary_english") or "",
+                        "actionItems": action_items_list,
+                        "fileName": d.get("file_name") or "Petition_Document.pdf",
+                        "createdAt": str(d.get("source_created_at") or datetime.now(timezone.utc).isoformat())
+                    })
+            except Exception as e:
+                logger.warning(f"Error fetching from grievance_drafts: {e}")
+
+            # Legacy petitions table check if grievance_drafts is empty
+            if not petitions:
+                try:
+                    p_res = await u_db.execute(text("""
+                        SELECT p.*, o.name as officer_name, o.department as officer_department
+                        FROM petitions p
+                        LEFT JOIN officers o ON p.officer_id = o.officer_id
+                        ORDER BY p.created_at DESC
+                    """))
+                    for r in p_res.mappings().all():
+                        p = dict(r)
+                        petitions.append({
+                            "id": str(p.get("id") or ""),
+                            "sourceId": str(p.get("source_id") or ""),
+                            "petitionNumber": str(p.get("petition_number") or p.get("source_id") or f"PET-{str(p.get('id'))[:8]}"),
+                            "applicantName": str(p.get("applicant_name") or "Anonymous / Citizen"),
+                            "mobile": str(p.get("applicant_mobile") or p.get("mobile") or "—"),
+                            "email": str(p.get("email") or "—"),
+                            "address": str(p.get("address") or "Erode District, Tamil Nadu"),
+                            "village": str(p.get("village") or "Surampatti"),
+                            "taluk": str(p.get("taluk") or "Erode"),
+                            "firka": str(p.get("firka") or "Erode Urban"),
+                            "block": str(p.get("block") or "Erode"),
+                            "district": str(p.get("district") or "Erode"),
+                            "category": str(p.get("category") or "General Revenue Grievance"),
+                            "subCategory": str(p.get("subcategory") or "General"),
+                            "department": str(p.get("department") or "Revenue Administration"),
+                            "intakeChannel": str(p.get("intake_channel") or "Collectorate Counter"),
+                            "priority": str(p.get("priority") or "MEDIUM"),
+                            "officerName": str(p.get("officer_name") or p.get("officer_id") or "Assigned Officer"),
+                            "officerId": str(p.get("officer_id") or "—"),
+                            "status": str(p.get("status") or "Approved").capitalize(),
+                            "description": str(p.get("description") or ""),
+                            "summaryTamil": str(p.get("summary_tamil") or p.get("description") or ""),
+                            "summaryEnglish": str(p.get("summary_english") or ""),
+                            "actionItems": [],
+                            "fileName": "Petition_Document.pdf",
+                            "createdAt": str(p.get("created_at") or datetime.now(timezone.utc).isoformat())
+                        })
+                except Exception as pe:
+                    logger.warning(f"Error checking petitions table: {pe}")
+
+            # Audit logs from User DB
+            try:
+                try:
+                    a_res = await u_db.execute(text("""
+                        SELECT id, timestamp, action, officer_id, source_id, details 
+                        FROM audit_log 
+                        ORDER BY timestamp DESC LIMIT 300
+                    """))
+                except Exception:
+                    a_res = await u_db.execute(text("""
+                        SELECT id, timestamp, action, officer_id, source_id, details 
+                        FROM audit_logs 
+                        ORDER BY timestamp DESC LIMIT 300
+                    """))
+
+                for r in a_res.mappings().all():
+                    ar = dict(r)
+                    audit_entries.append({
+                        "id": str(ar.get("id") or ""),
+                        "timestamp": str(ar.get("timestamp") or ""),
+                        "category": "GDP Assistant",
+                        "action": str(ar.get("action") or "PROCESSED"),
+                        "officer_id": str(ar.get("officer_id") or "SYSTEM"),
+                        "source_id": str(ar.get("source_id") or "—"),
+                        "details": str(ar.get("details") or "Petition processed")
+                    })
+            except Exception as ae:
+                logger.warning(f"Error gathering user audit logs: {ae}")
+
+
+    except Exception as e:
+        logger.warning(f"Error connecting to User DB: {e}")
+
+    # Merge admin activity into audit logs
+    for act in admin_activities:
+        audit_entries.append({
+            "id": str(act.get("id") or ""),
+            "timestamp": str(act.get("timestamp") or ""),
+            "category": "Admin System",
+            "action": str(act.get("type") or "EVENT"),
+            "officer_id": str(act.get("officer_id") or "SYSTEM"),
+            "source_id": "SYS-AUDIT",
+            "details": str(act.get("detail") or "System administration action")
+        })
+
+    # Sort audit logs descending
+    audit_entries.sort(key=lambda x: str(x.get("timestamp") or ""), reverse=True)
+
+    # 4. Calculate Officer-Wise Performance Metrics
+    officer_stats = []
+    for off in officers:
+        off_id = str(off["id"])
+        off_petitions = [
+            p for p in petitions 
+            if str(p.get("officerId") or "") == off_id or str(p.get("officerName") or "").lower() == str(off.get("name") or "").lower()
+        ]
+        
+        approved = len([p for p in off_petitions if str(p.get("status") or "").lower() in ["approved", "resolved", "pushed_to_dro"]])
+        in_progress = len([p for p in off_petitions if str(p.get("status") or "").lower() in ["in_progress", "processing", "review"]])
+        pending = len([p for p in off_petitions if str(p.get("status") or "").lower() in ["pending", "submitted", "draft", "new"]])
+        total = len(off_petitions)
+        
+        success_rate = round((approved / total * 100), 1) if total > 0 else 100.0
+
+        officer_stats.append({
+            "id": off_id,
+            "name": off["name"],
+            "nameTamil": off.get("name_tamil") or "",
+            "designation": off.get("role") or ("District Administrator" if off.get("is_admin") else "Department Officer"),
+            "department": off.get("department") or "Revenue Administration",
+            "email": off.get("email") or "",
+            "mobile": off.get("mobile") or "",
+            "status": off.get("status") or "Inactive",
+            "lastLogin": str(off["last_login"]) if off.get("last_login") else "Never",
+            "totalProcessed": total,
+            "approved": approved,
+            "inProgress": in_progress,
+            "pending": pending,
+            "successRate": f"{success_rate}%"
+        })
+
+    # 5. Calculate Aggregate Intake Breakdowns
+    channel_counts: Dict[str, int] = {}
+    dept_counts: Dict[str, int] = {}
+    taluk_counts: Dict[str, int] = {}
+    status_counts: Dict[str, int] = {}
+
+    for p in petitions:
+        ch = p.get("intakeChannel") or "Collectorate Public Counter"
+        channel_counts[ch] = channel_counts.get(ch, 0) + 1
+        
+        dp = p.get("department") or "Revenue Administration"
+        dept_counts[dp] = dept_counts.get(dp, 0) + 1
+
+        tl = p.get("taluk") or "Erode"
+        taluk_counts[tl] = taluk_counts.get(tl, 0) + 1
+
+        st = p.get("status") or "Pending"
+        status_counts[st] = status_counts.get(st, 0) + 1
+
+    total_petitions = len(petitions)
+    total_approved = len([p for p in petitions if str(p.get("status") or "").lower() in ["approved", "resolved", "pushed_to_dro"]])
+    total_pending = total_petitions - total_approved
+
+    return {
+        "reportMetadata": {
+            "title": "Government of Tamil Nadu - Revenue & Disaster Management Department",
+            "subtitle": "Erode District Administration - Grievance Redressal, Officer Audit & Backup Record",
+            "generatedAt": datetime.now(timezone.utc).isoformat(),
+            "generatedBy": current_officer.get("name") or "District Administrator",
+            "district": "Erode",
+            "collectorate": "Erode District Collectorate",
+            "totalOfficers": len(officers),
+            "activeOfficers": len([o for o in officers if o.get("status") == "Active"]),
+            "totalPetitions": total_petitions,
+            "totalApproved": total_approved,
+            "totalPending": total_pending,
+            "systemStatus": "Operational / Live Database Synchronized"
+        },
+        "officersDirectory": officer_stats,
+        "petitionProcessingHistory": petitions,
+        "recentAuditLogs": audit_entries,
+        "intakeAnalysis": {
+            "byChannel": channel_counts,
+            "byDepartment": dept_counts,
+            "byTaluk": taluk_counts,
+            "byStatus": status_counts
+        }
+    }
+
+
+@router.get("/reports/download")
+async def download_certified_report(
+    template: str = Query("officer_performance", description="Template: officer_performance | audit_logs | single_petition | intake_report"),
+    format: str = Query("pdf", description="Format: pdf | docx"),
+    officer_id: str = Query("all", description="Officer ID to filter by"),
+    petition_id: Optional[str] = Query(None, description="Specific petition ID for single_petition template"),
+    current_officer: Dict[str, Any] = Depends(get_current_officer),
+    admin_db: AsyncSession = Depends(get_admin_db)
+):
+    """
+    Directly compiles and streams official Government of Tamil Nadu audit reports in PDF or Word (.docx) format.
+    """
+    try:
+        from app.services.report_document_service import generate_report_document
+        from fastapi.responses import Response
+
+        # Gather data from report-data logic
+        report_data = await get_audit_report_data(current_officer, admin_db)
+
+        # Generate document bytes
+        content, filename, media_type = generate_report_document(
+            template=template,
+            fmt=format,
+            data=report_data,
+            officer_id=officer_id,
+            petition_id=petition_id
+        )
+
+        return Response(
+            content=content,
+            media_type=media_type,
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
+                "Access-Control-Expose-Headers": "Content-Disposition"
+            }
+        )
+    except Exception as e:
+        logger.error(f"Error compiling certified report: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
 

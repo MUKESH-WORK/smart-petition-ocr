@@ -964,4 +964,102 @@ export async function translateTexts(texts = [], targetLang = 'ta', sourceLang =
 }
 
 
+// ==============================================================================
+// DATABASE BACKUPS & AUDIT REPORTING SERVICES
+// ==============================================================================
+
+/**
+ * Fetch list of all system database backups from server
+ */
+export async function fetchDatabaseBackups() {
+  const res = await fetch(`${API_BASE}/admin/backup/list`, {
+    headers: authHeaders()
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || `Failed to fetch backup list (HTTP ${res.status})`);
+  }
+  const data = await res.json();
+  return data.backups || [];
+}
+
+/**
+ * Trigger creation of a new live database backup snapshot
+ */
+export async function createDatabaseBackup() {
+  const res = await fetch(`${API_BASE}/admin/backup/create`, {
+    method: 'POST',
+    headers: authHeaders()
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || `Failed to create database backup (HTTP ${res.status})`);
+  }
+  return await res.json();
+}
+
+/**
+ * Download a database backup snapshot directly
+ */
+export function getBackupDownloadUrl(backupId) {
+  return `${API_BASE}/admin/backup/download/${encodeURIComponent(backupId)}`;
+}
+
+/**
+ * Fetch full aggregated dataset for generating the Official Government Audit PDF
+ */
+export async function fetchAuditReportData() {
+  const res = await fetch(`${API_BASE}/admin/backup/report-data`, {
+    headers: authHeaders()
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || `Failed to fetch audit report dataset (HTTP ${res.status})`);
+  }
+  return await res.json();
+}
+
+/**
+ * Get direct backend download URL for certified PDF/DOCX reports
+ */
+export function getReportDownloadUrl({ template = 'officer_performance', format = 'pdf', officerId = 'all', petitionId = '' }) {
+  const params = new URLSearchParams();
+  params.set('template', template);
+  params.set('format', format);
+  if (officerId) params.set('officer_id', officerId);
+  if (petitionId) params.set('petition_id', petitionId);
+  return `${API_BASE}/admin/reports/download?${params.toString()}`;
+}
+
+/**
+ * Trigger backend download with officer authentication headers
+ */
+export async function downloadServerReport({ template = 'officer_performance', format = 'pdf', officerId = 'all', petitionId = '' }) {
+  const url = getReportDownloadUrl({ template, format, officerId, petitionId });
+  const res = await fetch(url, {
+    headers: authHeaders()
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || `Failed to compile report (HTTP ${res.status})`);
+  }
+  const blob = await res.blob();
+  const disposition = res.headers.get('Content-Disposition') || '';
+  let filename = `Report_${Date.now()}.${format}`;
+  const match = disposition.match(/filename="?([^"]+)"?/);
+  if (match && match[1]) filename = match[1];
+
+  const blobUrl = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = blobUrl;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(blobUrl);
+  return filename;
+}
+
+
+
 

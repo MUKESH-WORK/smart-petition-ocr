@@ -431,13 +431,95 @@ async def seed_authoritative_hierarchy(db=None):
             await db.close()
 
 
+# 21 Official CM Grievance Ingestion Channels across 5 Vectors
+CM_INTAKE_CHANNELS = [
+    # Vector 1: Digital Direct (3)
+    {"category": "digital_direct", "channel_name": "Call Center (CC)", "channel_code": "CC", "description": "Toll-free 1100 Integrated Citizen Call Center Helpline"},
+    {"category": "digital_direct", "channel_name": "Citizen Web Portal (PORTAL)", "channel_code": "PORTAL", "description": "Tamil Nadu CM Helpline Citizen Online Web Portal"},
+    {"category": "digital_direct", "channel_name": "E-mail Intake (EMAIL)", "channel_code": "EMAIL", "description": "Official State Grievance Redressal Direct Inbound E-mail"},
+
+    # Vector 2: Executive Leadership (5)
+    {"category": "executive_leadership", "channel_name": "Chief Minister Special Cell (CMCELL)", "channel_code": "CMCELL", "description": "Hon'ble Chief Minister's Special Grievance Redressal Cell"},
+    {"category": "executive_leadership", "channel_name": "Chief Minister Camp Office (CMCAMP)", "channel_code": "CMCAMP", "description": "Chief Minister Camp Office Direct Citizen Petitions"},
+    {"category": "executive_leadership", "channel_name": "Chief Secretary Office (CS)", "channel_code": "CS", "description": "Chief Secretary Secretariat Inward Grievance Monitoring Desk"},
+    {"category": "executive_leadership", "channel_name": "Secretaries to CM (CMSECY)", "channel_code": "CMSECY", "description": "Secretaries to Hon'ble Chief Minister Specialized Desk"},
+    {"category": "executive_leadership", "channel_name": "Ministers Office (MINOFF)", "channel_code": "MINOFF", "description": "Cabinet Ministers' Constituency & Departmental Petitions"},
+
+    # Vector 3: Legislative (2)
+    {"category": "legislative", "channel_name": "Member of Legislative Assembly (MLA)", "channel_code": "MLA", "description": "Constituency Grievance Submissions via State MLA Reference"},
+    {"category": "legislative", "channel_name": "Member of Parliament (MPLS)", "channel_code": "MPLS", "description": "Member of Parliament (Lok Sabha / Rajya Sabha) Official Reference"},
+
+    # Vector 4: District Grievance Days (5)
+    {"category": "district_grievance_days", "channel_name": "Collectorate Monday Grievance Day (COLLMGDP)", "channel_code": "COLLMGDP", "description": "Weekly Monday Collectorate Grievance Redressal Day (DRO / Collector)"},
+    {"category": "district_grievance_days", "channel_name": "Differently Abled Grievance Day (COLLDIFF)", "channel_code": "COLLDIFF", "description": "Monthly Dedicated Differently Abled Welfare Grievance Session"},
+    {"category": "district_grievance_days", "channel_name": "Agriculture Grievance Day (COLLAGRI)", "channel_code": "COLLAGRI", "description": "Monthly District Farmers' Redressal Day Chaired by Collector"},
+    {"category": "district_grievance_days", "channel_name": "Jamabandhi Revenue Audits (JMB)", "channel_code": "JMB", "description": "Annual Taluk-level Revenue Account Verification Jamabandhi"},
+    {"category": "district_grievance_days", "channel_name": "Mass Contact Program (MCPCOLL)", "channel_code": "MCPCOLL", "description": "Manu Neethi Thittam / District Collectorate Mass Outreach Camp"},
+
+    # Vector 5: Field Outreach Camps & Counters (6)
+    {"category": "field_outreach_camps", "channel_name": "Makkaludan Mudhalvar Rural (MMR)", "channel_code": "MMR", "description": "Makkaludan Mudhalvar Village Panchayat Outreach Redressal Camps"},
+    {"category": "field_outreach_camps", "channel_name": "Makkaludan Mudhalvar Urban (MMU)", "channel_code": "MMU", "description": "Makkaludan Mudhalvar Urban Municipal / Corporation Ward Outreach Camps"},
+    {"category": "field_outreach_camps", "channel_name": "MM Camp General (MMC)", "channel_code": "MMC", "description": "Makkaludan Mudhalvar General Public Service Redressal Camp"},
+    {"category": "field_outreach_camps", "channel_name": "MM Camp Special (MMCR)", "channel_code": "MMCR", "description": "Makkaludan Mudhalvar Special Target Redressal Camp"},
+    {"category": "counters_walkin", "channel_name": "e-Sevai Facilitation Counter (ESEVAI)", "channel_code": "ESEVAI", "description": "Village / Urban TNeGA e-Sevai Service Center Walk-in Desk"},
+    {"category": "counters_walkin", "channel_name": "Taluk Office Reception Counter (TALUK_COUNTER)", "channel_code": "TALUK_COUNTER", "description": "Direct In-person Submission at Taluk Revenue Office"}
+]
+
+
+async def seed_intake_channels(db=None):
+    """
+    Seeds the 21 official CM Grievance Ingestion Channels into cm_grievance_channels.
+    Idempotent: inserts any missing channels by channel_code.
+    """
+    own_session = False
+    if db is None:
+        db = AdminAsyncSessionLocal()
+        own_session = True
+
+    try:
+        inserted = 0
+        for ch in CM_INTAKE_CHANNELS:
+            existing = (await db.execute(
+                text("SELECT id FROM cm_grievance_channels WHERE channel_code = :code"),
+                {"code": ch["channel_code"]}
+            )).scalar_one_or_none()
+
+            if not existing:
+                await db.execute(text("""
+                    INSERT INTO cm_grievance_channels (category, channel_name, channel_code, is_active, description)
+                    VALUES (:category, :channel_name, :channel_code, :is_active, :description)
+                """), {**ch, "is_active": True})
+                inserted += 1
+
+        if inserted > 0:
+            await db.commit()
+            logger.info(f"Seeded {inserted} official CM Grievance Ingestion Channels into cm_grievance_channels.")
+        else:
+            logger.info("All 21 CM Grievance Ingestion Channels already present in DB.")
+    finally:
+        if own_session:
+            await db.close()
+
+
 async def seed_master_data_if_needed():
     """
-    Seeds official administrative locations and CM Helpline taxonomies
-    into the Admin Database with 384-dimensional pgvector embeddings.
-    Idempotent: skips if embeddings are already present and populated.
+    Seeds official administrative locations, CM Helpline taxonomies, and official user accounts
+    into the Admin and User Databases with 384-dimensional vector embeddings.
+    Idempotent: skips heavy embedding re-generation if embeddings are already present and populated.
     """
     async with AdminAsyncSessionLocal() as db:
+        # Always ensure official accounts are seeded and synced
+        try:
+            await seed_official_accounts(db)
+        except Exception as e:
+            logger.warning(f"Official accounts seeding notice: {e}")
+
+        # Always ensure the 21 official intake channels are seeded
+        try:
+            await seed_intake_channels(db)
+        except Exception as e:
+            logger.warning(f"Intake channels seeding notice: {e}")
+
         # Check if already seeded and has sub_departments
         try:
             loc_count = (await db.execute(text("SELECT COUNT(*) FROM master_locations WHERE embedding IS NOT NULL AND sub_departments IS NOT NULL"))).scalar_one()
@@ -707,7 +789,7 @@ OFFICIAL_ACCOUNTS = [
         "department": "Revenue Administration",
         "role": "Department User",
         "is_admin": False,
-        "status": "Active"
+        "status": "Inactive"
     },
     {
         "id": "OFF-USER-002",
@@ -719,7 +801,7 @@ OFFICIAL_ACCOUNTS = [
         "department": "Civil Supplies & Consumer Protection",
         "role": "Department User",
         "is_admin": False,
-        "status": "Active"
+        "status": "Inactive"
     },
     {
         "id": "OFF-USER-003",
@@ -731,7 +813,7 @@ OFFICIAL_ACCOUNTS = [
         "department": "Land Administration & Survey",
         "role": "Department User",
         "is_admin": False,
-        "status": "Active"
+        "status": "Inactive"
     },
     {
         "id": "OFF-USER-004",
@@ -743,7 +825,7 @@ OFFICIAL_ACCOUNTS = [
         "department": "Municipal Administration & Water Supply",
         "role": "Department User",
         "is_admin": False,
-        "status": "Active"
+        "status": "Inactive"
     },
     {
         "id": "OFF-USER-005",
@@ -755,7 +837,7 @@ OFFICIAL_ACCOUNTS = [
         "department": "Rural Development & Panchayat Raj",
         "role": "Department User",
         "is_admin": False,
-        "status": "Active"
+        "status": "Inactive"
     },
     {
         "id": "OFF-USER-006",
@@ -767,7 +849,7 @@ OFFICIAL_ACCOUNTS = [
         "department": "TANGEDCO / Electricity Distribution",
         "role": "Department User",
         "is_admin": False,
-        "status": "Active"
+        "status": "Inactive"
     },
     {
         "id": "OFF-USER-007",
@@ -779,7 +861,7 @@ OFFICIAL_ACCOUNTS = [
         "department": "School Education & Literacy",
         "role": "Department User",
         "is_admin": False,
-        "status": "Active"
+        "status": "Inactive"
     },
     {
         "id": "OFF-USER-008",
@@ -791,7 +873,7 @@ OFFICIAL_ACCOUNTS = [
         "department": "Public Health & Family Welfare",
         "role": "Department User",
         "is_admin": False,
-        "status": "Active"
+        "status": "Inactive"
     },
     {
         "id": "OFF-USER-009",
@@ -803,7 +885,7 @@ OFFICIAL_ACCOUNTS = [
         "department": "Agriculture & Farmers Welfare",
         "role": "Department User",
         "is_admin": False,
-        "status": "Active"
+        "status": "Inactive"
     }
 ]
 

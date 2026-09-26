@@ -71,18 +71,50 @@ export default function AuditLogsView({
 
   // Standardize real audit records passed into component
   const realLogs = useMemo(() => {
-    return (auditRecords || []).map((rec) => ({
-      id: rec.id || `AUD-${Math.floor(Math.random() * 100000)}`,
-      timestamp: rec.timestamp || rec.uploadedAt || rec.date || new Date().toISOString(),
-      category: rec.category || 'GDP Assistant',
-      categoryLabel: rec.categoryLabel || rec.category || 'GDP Assistant',
-      type: rec.type || 'EVENT',
-      officer: rec.officer || rec.officer_id || 'SYSTEM',
-      officer_id: rec.officer_id || rec.officer || 'SYSTEM',
-      source_id: rec.source_id || rec.id || 'N/A',
-      details: rec.details || rec.summary || rec.fileName || '',
-      rawPetition: rec.rawPetition || rec
-    }));
+    return (auditRecords || []).map((rec) => {
+      const catLower = (rec.category || '').toLowerCase();
+      const typeUpper = String(rec.type || '').toUpperCase();
+      const isSecurityOrSystem = 
+        catLower.includes('security') ||
+        catLower.includes('session') ||
+        catLower.includes('auth') ||
+        catLower.includes('hierarchy') ||
+        catLower.includes('taxonomy') ||
+        catLower.includes('master data') ||
+        catLower.includes('user') ||
+        ['LOGIN', 'LOGOUT', 'CONFIG', 'USER_CREATE', 'USER_UPDATE', 'USER_DELETE'].includes(typeUpper);
+
+      const hasPetitionData = Boolean(
+        rec.rawPetition?.petition_number ||
+        rec.rawPetition?.grievance_text ||
+        rec.rawPetition?.applicant_name ||
+        rec.petition_number ||
+        rec.applicant_name ||
+        (rec.rawPetition && (String(rec.rawPetition.id || '').startsWith('PET-') || String(rec.rawPetition.id || '').startsWith('petition-')))
+      );
+
+      const isGdpAssistantRecord = !isSecurityOrSystem && (
+        hasPetitionData ||
+        catLower.includes('gdp') ||
+        catLower.includes('petition') ||
+        catLower.includes('grievance') ||
+        ['UPLOAD', 'OCR', 'ANALYZE', 'PROCESS', 'APPROVE', 'INTEGRATE'].includes(typeUpper)
+      );
+
+      return {
+        id: rec.id || `AUD-${Math.floor(Math.random() * 100000)}`,
+        timestamp: rec.timestamp || rec.uploadedAt || rec.date || new Date().toISOString(),
+        category: rec.category || (isGdpAssistantRecord ? 'GDP Assistant' : 'Security & Session'),
+        categoryLabel: rec.categoryLabel || rec.category || (isGdpAssistantRecord ? 'GDP Assistant' : 'Security & Session'),
+        type: rec.type || 'EVENT',
+        officer: rec.officer || rec.officer_id || 'SYSTEM',
+        officer_id: rec.officer_id || rec.officer || 'SYSTEM',
+        source_id: rec.source_id || rec.id || 'N/A',
+        details: rec.details || rec.summary || rec.fileName || '',
+        rawPetition: isGdpAssistantRecord ? (rec.rawPetition || rec) : null,
+        isClickable: isGdpAssistantRecord
+      };
+    });
   }, [auditRecords]);
 
   // Derived available officers list for filtering
@@ -238,7 +270,7 @@ export default function AuditLogsView({
 
             {/* Search Box */}
             <div className="audit-search-box">
-              <Search size={15} className="search-icon" />
+              <Search size={15} className="audit-search-icon search-icon" />
               <input
                 type="text"
                 className="audit-search-input"
@@ -259,40 +291,42 @@ export default function AuditLogsView({
               )}
             </div>
 
-            {/* Officer Filter Dropdown */}
-            <div className="date-select-wrapper officer-select-wrapper">
-              <UserCheck size={14} className="filter-inner-icon" />
-              <select
-                className="date-select officer-select"
-                value={selectedOfficer}
-                onChange={(e) => setSelectedOfficer(e.target.value)}
-                title="Filter by Officer"
-              >
-                <option value="all">All Officers ({availableOfficers.length})</option>
-                {availableOfficers.map((off) => (
-                  <option key={off.id} value={off.id}>
-                    {off.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* Category Dropdown */}
-            <div className="date-select-wrapper category-select-wrapper">
-              <select
-                className="date-select"
-                value={selectedCategory}
-                onChange={(e) => setSelectedCategory(e.target.value)}
-                title="Filter by Category"
-              >
-                <option value="all">All Categories</option>
-                <option value="GDP Assistant">GDP Assistant & Petitions</option>
-                <option value="Master Data">Master Data & Taxonomy</option>
-                <option value="Administrative Hierarchy">Administrative Hierarchy</option>
-                <option value="User Management">User Management</option>
-                <option value="Security & Session">Security & Auth</option>
-              </select>
-            </div>
+            {/* Officer Filter Dropdown (Admin only) */}
+            {isAdmin && (
+              <div className="date-select-wrapper officer-select-wrapper">
+                <UserCheck size={14} className="filter-inner-icon" />
+                <select
+                  className="date-select officer-select"
+                  value={selectedOfficer}
+                  onChange={(e) => setSelectedOfficer(e.target.value)}
+                  title="Filter by Officer"
+                >
+                  <option value="all">All Officers ({availableOfficers.length})</option>
+                  {availableOfficers.map((off) => (
+                    <option key={off.id} value={off.id}>
+                      {off.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+            {isAdmin && (
+              <div className="date-select-wrapper category-select-wrapper">
+                <select
+                  className="date-select"
+                  value={selectedCategory}
+                  onChange={(e) => setSelectedCategory(e.target.value)}
+                  title="Filter by Category"
+                >
+                  <option value="all">All Categories</option>
+                  <option value="GDP Assistant">GDP Assistant & Petitions</option>
+                  <option value="Master Data">Master Data & Taxonomy</option>
+                  <option value="Administrative Hierarchy">Administrative Hierarchy</option>
+                  <option value="User Management">User Management</option>
+                  <option value="Security & Session">Security & Auth</option>
+                </select>
+              </div>
+            )}
 
             {/* Date Picker */}
             <div
@@ -301,7 +335,7 @@ export default function AuditLogsView({
                 dateInputRef.current?.focus();
                 try {
                   dateInputRef.current?.showPicker();
-                } catch {}
+                } catch { }
               }}
             >
               <Calendar size={14} className="date-field-icon" />
@@ -314,13 +348,13 @@ export default function AuditLogsView({
                 onClick={() => {
                   try {
                     dateInputRef.current?.showPicker();
-                  } catch {}
+                  } catch { }
                 }}
                 onFocus={() => {
                   setIsDateFocused(true);
                   try {
                     dateInputRef.current?.showPicker();
-                  } catch {}
+                  } catch { }
                 }}
                 onBlur={() => {
                   if (!selectedDate) {
@@ -387,10 +421,9 @@ export default function AuditLogsView({
               <table className="audit-table">
                 <thead>
                   <tr>
-                    <th style={{ width: '165px' }}>Date & Time</th>
-                    <th style={{ width: '175px' }}>Category</th>
-                    <th style={{ width: '160px' }}>Officer</th>
-                    <th style={{ width: '130px' }}>Source ID</th>
+                    <th style={{ width: '180px' }}>Date & Time</th>
+                    <th style={{ width: '190px' }}>Category</th>
+                    {isAdmin && <th style={{ width: '170px' }}>Officer</th>}
                     <th>Details</th>
                   </tr>
                 </thead>
@@ -402,9 +435,11 @@ export default function AuditLogsView({
                     return (
                       <tr
                         key={log.id}
-                        className={`audit-table-row ${log.rawPetition ? 'clickable-row' : ''}`}
+                        className={`audit-table-row ${log.isClickable ? 'clickable-row' : 'non-clickable-row'}`}
+                        style={{ cursor: log.isClickable ? 'pointer' : 'default' }}
+                        title={log.isClickable ? 'Click to inspect petition record' : undefined}
                         onClick={() => {
-                          if (log.rawPetition && onSelectPetition) {
+                          if (log.isClickable && log.rawPetition && onSelectPetition) {
                             onSelectPetition(log.rawPetition);
                           }
                         }}
@@ -422,19 +457,14 @@ export default function AuditLogsView({
                           </span>
                         </td>
 
-                        {/* 3. Officer */}
-                        <td className="cell-officer" title={log.officer}>
-                          <span className="officer-name-label">{log.officer}</span>
-                        </td>
+                        {/* 3. Officer (Admin only) */}
+                        {isAdmin && (
+                          <td className="cell-officer" title={log.officer}>
+                            <span className="officer-name-label">{log.officer}</span>
+                          </td>
+                        )}
 
-                        {/* 4. Source ID */}
-                        <td className="cell-source-id">
-                          <span className="source-id-badge" title={log.source_id}>
-                            {log.source_id}
-                          </span>
-                        </td>
-
-                        {/* 5. Details */}
+                        {/* 4. Details */}
                         <td className="cell-details">
                           <p className="details-text">{log.details}</p>
                         </td>

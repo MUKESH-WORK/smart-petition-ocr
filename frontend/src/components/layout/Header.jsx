@@ -16,8 +16,8 @@ export default function Header({
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const profileRef = useRef(null);
 
-  const displayName = officerProfile?.fullName || officerProfile?.name;
-  const displayRole = `${officerProfile?.designation || (loginRole === 'admin' ? 'District Administrator' : 'Department Officer')}${officerProfile?.department ? ` • ${officerProfile.department}` : ''}`;
+  const displayName = officerProfile?.fullName || officerProfile?.name || '';
+  const displayRole = officerProfile?.designation || (loginRole === 'admin' ? 'District Administrator' : 'Department Officer');
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -112,8 +112,8 @@ export default function Header({
               <UserCheck size={16} />
             </div>
             <div className="officer-info">
-              <span className="officer-name">{currentLanguage === 'ta' && (officerProfile?.nameTamil || officerProfile?.name_tamil) ? (officerProfile.nameTamil || officerProfile.name_tamil) : displayName}</span>
-              <span className="officer-role">{loginRole ? (loginRole === 'admin' ? getTranslation(currentLanguage, 'admin', 'Admin') : getTranslation(currentLanguage, 'user', 'User')) : displayRole}</span>
+              <span className="officer-name">{currentLanguage === 'ta' && (officerProfile?.nameTamil || officerProfile?.name_tamil) ? (officerProfile.nameTamil || officerProfile.name_tamil) : (displayName || officerProfile?.officerId || 'Officer')}</span>
+              <span className="officer-role">{loginRole === 'admin' ? getTranslation(currentLanguage, 'admin', 'District Administrator') : getTranslation(currentLanguage, 'user', displayRole || 'Department Officer')}</span>
             </div>
             <ChevronDown
               size={14}
@@ -121,7 +121,7 @@ export default function Header({
             />
           </button>
 
-          {/* Dropdown Menu (Only My Profile & Log Out) */}
+          {/* Dropdown Menu (Profile View & Sign Out) */}
           {isDropdownOpen && (
             <div className="profile-dropdown-menu" role="menu" aria-label="Officer Profile Options">
               <button
@@ -131,7 +131,7 @@ export default function Header({
                 onClick={handleProfileClick}
               >
                 <User size={15} className="dropdown-item-icon" />
-                <span>{getTranslation(currentLanguage, 'myProfile', 'My Profile')}</span>
+                <span>{getTranslation(currentLanguage, 'profileView', 'Profile View')}</span>
               </button>
 
               <button
@@ -141,7 +141,7 @@ export default function Header({
                 onClick={handleLogoutClick}
               >
                 <LogOut size={15} className="dropdown-item-icon" />
-                <span>{getTranslation(currentLanguage, 'logOut', 'Log Out')}</span>
+                <span>{getTranslation(currentLanguage, 'signOut', 'Sign Out')}</span>
               </button>
             </div>
           )}

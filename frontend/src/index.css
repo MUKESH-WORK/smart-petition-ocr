@@ -11,42 +11,50 @@
 }
 
 /* Typography settings for Tamil */
-[data-lang="ta"] {
-  line-height: 1.6 !important;
-}
-
 [data-lang="ta"] body {
   font-family: 'Bookman Old Style', 'URW Bookman', 'Bookman', 'Noto Serif Tamil', serif;
   letter-spacing: normal;
 }
 
-/* 1. Header Resilience — Prevent collision between brand on left & profile on right */
+/* 1. Header Fixed Sizing — Strictly locked height across all languages */
+.app-header,
 [data-lang="ta"] .app-header {
-  min-height: var(--header-height, 56px);
-  height: auto;
-  padding: 6px 16px;
-  flex-wrap: wrap;
-  gap: 8px;
+  height: var(--header-height, 56px) !important;
+  min-height: var(--header-height, 56px) !important;
+  max-height: var(--header-height, 56px) !important;
+  padding: 0 16px !important;
+  flex-wrap: nowrap !important;
+  align-items: center !important;
+  overflow: visible !important;
+  position: relative !important;
+  z-index: 100 !important;
 }
 
 [data-lang="ta"] .header-left {
   min-width: 0;
   flex: 1 1 auto;
+  overflow: hidden;
 }
 
 [data-lang="ta"] .brand-title-group {
   min-width: 0;
+  overflow: hidden;
 }
 
 [data-lang="ta"] .brand-title {
-  font-size: clamp(0.95rem, 2vw, 1.15rem);
-  line-height: 1.25;
+  font-size: 1rem;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 [data-lang="ta"] .brand-subtitle {
-  font-size: 0.78rem;
-  line-height: 1.3;
-  max-width: 360px;
+  font-size: 0.75rem;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 [data-lang="ta"] .header-right {
@@ -55,50 +63,72 @@
 }
 
 [data-lang="ta"] .officer-profile-card {
-  max-width: 260px;
+  max-width: 220px;
   min-width: 0;
-  height: auto;
-  padding: 4px 10px;
+  height: 38px;
+  padding: 2px 8px;
+}
+
+[data-lang="ta"] .officer-info {
+  display: flex !important;
+  flex-direction: column !important;
+  min-width: 0 !important;
+  max-width: 150px !important;
+  overflow: hidden !important;
+  justify-content: center !important;
 }
 
 [data-lang="ta"] .officer-name,
+[data-lang="ta"] .officer-role,
 [data-lang="ta"] .officer-designation {
-  line-height: 1.3;
+  line-height: 1.15 !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  display: block !important;
 }
 
-/* 2. Sidebar Resilience — Extra width and multi-line wrapping */
+/* 2. Sidebar Fixed Sizing — Strictly locked width across all languages */
+.app-sidebar.sidebar-expanded,
 [data-lang="ta"] .app-sidebar.sidebar-expanded {
-  width: 268px;
+  width: var(--sidebar-width-expanded, 250px) !important;
+  min-width: var(--sidebar-width-expanded, 250px) !important;
+  max-width: var(--sidebar-width-expanded, 250px) !important;
+  overflow-x: hidden !important;
 }
 
 [data-lang="ta"] .sidebar-nav-item {
-  min-height: 46px;
-  height: auto;
-  padding: 8px 12px;
-  white-space: normal;
-  line-height: 1.35;
-  word-break: break-word;
+  height: 44px;
+  min-height: 44px;
+  padding: 0 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 [data-lang="ta"] .sidebar-item-label {
-  line-height: 1.35;
-  word-break: break-word;
-  white-space: normal;
+  font-size: 0.85rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 [data-lang="ta"] .sidebar-item-sub {
-  line-height: 1.3;
-  word-break: break-word;
-  white-space: normal;
+  font-size: 0.72rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-/* 3. Workspace Header Bar — Wrap gracefully without pushing controls off-screen */
+/* 3. Workspace Header Bar — Fixed height across all languages */
+.workspace-header-bar,
 [data-lang="ta"] .workspace-header-bar {
-  min-height: var(--workspace-header-height, 48px);
-  height: auto;
-  padding: 8px 16px;
-  flex-wrap: wrap;
-  gap: 8px;
+  height: var(--workspace-header-height, 48px) !important;
+  min-height: var(--workspace-header-height, 48px) !important;
+  max-height: var(--workspace-header-height, 48px) !important;
+  padding: 0 16px !important;
+  flex-wrap: nowrap !important;
+  overflow: hidden !important;
 }
 
 [data-lang="ta"] .workspace-header-left {
