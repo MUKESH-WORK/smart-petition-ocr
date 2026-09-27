@@ -326,12 +326,35 @@ async def resolve_duplicate(
                 await db.execute(text("""
                     DELETE FROM document_chunks WHERE source_id = :new_id;
                 """), {"new_id": source_id})
-                await db.execute(text("""
-                    INSERT INTO document_chunks (source_id, chunk_index, page_number, chunk_text, embedding)
-                    SELECT :new_id, chunk_index, page_number, chunk_text, embedding
+
+                old_chunks_res = await db.execute(text("""
+                    SELECT chunk_index, page_number, chunk_text, embedding, metadata
                     FROM document_chunks
                     WHERE source_id = :old_id
-                """), {"new_id": source_id, "old_id": old_source_id})
+                    ORDER BY chunk_index
+                """), {"old_id": old_source_id})
+
+                old_chunks = old_chunks_res.mappings().all()
+
+                for chunk in old_chunks:
+                    await db.execute(text("""
+                        INSERT INTO document_chunks (
+                            id, source_id, chunk_index, page_number,
+                            chunk_text, embedding, metadata
+                        )
+                        VALUES (
+                            :id, :source_id, :chunk_index, :page_number,
+                            :chunk_text, :embedding, :metadata
+                        )
+                    """), {
+                        "id": str(uuid.uuid4()),
+                        "source_id": source_id,
+                        "chunk_index": chunk["chunk_index"],
+                        "page_number": chunk["page_number"],
+                        "chunk_text": chunk["chunk_text"],
+                        "embedding": chunk["embedding"],
+                        "metadata": chunk.get("metadata"),
+                    })
 
                 # C. Copy Extracted Entities
                 await db.execute(text("""
