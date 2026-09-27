@@ -99,12 +99,16 @@ async def upload_petition(
 
         # Ensure officer exists to satisfy foreign key
         if eff_officer_id:
-            check_officer = await db.execute(text("SELECT officer_id FROM officers WHERE officer_id = :id"), {"id": eff_officer_id})
-            if not check_officer.scalar():
+            eff_officer_id = str(eff_officer_id).strip()
+            try:
                 await db.execute(text("""
                     INSERT INTO officers (officer_id, name, name_tamil, email, designation, department, status)
                     VALUES (:officer_id, 'DRO Officer', 'வருவாய் அலுவலர்', :email, 'DRO Officer', 'வருவாய்த்துறை', 'Active')
+                    ON CONFLICT (officer_id) DO NOTHING
                 """), {"officer_id": eff_officer_id, "email": f"{eff_officer_id.lower()}@tn.gov.in"})
+                await db.flush()
+            except Exception as e:
+                logger.debug(f"Officer record validation notice: {e}")
 
         # Insert into sources (save BYTEA only if configured)
         file_data_db = content if getattr(settings, "STORE_FILE_BYTEA", False) else None
@@ -145,30 +149,33 @@ async def upload_petition(
             if ext_status in ('draft_ready', 'officer_approved', 'pushed_to_dro') and ext_draft_count > 0:
                 logger.info(f"⚡ [IDEMPOTENT DEDUP] Identical petition ({file_hash[:8]}) already processed (source_id={existing_match['source_id']}). Reusing draft instantly.")
                 # Copy draft across to new source_id for current user session
+                new_draft_id = str(uuid.uuid4())
                 await db.execute(text("""
                     INSERT INTO grievance_drafts (
-                        id, source_id, petitioner_name, father_husband_name, complainant_signatory,
-                        phone, is_own_phone, alternate_phone, address, gender, age,
-                        applicant_category, description, grievance_channel, reference_number,
+                        id, source_id, officer_id, petitioner_name, father_husband_name, complainant_signatory,
+                        phone, is_own_phone, alternate_phone, address, gender,
+                        community_or_individual, description, grievance_source, ref_number,
                         department, sub_department, local_body_type, grievance_type, grievance_subtype,
                         district, revenue_division, taluk, firka, block, village, ward, municipality_ward,
-                        street_name, door_no, responsible_officer, assigned_officer_id, priority,
-                        deadline_date, status, is_flagged_for_review, is_urgent, is_court_case,
-                        officer_notes, forward_acknowledged
+                        street_name, door_no, responsible_officer, priority,
+                        status, dro_status, officer_approved, officer_notes,
+                        is_whatsapp_appeal, is_whatsapp_tracking, is_whatsapp_receipt,
+                        created_at, updated_at
                     )
                     SELECT
-                        'dft_' || SUBSTR(HEX(RANDOMBLOB(8)), 1, 16), :new_id, petitioner_name, father_husband_name, complainant_signatory,
-                        phone, is_own_phone, alternate_phone, address, gender, age,
-                        applicant_category, description, grievance_channel, reference_number,
+                        :new_draft_id, :new_id, officer_id, petitioner_name, father_husband_name, complainant_signatory,
+                        phone, is_own_phone, alternate_phone, address, gender,
+                        community_or_individual, description, grievance_source, ref_number,
                         department, sub_department, local_body_type, grievance_type, grievance_subtype,
                         district, revenue_division, taluk, firka, block, village, ward, municipality_ward,
-                        street_name, door_no, responsible_officer, assigned_officer_id, priority,
-                        deadline_date, 'draft', is_flagged_for_review, is_urgent, is_court_case,
-                        officer_notes, forward_acknowledged
+                        street_name, door_no, responsible_officer, priority,
+                        'draft', 'draft', FALSE, officer_notes,
+                        is_whatsapp_appeal, is_whatsapp_tracking, is_whatsapp_receipt,
+                        NOW(), NOW()
                     FROM grievance_drafts
                     WHERE source_id = :old_id
                     LIMIT 1
-                """), {"new_id": source_id, "old_id": str(existing_match["source_id"])})
+                """), {"new_draft_id": new_draft_id, "new_id": source_id, "old_id": str(existing_match["source_id"])})
                 
                 await db.execute(text("UPDATE sources SET status = 'draft_ready', updated_at = NOW() WHERE source_id = :sid"), {"sid": source_id})
                 await db.commit()

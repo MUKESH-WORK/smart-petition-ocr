@@ -1,6 +1,12 @@
-# Root .dockerignore for GDP Assistant Single Image Build
+# ==============================================================================
+# .dockerignore for GDP Assistant All-in-One Production Build
+# ==============================================================================
+
+# Git & IDE Metadata
 .git
+.github
 .gitignore
+.gitattributes
 .agents
 .skills
 .vscode
@@ -9,7 +15,7 @@
 *.tmp
 *.bak*
 
-# Virtual environments & node_modules
+# Virtual Environments & Package Managers
 .venv
 venv
 ENV
@@ -17,8 +23,10 @@ env
 backend/.venv
 backend/venv
 frontend/node_modules
+.npm
+.pnpm-store
 
-# Python cache & test artifacts
+# Python Bytecode & Test Caches
 __pycache__
 *.pyc
 *.pyo
@@ -27,31 +35,46 @@ __pycache__
 .coverage
 htmlcov
 
-# Node & frontend build outputs
+# Frontend Build Output (generated freshly inside Docker multi-stage build)
 frontend/dist
-.npm
 
-# Temporary cache, old uploads, and media
+# Runtime Uploads, Database Files & Temporary Buffers (persisted via Docker volumes)
 temp_cache
 backend/temp_cache
 uploads
 backend/uploads
 storage
 backend/storage
+data/*.db
+data/*.sqlite*
+backend/data/*.db
+backend/data/*.sqlite*
+*.db
+*.sqlite
+*.sqlite3
+
+# Static Generated Media (except placeholder/gitkeep)
 static/media/*
 backend/static/media/*
 !static/media/.gitkeep
 !backend/static/media/.gitkeep
+
+# Model Caches (downloaded on demand or mounted)
 model_cache
 backend/model_cache
 models_cache
 backend/models_cache
+
+# Backups and Archive Tarballs
 scratch
 backups
 backend/backups
 *.tar.gz
 *.tar
-*.db
-*.sqlite
-*.sqlite3
-sample_petitions
+*.zip
+
+# Local Environment Secrets (never bake secrets into Docker images!)
+.env
+backend/.env
+frontend/.env
+frontend/.env.local

@@ -134,6 +134,10 @@ class SemanticCacheManager:
                         }
                 except Exception as pg_ex:
                     logger.debug(f"pgvector query fallback to in-memory: {pg_ex}")
+                    try:
+                        await db.rollback()
+                    except Exception:
+                        pass
 
             # SQLite in-memory cosine evaluation across recent candidates
             res = await db.execute(text("""

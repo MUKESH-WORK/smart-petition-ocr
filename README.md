@@ -28,7 +28,7 @@
 
 ### Core Objectives
 1. **Zero Citizen Bottleneck**: Eliminate long queues and hours of manual transcription during weekly Grievance Day Petition (GDP) sessions.
-2. **High-Accuracy Tamil OCR**: Decipher complex handwritten and printed Tamil petitions using deep neural OCR with offline fallbacks.
+2. **High-Accuracy Tamil OCR**: Decipher complex handwritten and printed Tamil petitions using deep neural OCR (Datalab Chandra OCRv2) with offline PaddleOCR fallbacks.
 3. **Automated CM Helpline Taxonomy Alignment**: Accurately classify grievances across **40 Department Groups**, **1,027 Grievance Types**, and **1,861 Sub-Types** with responsible officer designation.
 4. **Authoritative Administrative Grounding**: Route petitions accurately across **6 Administrative Tiers** (Corporation Zones, Taluks, Firkas, Municipalities, Revenue Villages, and Corporation Wards) with zero hallucination.
 5. **Absolute Privacy & Data Sovereignty**: Automatic client-side masking of Aadhaar numbers (`XXXX-XXXX-1234`) and zero reliance on proprietary cloud APIs for core operations.
@@ -38,26 +38,55 @@
 
 ## 📋 Table of Contents
 
+- [🌟 Fresh Server 1-Command Deployment (Fastest)](#-fresh-server-1-command-deployment-fastest)
 - [Overview](#-overview)
 - [Key Features](#-key-features)
 - [System Architecture](#%EF%B8%8F-system-architecture)
+- [Step-by-Step Manual Setup Guide (Clone & Run)](#-step-by-step-manual-setup-guide-clone--run)
+  - [Prerequisites](#1-prerequisites)
+  - [Step 1: Clone Repository](#step-1-clone-repository)
+  - [Step 2: Environment Configuration (.env & API Keys)](#step-2-environment-configuration-env--api-keys)
+  - [Step 3: Setup Local LLM Inference (Ollama)](#step-3-setup-local-llm-inference-ollama)
+  - [Step 4: Setup Database (Docker Desktop or SQLite)](#step-4-setup-database-docker-desktop-or-sqlite)
+  - [Step 5: Backend Setup & Run (Terminal 1)](#step-5-backend-setup--run-terminal-1)
+  - [Step 6: Frontend Setup & Run (Terminal 2)](#step-6-frontend-setup--run-terminal-2)
+  - [Step 7: 1-Click Automated Launch Alternatives](#step-7-1-click-automated-launch-alternatives)
+  - [Step 8: Pre-Configured Test Accounts](#step-8-pre-configured-test-accounts)
 - [Intake Channels (21 Sources)](#-intake-channels-21-sources)
 - [Administrative Hierarchy & Taxonomy Structure](#-administrative-hierarchy--taxonomy-structure)
 - [Role-Based Access Control](#-role-based-access-control)
 - [Dynamic Bilingual Translation](#-dynamic-bilingual-translation)
-- [Passing Database & Data to Another System](#-passing-database--data-to-another-system)
-- [Quickstart: Clone & Run](#-quickstart-clone--run)
-  - [Prerequisites](#prerequisites)
-  - [Step 1: Clone Repository](#step-1-clone-repository)
-  - [Step 2: Environment Configuration](#step-2-environment-configuration)
-  - [Step 3: Launch Services](#step-3-launch-services)
+- [Database Management & Migration](#-database-management--migration)
 - [Configuration Reference](#%EF%B8%8F-configuration-reference)
 - [Project Structure](#-project-structure)
-- [Production Deployment Procedures](#-production-deployment-procedures)
-- [Verification & Testing](#-verification--testing)
+- [Troubleshooting & Diagnostics](#-troubleshooting--diagnostics)
 - [Security & Governance](#-security--governance)
-- [Community & Support](#-community--support)
 - [License](#-license)
+
+---
+
+## 🌟 Fresh Server 1-Command Deployment (Fastest)
+
+> **For a completely fresh Windows server with only Git and Docker Desktop installed.**
+
+If Ollama is not installed and the model is not downloaded, you can set up and start the entire GDP Assistant platform automatically:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\setup_host.ps1
+```
+
+### What `setup_host.ps1` does automatically:
+1. **Verifies Docker Desktop**: Confirms Docker Engine daemon is active and responsive.
+2. **Installs Ollama**: Automatically detects and installs Ollama via `winget` if missing on the host.
+3. **Starts Ollama Daemon**: Launches `ollama serve` in the background and verifies `http://127.0.0.1:11434`.
+4. **Pulls AI Model**: Automatically downloads `qwen2.5:3b-instruct` (~1.9 GB) if not already installed.
+5. **Generates `.env`**: Creates `.env` from `.env.example` if missing.
+6. **Builds & Launches Containers**: Runs `docker compose up -d --build` (PostgreSQL 16 + All-in-One GDP Assistant).
+7. **Verifies Health**: Polls `http://localhost/health` until all services are healthy and ready.
+
+After completion, navigate to **`http://localhost`** in your browser.
+
+---
 
 ---
 
@@ -122,7 +151,7 @@ flowchart TB
         Chunker["Tamil Semantic Chunker\nSentence Boundaries"]
         Embedder["SentenceTransformer\nparaphrase-multilingual-MiniLM-L12-v2"]
         NER["Hybrid Entity Extractor\nRegex + Revenue Master Validator"]
-        LLM["Cognitive LLM Engine (Ollama / Gemini)\nSummarization, Verification & Translation"]
+        LLM["Cognitive LLM Engine (Ollama / Qwen)\nSummarization, Verification & Translation"]
         Cache["Semantic Cache\n(LRU + Vector Similarity)"]
     end
 
@@ -138,33 +167,284 @@ flowchart TB
 
 ---
 
+## 🚀 Step-by-Step Manual Setup Guide (Clone & Run)
+
+Follow these manual steps to set up and run the entire platform from scratch on a new machine.
+
+### 1. Prerequisites
+
+Before starting, ensure you have the following installed on your machine:
+
+| Prerequisite | Minimum Version | Purpose | Download Link |
+| :--- | :--- | :--- | :--- |
+| **Python** | `3.11.x` | Backend API, ML pipeline, OCR & embeddings | [python.org/downloads](https://www.python.org/downloads/) |
+| **Node.js & npm** | Node `18.x+` (npm `9+`) | React 19 + Vite frontend user interface | [nodejs.org](https://nodejs.org/) |
+| **Git** | `2.x+` | Source code version control | [git-scm.com](https://git-scm.com/) |
+| **Ollama** *(Recommended)* | Latest | Local offline AI inference & bilingual translation | [ollama.com](https://ollama.com/) |
+| **Docker Desktop** *(Optional)* | Latest | PostgreSQL 16 + pgvector containerized database | [docker.com/products/docker-desktop](https://www.docker.com/products/docker-desktop/) |
+
+> [!TIP]
+> **No Docker or GPU? No problem!** The application includes an embedded SQLite vector engine and local CPU fallback modes, allowing full functionality on standard laptops without Docker or cloud keys.
+
+---
+
+### Step 1: Clone Repository
+
+Open your terminal or command prompt and clone the repository:
+
+```bash
+git clone https://github.com/MUKESH-WORK/smart-petition-ocr.git
+cd smart-petition-ocr
+```
+
+---
+
+### Step 2: Environment Configuration (.env & API Keys)
+
+Copy the provided environment template to create your local `.env` configuration file:
+
+```bash
+# On Linux / macOS:
+cp .env.example .env
+
+# On Windows (PowerShell):
+Copy-Item .env.example .env
+
+# On Windows (Command Prompt):
+copy .env.example .env
+```
+
+#### Understanding & Configuring Keys in `.env`:
+
+1. **Datalab OCR API Key (`DATALAB_API_KEY`)**:
+   - **What it does**: Powers Datalab Chandra OCRv2, delivering state-of-the-art recognition for complex, cursive handwritten Tamil petitions.
+   - **How to get it**:
+     1. Visit [https://www.datalab.to](https://www.datalab.to) and create a free account.
+     2. Open your account API Dashboard.
+     3. Copy your API Key and paste it into `.env`:
+        ```env
+        OCR_PROVIDER=datalab
+        DATALAB_API_KEY=your_actual_datalab_api_key_here
+        ```
+   - **Offline / Zero-Cost Fallback**: If you leave `DATALAB_API_KEY` empty or unset, the system automatically falls back to the embedded **PaddleOCR** engine with OpenCV preprocessing filters at zero cost with 100% offline capability.
+
+2. **Security Secret (`SECRET_KEY`)**:
+   - Set a custom 32+ character random string to sign JWT tokens for revenue officer sessions:
+     ```env
+     SECRET_KEY=my-super-secret-jwt-key-change-in-production-2026
+     ```
+
+3. **Database Selection (`USE_SQLITE` vs PostgreSQL)**:
+   - **Option A (SQLite - Instant / Zero Setup)**:
+     ```env
+     USE_SQLITE=true
+     ```
+   - **Option B (PostgreSQL 16 + pgvector - Enterprise / Docker)**:
+     ```env
+     USE_SQLITE=false
+     POSTGRES_USER=dro_user
+     POSTGRES_PASSWORD=dro_password_2026
+     POSTGRES_HOST=localhost
+     POSTGRES_PORT=5432
+     POSTGRES_DB=dro_grievance_db
+     DATABASE_URL=postgresql+asyncpg://dro_user:dro_password_2026@localhost:5432/dro_grievance_db
+     DATABASE_SYNC_URL=postgresql://dro_user:dro_password_2026@localhost:5432/dro_grievance_db
+     ```
+
+---
+
+### Step 3: Setup Local LLM Inference (Ollama)
+
+GDP Assistant uses local LLMs for cognitive document analysis, petition summarization, anti-hallucination verification, and dynamic English ↔ Tamil translation.
+
+1. **Install Ollama**:
+   - Download and install Ollama from [https://ollama.com/download](https://ollama.com/download).
+
+2. **Start the Ollama Server**:
+   ```bash
+   ollama serve
+   ```
+   *(On Windows/macOS, Ollama runs automatically in the system tray).*
+
+3. **Pull the Required Models**:
+   Open a terminal and run:
+   ```bash
+   # 1. Primary Reasoning & Translation LLM (Qwen 2.5 3B Instruct)
+   ollama run qwen2.5:3b-instruct
+
+   # 2. Vector Embedding Engine
+   ollama pull nomic-embed-text:latest
+   ```
+
+---
+
+### Step 4: Setup Database (Docker Desktop or SQLite)
+
+Choose one of the two database setup options:
+
+#### Option A: PostgreSQL 16 + pgvector via Docker Desktop (Recommended for Production)
+1. Launch **Docker Desktop** on your computer.
+2. In the `smart-petition-ocr` root directory, start the PostgreSQL container:
+   ```bash
+   docker compose up -d postgres
+   ```
+3. Check that the container is healthy:
+   ```bash
+   docker ps
+   ```
+
+#### Option B: Offline Embedded SQLite (Zero External Software Required)
+- Simply ensure `USE_SQLITE=true` in your `.env` file (or let the backend automatically activate SQLite if PostgreSQL is not running).
+- Database files (`dro_admin.db` and `dro_user.db`) will be automatically initialized in `backend/temp_cache/`.
+
+---
+
+### Step 5: Backend Setup & Run (Terminal 1)
+
+1. **Navigate to the `backend` directory:**
+   ```bash
+   cd backend
+   ```
+
+2. **Create a Python 3.11 Virtual Environment:**
+   ```bash
+   # Windows:
+   py -3.11 -m venv .venv
+
+   # Linux / macOS:
+   python3.11 -m venv .venv
+   ```
+
+3. **Activate the Virtual Environment:**
+   ```bash
+   # Windows (PowerShell):
+   .venv\Scripts\Activate.ps1
+
+   # Windows (Command Prompt):
+   .venv\Scripts\activate.bat
+
+   # Linux / macOS:
+   source .venv/bin/activate
+   ```
+
+4. **Install Python Dependencies:**
+   ```bash
+   pip install --upgrade pip
+   pip install -r requirements.txt
+   ```
+
+5. **Seed the Authoritative Government Database:**
+   Construct the complete database from the official government taxonomy PDF (`backend/data/government_taxonomy.pdf`):
+   ```bash
+   python scripts/manage_db.py seed-fresh
+   ```
+   *This seeds all 40 departments, 1,861 grievance taxonomy mappings, and 477 administrative hierarchy units.*
+
+6. **Start the FastAPI Backend Server:**
+   ```bash
+   uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+   ```
+
+7. **Verify Backend Status**:
+   - Backend API Root: [`http://localhost:8000/`](http://localhost:8000/)
+   - Interactive Swagger API Docs: [`http://localhost:8000/api/v1/docs`](http://localhost:8000/api/v1/docs)
+   - Service Health Telemetry: [`http://localhost:8000/api/v1/health`](http://localhost:8000/api/v1/health)
+
+---
+
+### Step 6: Frontend Setup & Run (Terminal 2)
+
+Open a **second terminal window** and follow these steps:
+
+1. **Navigate to the `frontend` directory:**
+   ```bash
+   cd smart-petition-ocr/frontend
+   ```
+
+2. **Install Node.js Packages:**
+   ```bash
+   npm install
+   ```
+
+3. **Start the Frontend Development Server:**
+   ```bash
+   npm run dev
+   ```
+
+4. **Access the Application**:
+   Open your browser and navigate to:
+   - **DRO Civil Desk Portal**: [`http://localhost:5173`](http://localhost:5173) (or `http://localhost:5174`)
+
+---
+
+### Step 7: 1-Click Automated Launch Alternatives
+
+For convenience, you can also use one of the automated startup scripts:
+
+#### Windows 1-Click:
+- **First-time setup**: Double-click `setup.bat`
+- **Launch all services**: Double-click `run_all.bat`
+
+#### Unified Python CLI Launcher:
+```bash
+# 1. Run full environment setup & dependency check:
+python run.py --setup
+
+# 2. Check system health & diagnostics:
+python run.py --doctor
+
+# 3. Launch both backend & frontend concurrently:
+python run.py
+```
+
+#### Full Docker Compose (All Containers):
+```bash
+docker compose up -d
+```
+
+---
+
+### Step 8: Pre-Configured Test Accounts
+
+The platform comes pre-seeded with official revenue officer roles:
+
+| Officer Name | Officer ID | Role | Permissions |
+| :--- | :--- | :--- | :--- |
+| **District Collector** | `ADM-ERODE-001` | **District Administrator** | Full Admin, Profile Editing, Taxonomy & Hierarchy Management |
+| **District Revenue Officer (DRO)** | `DRO-ERODE-001` | **District Administrator** | Full Admin, Profile Editing, Petition Approval & Dispatch |
+| **Sub-Collector / RDO** | `RDO-ERODE-001` | **Department User** | Petition Review, Verification, View-Only System Data |
+| **Tahsildar (Erode)** | `TAH-ERD-001` | **Field Officer** | Petition Review, Field Verification |
+| **Tahsildar (Bhavani)** | `TAH-BHV-001` | **Field Officer** | Petition Review, Field Verification |
+
+---
+
 ## 📡 Intake Channels (21 Sources)
 
-The system supports ingestion from **21 official grievance intake channels**, aligned with the Tamil Nadu CM Helpline and District Administration workflows:
+The system supports ingestion from **21 official grievance intake channels**, aligned with Tamil Nadu CM Helpline and District Administration workflows:
 
-| # | Channel | Category |
-| :---: | :--- | :--- |
-| 1 | CM Helpline 1100 (Phone Call) | Helpline |
-| 2 | CM Helpline App | Digital |
-| 3 | CM Helpline Web Portal | Digital |
-| 4 | CM Special Cell | Helpline |
-| 5 | District Collector Petition Day (GDP) | Walk-In |
-| 6 | DRO / RDO Direct Petition | Walk-In |
-| 7 | Sub-Collector Office | Walk-In |
-| 8 | Tahsildar Office Walk-In | Walk-In |
-| 9 | MLA / MP Recommendation | Referral |
-| 10 | Revenue Divisional Office (RDO) | Government |
-| 11 | E-Sevai Centre (CSC) | Digital |
-| 12 | Social Media (Twitter/X, Facebook) | Social Media |
-| 13 | WhatsApp Official Channel | Digital |
-| 14 | Email Petition | Digital |
-| 15 | Post / Speed Post / Courier | Mail |
-| 16 | Public Hearing (Makkal Durbar) | Walk-In |
-| 17 | RTI Application (Forwarded) | Government |
-| 18 | Court Order / Tribunal Directive | Legal |
-| 19 | NHRC / SHRC Referral | Legal |
-| 20 | Transferred from Other District | Government |
-| 21 | NGO / Civil Society Referral | Referral |
+| # | Channel | Category | Description |
+| :---: | :--- | :--- | :--- |
+| 1 | CM Helpline 1100 (Phone Call) | Helpline | Voice transcriptions from the 1100 state call centre |
+| 2 | CM Helpline App | Digital | Citizen mobile app submissions |
+| 3 | CM Helpline Web Portal | Digital | Online state portal submissions |
+| 4 | CM Special Cell | Helpline | Direct petitions addressed to the Chief Minister's Cell |
+| 5 | District Collector Petition Day (GDP) | Walk-In | Weekly Monday grievance day submissions |
+| 6 | DRO / RDO Direct Petition | Walk-In | Petitions submitted directly to Revenue Officers |
+| 7 | Sub-Collector Office | Walk-In | Revenue division intake desks |
+| 8 | Tahsildar Office Walk-In | Walk-In | Taluk-level citizen submissions |
+| 9 | MLA / MP Recommendation | Referral | Formal letters and constituent grievance referrals |
+| 10 | Revenue Divisional Office (RDO) | Government | Official inter-departmental transfers |
+| 11 | E-Sevai Centre (CSC) | Digital | Common Service Centre kiosk submissions |
+| 12 | Social Media (Twitter/X, Facebook) | Social Media | Social media grievance handles & tagging |
+| 13 | WhatsApp Official Channel | Digital | Verified collectorate citizen WhatsApp channel |
+| 14 | Email Petition | Digital | Official district collectorate email submissions |
+| 15 | Post / Speed Post / Courier | Mail | Physical mailed grievance petitions |
+| 16 | Public Hearing (Makkal Durbar) | Walk-In | Village camp & public grievance outreach sessions |
+| 17 | RTI Application (Forwarded) | Government | Petitions routed through RTI channels |
+| 18 | Court Order / Tribunal Directive | Legal | Judicial directives requiring administrative action |
+| 19 | NHRC / SHRC Referral | Legal | Human rights commission grievance notices |
+| 20 | Transferred from Other District | Government | Inter-district administrative transfers |
+| 21 | NGO / Civil Society Referral | Referral | Non-governmental organization constituent cases |
 
 ---
 
@@ -195,167 +475,65 @@ The system is pre-grounded with the official revenue hierarchy and CM Helpline g
 
 ## 🔐 Role-Based Access Control
 
-GDP Assistant enforces strict role-based access across the application:
-
 | Role | Profile Edit | Taxonomy Admin | Petition Processing | System Config |
 | :--- | :---: | :---: | :---: | :---: |
 | **District Administrator** (Admin) | ✅ | ✅ | ✅ | ✅ |
 | **Department User** | ❌ (View Only) | ❌ | ✅ | ❌ |
 | **Field Officer** | ❌ (View Only) | ❌ | ✅ | ❌ |
 
-- **Admin users** can edit officer profiles, manage taxonomy mappings, and configure system settings.
-- **Non-admin users** see all profile data in read-only mode with a "View Only" badge.
-
 ---
 
 ## 🌐 Dynamic Bilingual Translation
 
 The entire UI supports real-time English ↔ Tamil translation powered by the LLM engine:
-
-- **No hardcoded dictionaries** — all translations are generated dynamically via the `/api/v1/translate` endpoint.
+- **No hardcoded dictionaries** — all translations are generated dynamically by the translation engine.
 - **LRU Cache** on the server side prevents redundant LLM calls for previously translated text.
 - **Batch translation** support for translating multiple UI elements in a single API request.
-- **Tamil text rendering** uses dedicated font stack (`Noto Sans Tamil`, `Latha`, `Tamil Sangam MN`) with proper Unicode handling to prevent alignment issues.
+- **Tamil typography rendering** uses dedicated fonts (`Noto Sans Tamil`, `Latha`, `Tamil Sangam MN`) with proper Unicode handling.
 
 ---
 
-## 💾 Passing Database & Data to Another System
+## 💾 Database Management & Migration
 
-To migrate or share the databases and all pre-seeded records to another workstation or server **without hitting Git push limits** (since binary `.db` files are excluded by `.gitignore`):
-
-### Option 1: Compressed Database Bundle Export / Import (Recommended)
-Use the included `scripts/manage_db.py` CLI:
+Use the included `scripts/manage_db.py` CLI for all database operations:
 
 ```bash
-# Step 1: On the SOURCE machine, export a compressed bundle:
+# View active database counts and table statistics
+python scripts/manage_db.py stats
+
+# Export a compressed database bundle (tar.gz)
 python scripts/manage_db.py export --output gdp_database_bundle.tar.gz
 
-# Step 2: Transfer 'gdp_database_bundle.tar.gz' to the target system (via USB, SCP, S3, etc.)
-
-# Step 3: On the TARGET machine, import the bundle:
+# Import a database bundle onto a new system
 python scripts/manage_db.py import --input gdp_database_bundle.tar.gz
 
-# Step 4: Verify that all records and metrics are active:
-python scripts/manage_db.py stats
-```
-
-### Option 2: Zero-Transfer Clean Seeding (Air-Gapped Setup)
-No file transfer needed! Every clone of this repository contains the authoritative government document (`backend/data/government_taxonomy.pdf`). Any target machine can construct the complete database from scratch in seconds:
-
-```bash
+# Seed fresh directly from source government PDF (zero external files required)
 python scripts/manage_db.py seed-fresh
+
+# Migrate active SQLite database to PostgreSQL + pgvector
+python scripts/manage_db.py sync-to-postgres --postgres-url "postgresql+asyncpg://dro_user:dro_password_2026@localhost:5432/dro_grievance_db"
 ```
-
-### Option 3: Direct Migration to PostgreSQL + pgvector
-To transfer the active SQLite database directly into a centralized PostgreSQL server:
-
-```bash
-python scripts/manage_db.py sync-to-postgres --postgres-url "postgresql+asyncpg://postgres:password@10.0.0.5:5432/gdp_db"
-```
-
----
-
-## 🚀 Quickstart: Clone & Run
-
-> For detailed step-by-step instructions with test accounts and troubleshooting, see [QUICKSTART.md](QUICKSTART.md).
-
-### Prerequisites
-- **Python**: 3.11 or higher
-- **Node.js**: 18.x or higher (`npm` 9+)
-- *(Optional)* **Ollama**: For local offline LLM inference (`ollama run qwen2.5:3b-instruct`)
-- *(Optional)* **PostgreSQL 16**: With `pgvector` extension for enterprise multi-user mode
-- *(Optional)* **Docker**: For containerized deployment (`docker compose up`)
-
-### Step 1: Clone Repository
-```bash
-git clone https://github.com/MUKESH-WORK/smart-petition-ocr.git
-cd smart-petition-ocr
-```
-
-### Step 2: Environment Configuration
-Copy the sample environment file and customize:
-```bash
-# Linux / macOS
-cp .env.example .env
-
-# Windows (PowerShell)
-Copy-Item .env.example .env
-```
-
-**Minimum required changes:**
-- Set a secure `SECRET_KEY` for JWT authentication
-- *(Optional)* Add your `DATALAB_API_KEY` for cloud OCR, or leave blank to use the bundled PaddleOCR engine
-
-### Step 3: Launch Services
-
-#### Method 1: 1-Click Setup + Launch (Recommended for First Time)
-```bash
-# Windows
-setup.bat        # First-time setup (installs all dependencies, seeds database)
-run_all.bat      # Launch backend + frontend + open browser
-
-# Linux / macOS
-chmod +x setup.sh run_all.sh
-./setup.sh       # First-time setup
-./run_all.sh     # Launch backend + frontend
-```
-
-#### Method 2: Python Unified Launcher
-```bash
-python run.py --setup     # First-time dependency installation & DB seeding
-python run.py             # Launch both backend + frontend
-python run.py --doctor    # Pre-flight system diagnostics
-python run.py --test      # Run automated test suite
-```
-
-#### Method 3: Manual Developer Launch
-```bash
-# Terminal 1: Backend
-cd backend
-python -m venv .venv
-# On Windows: .venv\Scripts\activate | On Linux: source .venv/bin/activate
-pip install -r requirements.txt
-python scripts/manage_db.py seed-fresh    # Initializes databases if not present
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
-
-# Terminal 2: Frontend
-cd frontend
-npm install
-npm run dev
-```
-
-#### Method 4: Docker Compose (Containerized)
-```bash
-docker compose up -d
-```
-This launches PostgreSQL 16 + pgvector, the FastAPI backend, and the Nginx-served frontend.
-
-### 🌐 Application URLs
-
-| Service | URL |
-| :--- | :--- |
-| **Civil Desk Workspace** | [`http://localhost:5174`](http://localhost:5174) |
-| **FastAPI Interactive Docs** | [`http://127.0.0.1:8000/api/v1/docs`](http://127.0.0.1:8000/api/v1/docs) |
-| **Database Health Telemetry** | [`http://127.0.0.1:8000/api/v1/health`](http://127.0.0.1:8000/api/v1/health) |
 
 ---
 
 ## ⚙️ Configuration Reference
 
-All environment variables are documented in [`.env.example`](.env.example). Key variables:
+All environment variables are documented in [`.env.example`](.env.example):
 
 | Variable | Default | Description |
 | :--- | :--- | :--- |
-| `DATABASE_URL` | `sqlite+aiosqlite:///...` | User & grievance database connection URL |
-| `ADMIN_DATABASE_URL` | `sqlite+aiosqlite:///...` | Administrative & taxonomy database URL |
-| `SECRET_KEY` | *(must be set)* | JWT signing secret for officer sessions |
+| `USE_SQLITE` | `false` | `true` for offline SQLite mode; `false` for PostgreSQL 16 |
+| `DATABASE_URL` | `postgresql+asyncpg://...` | User & grievance database connection URL |
+| `SECRET_KEY` | *(required)* | JWT signing secret for officer sessions |
+| `OCR_PROVIDER` | `datalab` | OCR engine (`datalab` for cloud Chandra / `paddleocr` for offline) |
+| `DATALAB_API_KEY` | `""` | Datalab Chandra OCR key from https://www.datalab.to |
+| `DATALAB_MODE` | `accurate` | OCR mode (`accurate` / `balanced` / `fast`) |
 | `LLM_PROVIDER` | `ollama` | LLM backend (`ollama` / `llama_cpp` / `openai_compat`) |
-| `LLM_MODEL_NAME` | `qwen2.5:3b-instruct` | Default LLM model for analysis & translation |
-| `OCR_PROVIDER` | `datalab` | OCR engine (`datalab` / `chandra_cloud` / `chandra_local`) |
-| `DATALAB_API_KEY` | `""` | Optional Datalab Chandra OCR key for Tamil handwriting |
-| `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama API endpoint for offline LLM inference |
+| `LLM_API_BASE_URL` | `http://localhost:11434/v1` | Ollama API endpoint for local LLM inference |
+| `LLM_MODEL_NAME` | `qwen2.5:3b-instruct` | LLM model for analysis, summarization & translation |
+| `EMBEDDING_MODEL_NAME` | `sentence-transformers/...` | Model for 384-dimensional vector embeddings |
 | `SEMANTIC_CACHE_ENABLED` | `true` | Enable LLM response deduplication cache |
-| `ALLOWED_ORIGINS` | `localhost:5173,5174` | CORS allowed origins for frontend |
+| `ALLOWED_ORIGINS` | `http://localhost:5173,5174` | CORS allowed origins for frontend |
 | `UPLOAD_DIR` | `uploads` | Directory for temporary petition scan storage |
 
 ---
@@ -370,14 +548,15 @@ smart-petition-ocr/
 │   │   ├── config.py           # Pydantic settings & env loader
 │   │   ├── dependencies.py     # Dependency injection & guards
 │   │   ├── api/v1/             # Versioned API route modules
-│   │   └── routers/            # Router modules (translate, admin, etc.)
+│   │   └── routers/            # Router modules (translate, admin, grievance)
 │   ├── core/                   # Core utilities (security, LLM client)
-│   ├── models/                 # SQLAlchemy ORM models
-│   ├── services/               # Business logic (OCR, RAG, cache, etc.)
+│   ├── models/                 # SQLAlchemy ORM models & dual-DB router
+│   ├── services/               # Business logic (OCR, vector store, cache)
 │   ├── scripts/                # DB management, data ingestion scripts
 │   ├── tests/                  # pytest test suites
-│   ├── alembic/                # Database migration scripts
+│   ├── data/                   # Authoritative government taxonomy PDF
 │   ├── Dockerfile              # Production container image
+│   ├── .env.example            # Backend environment template
 │   └── requirements.txt        # Python dependencies
 │
 ├── frontend/                   # React 19 Frontend (Vite)
@@ -389,10 +568,9 @@ smart-petition-ocr/
 │   │   │   ├── profile/        # Officer profile (role-based)
 │   │   │   └── workspace/      # Petition workspace, dual-panel
 │   │   ├── services/           # API client (apiService.js)
-│   │   ├── utils/              # Translation engine, helpers
-│   │   └── data/               # Mock data, intake channel definitions
-│   ├── public/                 # Static assets (favicon, emblem)
-│   ├── Dockerfile              # Nginx-served production image
+│   │   ├── utils/              # Dynamic translation engine, helpers
+│   │   └── data/               # Intake channel definitions
+│   ├── public/                 # Static assets (emblems, logos)
 │   └── package.json            # Node dependencies
 │
 ├── scripts/                    # Root-level CLI utilities
@@ -400,69 +578,38 @@ smart-petition-ocr/
 │
 ├── docker-compose.yml          # Full-stack Docker orchestration
 ├── run.py                      # Unified Python launcher & diagnostics
-├── setup.bat / setup.sh        # 1-click environment setup
-├── run_all.bat / run_all.sh    # 1-click full system launcher
-├── .env.example                # Environment configuration template
-├── .gitignore                  # Strict PII & binary exclusion rules
-│
-├── README.md                   # ← You are here
-├── QUICKSTART.md               # Detailed setup & test accounts guide
+├── setup.bat                   # 1-click Windows environment setup
+├── run_all.bat                 # 1-click Windows full system launcher
+├── .env.example                # Root environment template
+├── requirements.txt            # Root requirements pointer
+├── README.md                   # ← Comprehensive Documentation
+├── QUICKSTART.md               # Quick setup & test accounts guide
 ├── DEPLOYMENT.md               # Production deployment procedures
 ├── CONTRIBUTING.md             # Developer contribution guidelines
 ├── SECURITY.md                 # Security policy & vulnerability disclosure
-├── CODE_OF_CONDUCT.md          # Contributor Covenant v2.1
 └── LICENSE                     # Apache License 2.0
 ```
 
 ---
 
-## 🚢 Production Deployment Procedures
+## 🔧 Troubleshooting & Diagnostics
 
-For comprehensive production deployment principles, platform-specific steps (Docker, systemd, reverse proxies), zero-downtime procedures, and rollback runbooks, see [DEPLOYMENT.md](DEPLOYMENT.md).
-
-**Supported Deployment Models:**
-1. **Single-Node Offline Workstation** — SQLite + CPU-only inference (Taluk / Remote Desks)
-2. **District Intranet Server** — PostgreSQL 16 + pgvector behind Nginx (Multi-Officer)
-3. **Containerized Enterprise** — Docker Compose / Kubernetes (State Data Center)
-
----
-
-## 🧪 Verification & Testing
-
-### Backend Automated Tests
-```bash
-cd backend
-pytest tests/ -v
-```
-
-### Frontend Build Validation
-```bash
-cd frontend
-npm run build
-npm run lint
-```
-
-### System Diagnostics
+### 1. Run Pre-Flight Diagnostics
+Run the built-in system doctor to verify your environment:
 ```bash
 python run.py --doctor
 ```
 
-### Database Health Check
-```bash
-python scripts/manage_db.py stats
-```
+### 2. Common Issues & Solutions
 
-### Production Verification (Post-Deploy)
-```bash
-# API & database health
-curl -s http://127.0.0.1:8000/api/v1/health | python -m json.tool
-
-# Hierarchy stats
-curl -s -H "X-Officer-Id: ADM-ERODE-001" http://127.0.0.1:8000/api/v1/admin/hierarchy/stats
-
-# Taxonomy stats
-curl -s -H "X-Officer-Id: ADM-ERODE-001" http://127.0.0.1:8000/api/v1/admin/taxonomy/stats
-```
+| Issue | Cause | Solution |
+| :--- | :--- | :--- |
+| **Cannot find module `sentence_transformers`** | Package not installed in virtual environment | Run `pip install -r backend/requirements.txt` inside `.venv` |
+| **Port 8000 or 5174 already in use** | Another process is occupying the port | Kill the existing process or change port in `run.py` |
+| **Datalab OCR Timeout or 401 Unauthorized** | Invalid or missing `DATALAB_API_KEY` | Check your key at [datalab.to](https://www.datalab.to), or leave empty to use offline PaddleOCR |
+| **Ollama connection refused (`11434`)** | Ollama service is not running | Run `ollama serve` in a terminal or launch Ollama app |
+| **PostgreSQL connection refused (`5432`)** | Docker container is not started | Start PostgreSQL: `docker compose up -d postgres` or set `USE_SQLITE=true` |
+| **PowerShell script execution error** | Execution policy restriction | Run `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` |
 
 ---
 
@@ -471,20 +618,9 @@ curl -s -H "X-Officer-Id: ADM-ERODE-001" http://127.0.0.1:8000/api/v1/admin/taxo
 - **Aadhaar Protection**: Automatic regex-based client and server redaction to `XXXX-XXXX-1234`.
 - **Zero Citizen PII in Logs**: Strict logging policy preventing citizen names, addresses, or contact information from writing to stdout.
 - **Air-Gapped Security**: Core OCR, vector indexing, and entity validation execute 100% locally.
-- **Role-Based Access**: Administrative endpoints require verified officer JWT with `is_admin: true`.
+- **Role-Based Access**: Administrative operations require verified officer JWT with `is_admin: true`.
 - **Database Isolation**: SQLite databases reside in `temp_cache/` excluded from Git; PostgreSQL connections require SSL in production.
 - For vulnerability disclosure instructions and policies, review [SECURITY.md](SECURITY.md).
-
----
-
-## 🤝 Community & Contributing
-
-We welcome contributions from developers, civic technologists, and revenue administrators!
-
-- Please read our [Contributing Guidelines](CONTRIBUTING.md) to understand our coding standards, branch conventions, and PR workflow.
-- All participants must adhere to our [Code of Conduct](CODE_OF_CONDUCT.md).
-- To report a bug or request a feature, use our [GitHub Issue Templates](.github/ISSUE_TEMPLATE/).
-- For a detailed quickstart and test accounts, see [QUICKSTART.md](QUICKSTART.md).
 
 ---
 

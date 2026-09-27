@@ -162,7 +162,7 @@ class PGVectorStore:
         for chunk, emb in zip(chunks, embeddings):
             chunk_id = str(uuid.uuid4())
             emb_list = emb.tolist() if hasattr(emb, "tolist") else list(emb)
-            emb_val = json.dumps(emb_list)
+            emb_val = json.dumps(emb_list) if is_sqlite else emb_list
             await db.execute(text("""
                 INSERT INTO document_chunks (id, source_id, page_number, chunk_index, chunk_text, embedding, metadata)
                 VALUES (:id, :source_id, :page_number, :chunk_index, :chunk_text, :embedding, :metadata)

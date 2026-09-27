@@ -11,6 +11,14 @@ _backend_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if _backend_dir not in sys.path:
     sys.path.insert(0, _backend_dir)
 
+# Ensure UTF-8 output encoding across Windows consoles
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 # Ensure all uploads & temp buffers use workspace temp cache
 _workspace_temp = os.path.abspath(os.path.join(_backend_dir, "temp_cache"))
 os.makedirs(_workspace_temp, exist_ok=True)
@@ -26,7 +34,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy import text
 
 from app.config import settings
-from app.routers import grievance, search, admin, translate, petitions
+from app.routers import grievance, search, admin, translate
 from models.database import engine, AsyncSessionLocal, init_db_schema, is_sqlite
 from services.job_queue import job_queue
 
@@ -203,7 +211,6 @@ app.include_router(grievance.router, prefix=settings.API_V1_STR)
 app.include_router(search.router, prefix=settings.API_V1_STR)
 app.include_router(admin.router, prefix=settings.API_V1_STR)
 app.include_router(translate.router, prefix=settings.API_V1_STR)
-app.include_router(petitions.router, prefix=settings.API_V1_STR)
 
 # Mount Architecture Pipeline Routers (Async OCR, Redis Queue, Documents API)
 try:
@@ -295,15 +302,13 @@ async def health_check():
     except Exception as e:
         checks["components"]["storage"] = {"status": "error", "error": str(e)}
 
-    # 4. OCR Engine
-    provider = getattr(settings, "OCR_PROVIDER", "datalab")
-    engine_label = "Datalab Chandra OCR (Cloud API)" if provider == "datalab" else "PaddleOCR PP-OCRv5 (Tamil/English)"
+    # 4. OCR Engine (Datalab Chandra Cloud API)
     checks["components"]["ocr"] = {
-        "engine": engine_label,
-        "provider": provider,
-        "preprocessing": getattr(settings, "OCR_PREPROCESSING_ENABLED", True),
-        "target_dimension": getattr(settings, "OCR_MAX_IMAGE_DIMENSION", 1500),
-        "dpi": getattr(settings, "OCR_DPI", 200)
+        "engine": "Datalab Chandra OCR (Cloud API)",
+        "provider": "datalab",
+        "has_api_key": bool(getattr(settings, "DATALAB_API_KEY", "")),
+        "mode": getattr(settings, "DATALAB_MODE", "accurate"),
+        "fallback_mode": getattr(settings, "DATALAB_FALLBACK_MODE", "balanced")
     }
 
     return checks

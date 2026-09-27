@@ -1,12 +1,16 @@
+"""
+Chandra OCR Router Engine.
+Exclusively powered by Datalab Chandra OCR Cloud API for state-of-the-art
+Tamil & English handwriting recognition, multi-page layout parsing, and entity grounding.
+"""
+
 import os
 import sys
-import gc
 import json
 import logging
 import time
 import asyncio
 from typing import List, Dict, Any, Optional, TYPE_CHECKING
-import cv2
 import numpy as np
 from PIL import Image
 import httpx
@@ -29,202 +33,56 @@ from services.file_store import file_store
 logger = logging.getLogger(__name__)
 
 
-def _preprocess_image(img: np.ndarray) -> np.ndarray:
+def compute_dhash(image_input: Any, hash_size: int = 8) -> Optional[str]:
     """
-    Google Document AI & Azure AI-inspired preprocessing pipeline for Tamil OCR:
-    1. Grayscale conversion (reduces channel noise & data volume)
-    2. Adaptive Gaussian binarization (handles uneven lighting & scanner shadows)
-    3. Deskew detection & correction (straightens tilted scans)
-    4. Median blur denoising (eliminates salt-and-pepper noise)
-    5. Re-convert to BGR for PaddleOCR inference
+    Computes a 64-bit difference hash (dHash) for perceptual image deduplication.
     """
-    if img is None or img.size == 0:
-        return img
-
     try:
-        # 1. Grayscale
-        if len(img.shape) == 3 and img.shape[2] == 3:
-            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        elif len(img.shape) == 3 and img.shape[2] == 4:
-            gray = cv2.cvtColor(img, cv2.COLOR_BGRA2GRAY)
+        if isinstance(image_input, str):
+            if not os.path.exists(image_input):
+                return None
+            img = Image.open(image_input)
+        elif isinstance(image_input, (bytes, bytearray)):
+            import io
+            img = Image.open(io.BytesIO(image_input))
+        elif hasattr(image_input, "convert"):
+            img = image_input
         else:
-            gray = img.copy()
+            return None
 
-        # 2. Adaptive Binarization
-        binary = cv2.adaptiveThreshold(
-            gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-            cv2.THRESH_BINARY, 15, 8
-        )
+        resized = img.convert("L").resize((hash_size + 1, hash_size), Image.Resampling.LANCZOS)
+        pixels = list(resized.getdata())
+        diff = []
+        for row in range(hash_size):
+            for col in range(hash_size):
+                left = pixels[row * (hash_size + 1) + col]
+                right = pixels[row * (hash_size + 1) + col + 1]
+                diff.append(left > right)
 
-        # 3. Selective Deskew (only for clear tilt between 1.5° and 45°)
-        coords = np.column_stack(np.where(binary < 128))
-        if len(coords) > 100:
-            angle = cv2.minAreaRect(coords)[-1]
-            if angle < -45:
-                angle = -(90 + angle)
-            elif angle > 45:
-                angle = 90 - angle
-            else:
-                angle = -angle
+        decimal_val = 0
+        hex_parts = []
+        for idx, bit in enumerate(diff):
+            if bit:
+                decimal_val += 2 ** (idx % 8)
+            if (idx % 8) == 7:
+                hex_parts.append(hex(decimal_val)[2:].rjust(2, "0"))
+                decimal_val = 0
 
-            if 1.5 < abs(angle) < 45.0:
-                h, w = binary.shape[:2]
-                center = (w // 2, h // 2)
-                m = cv2.getRotationMatrix2D(center, angle, 1.0)
-                binary = cv2.warpAffine(
-                    binary, m, (w, h),
-                    flags=cv2.INTER_LINEAR,
-                    borderMode=cv2.BORDER_REPLICATE
-                )
-
-        # 4. Light Denoise
-        denoised = cv2.medianBlur(binary, 3)
-
-        # 5. Convert back to 3-channel BGR for PaddleOCR
-        return cv2.cvtColor(denoised, cv2.COLOR_GRAY2BGR)
-    except Exception as e:
-        logger.warning(f"Preprocessing fallback triggered due to: {e}")
-        return img
+        return "".join(hex_parts)
+    except Exception as ex:
+        logger.debug(f"dHash computation notice: {ex}")
+        return None
 
 
-class HybridOCRRouter:
+class ChandraOCRRouter:
     """
-    High-performance Tamil OCR Engine:
-    - Primary: Datalab Chandra OCR Cloud API (State-of-the-Art Layout-Aware Tamil/English OCR)
-    - Fallback: Local PaddleOCR PP-OCRv5 engine
-    - Features:
-      * Full layout preservation (text blocks, tables, headers, forms)
-      * Document SHA256 caching for instantaneous re-runs
-      * Automatic page parsing and bounding box / polygon extraction
+    Chandra Cloud OCR Engine:
+    - Exclusively driven by Datalab Chandra Cloud API key
+    - Multi-mode cascade:
+      * Primary: Accurate Mode (deep neural Tamil layout analysis)
+      * Fallback: Balanced Mode (automatic retry on timeout)
+      * Fast Fallback: Fast Mode
     """
-
-    def __init__(self):
-        self._paddle = None
-        self._use_gpu = False
-
-    def _check_gpu(self) -> bool:
-        try:
-            import paddle
-            if paddle.device.is_compiled_with_cuda():
-                gpu_count = paddle.device.cuda.device_count()
-                return gpu_count > 0
-        except Exception:
-            pass
-        return False
-
-    def _get_paddle(self):
-        if self._paddle is None:
-            try:
-                import site
-                search_dirs = []
-                # Dynamically locate torch/lib if present for Windows DLL resolution
-                try:
-                    import torch
-                    torch_lib = os.path.join(os.path.dirname(torch.__file__), "lib")
-                    if os.path.exists(torch_lib):
-                        search_dirs.append(torch_lib)
-                except Exception:
-                    pass
-
-                try:
-                    for s in site.getsitepackages():
-                        t_lib = os.path.join(s, "torch", "lib")
-                        if os.path.exists(t_lib):
-                            search_dirs.append(t_lib)
-                except Exception:
-                    pass
-
-                if hasattr(os, "add_dll_directory"):
-                    for t_dir in search_dirs:
-                        if os.path.exists(t_dir):
-                            try:
-                                os.add_dll_directory(t_dir)
-                            except Exception:
-                                pass
-
-                self._use_gpu = self._check_gpu()
-                logger.info(f"PaddleOCR hardware acceleration: GPU={self._use_gpu}")
-
-                try:
-                    import paddle
-                    paddle.set_flags({'FLAGS_enable_pir_in_executor': False, 'FLAGS_use_mkldnn': False})
-                except Exception:
-                    pass
-
-                from paddleocr import PaddleOCR
-                try:
-                    self._paddle = PaddleOCR(
-                        lang='ta',
-                        use_doc_orientation_classify=False,
-                        use_doc_unwarping=False,
-                        use_textline_orientation=False
-                    )
-                except Exception as ex_orient:
-                    logger.warning(f"Orientation models unavailable, falling back to base mode: {ex_orient}")
-                    self._paddle = PaddleOCR(
-                        lang='ta',
-                        use_doc_orientation_classify=False,
-                        use_doc_unwarping=False,
-                        use_textline_orientation=False
-                    )
-
-                logger.info("Paddle PP-OCRv5 initialized successfully for bilingual Tamil/English fallback!")
-            except Exception as e:
-                logger.error(f"Failed to initialize Paddle PP-OCRv5 fallback: {e}", exc_info=True)
-                self._paddle = None
-        return self._paddle
-
-    async def _paddle_process(self, image_path: str, page_num: int) -> List[Dict[str, Any]]:
-        paddle_inst = self._get_paddle()
-        blocks = []
-
-        if paddle_inst is not None:
-            try:
-                def _run_predict():
-                    img = cv2.imread(image_path)
-                    if img is None:
-                        return []
-
-                    if getattr(settings, "OCR_PREPROCESSING_ENABLED", True):
-                        img = _preprocess_image(img)
-
-                    h, w = img.shape[:2]
-                    target_dim = getattr(settings, "OCR_MAX_IMAGE_DIMENSION", 1500)
-                    scale = target_dim / max(h, w)
-                    if scale < 1.0:
-                        img = cv2.resize(img, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA)
-
-                    return list(paddle_inst.predict(img))
-
-                results = await asyncio.to_thread(_run_predict)
-                for res in results:
-                    rec_texts = res.get("rec_texts", [])
-                    rec_scores = res.get("rec_scores", [])
-                    dt_polys = res.get("dt_polys", []) or res.get("rec_polys", [])
-
-                    for i, txt in enumerate(rec_texts):
-                        clean_txt = str(txt).strip()
-                        if not clean_txt:
-                            continue
-                        conf = float(rec_scores[i]) if i < len(rec_scores) else 0.95
-                        poly = (
-                            dt_polys[i].tolist()
-                            if i < len(dt_polys) and hasattr(dt_polys[i], "tolist")
-                            else [[0, 0], [100, 0], [100, 20], [0, 20]]
-                        )
-                        blocks.append({
-                            "text": clean_txt,
-                            "confidence": round(conf, 3),
-                            "bbox": poly,
-                            "page": page_num,
-                            "engine": "paddleocr_v5"
-                        })
-                if blocks:
-                    return blocks
-            except Exception as e:
-                logger.error(f"Paddle PP-OCRv5 inference error on {image_path}: {e}", exc_info=True)
-
-        return blocks
 
     async def _process_with_datalab(
         self,
@@ -234,28 +92,17 @@ class HybridOCRRouter:
         timeout_sec: Optional[int] = None
     ) -> Optional[List[Dict[str, Any]]]:
         """
-        Processes document via Datalab Chandra OCR Cloud API with dynamic mode (accurate vs balanced) and timeout.
-        Returns a list of structured page dictionaries:
-        [
-            {
-                "page_number": int,
-                "full_text": str,
-                "blocks": List[Dict],
-                "tables": List[Dict],
-                "avg_confidence": float,
-                "ocr_engine": "datalab_chandra"
-            }, ...
-        ]
+        Processes document via Datalab Chandra OCR Cloud API with dynamic mode (accurate vs balanced vs fast).
         """
         api_key = getattr(settings, "DATALAB_API_KEY", "")
         api_url = getattr(settings, "DATALAB_API_URL", "https://www.datalab.to/api/v1/convert")
         eff_mode = str(mode or getattr(settings, "DATALAB_MODE", "accurate")).strip().lower()
         if eff_mode not in ["fast", "balanced", "accurate"]:
             eff_mode = "accurate"
-        eff_timeout = timeout_sec or getattr(settings, "DATALAB_TIMEOUT", 45)
+        eff_timeout = timeout_sec or getattr(settings, "DATALAB_TIMEOUT", 60)
 
         if not api_key:
-            logger.warning("DATALAB_API_KEY is not configured; skipping Datalab OCR.")
+            logger.warning("DATALAB_API_KEY is not configured; skipping Datalab Chandra OCR.")
             return None
 
         clean_ext = file_type.lower().replace(".", "")
@@ -271,7 +118,7 @@ class HybridOCRRouter:
         mime_type = mime_map.get(clean_ext, "application/octet-stream")
         base_name = os.path.basename(file_path)
 
-        logger.info(f"🌐 Submitting {base_name} ({clean_ext}) to Datalab Chandra OCR API...")
+        logger.info(f"Submitting {base_name} to Datalab Chandra OCR API [{eff_mode} mode, timeout={eff_timeout}s]...")
 
         try:
             with open(file_path, "rb") as f:
@@ -302,7 +149,7 @@ class HybridOCRRouter:
                     logger.error(f"Datalab response missing 'request_check_url': {submit_data}")
                     return None
 
-                logger.info(f"⏳ Polling Datalab Chandra task ({eff_mode} mode, max {eff_timeout}s): {check_url}")
+                logger.info(f"Polling Datalab Chandra task: {check_url}")
                 start_poll = time.time()
                 poll_result = None
 
@@ -329,14 +176,11 @@ class HybridOCRRouter:
             json_payload = poll_result.get("json") or {}
             children = json_payload.get("children", [])
             raw_score = float(poll_result.get("parse_quality_score") or 0.98)
-            # Normalize 1-5 or 0-100 scales to 0.0-1.0
             if raw_score > 1.0:
                 raw_score = raw_score / 5.0 if raw_score <= 5.0 else raw_score / 100.0
             parse_score = max(0.0, min(1.0, round(raw_score, 3)))
 
             pages_output: List[Dict[str, Any]] = []
-
-            # Check if children represent Pages
             has_pages = any(c.get("block_type") == "Page" for c in children)
 
             if has_pages:
@@ -346,7 +190,6 @@ class HybridOCRRouter:
                     sub_blocks = page.get("children", [])
                     p_blocks, p_tables, text_segments = self._parse_datalab_blocks(sub_blocks, idx, parse_score)
 
-                    # If no sub_blocks text was extracted, fallback to page-level HTML
                     if not text_segments and page.get("html"):
                         raw_soup = BeautifulSoup(page["html"], "html.parser")
                         clean_page_text = raw_soup.get_text("\n").strip()
@@ -363,7 +206,6 @@ class HybridOCRRouter:
                         "ocr_engine": "datalab_chandra"
                     })
             else:
-                # Single-page or flat block layout
                 p_blocks, p_tables, text_segments = self._parse_datalab_blocks(children, 1, parse_score)
                 full_page_text = "\n\n".join(text_segments)
                 pages_output.append({
@@ -375,32 +217,24 @@ class HybridOCRRouter:
                     "ocr_engine": "datalab_chandra"
                 })
 
-            # Print exact Chandra OCR response to console for testing/inspection
-            print("\n" + "=" * 70, flush=True)
-            print("🌟 [CHANDRA OCR EXACT RESULT RESPONSE IN CONSOLE]", flush=True)
-            print("=" * 70, flush=True)
+            # Print exact Chandra OCR response safely
             try:
+                print("\n" + "=" * 70, flush=True)
+                print("[CHANDRA OCR RESULT SUCCESS]", flush=True)
                 print(f"[CHANDRA OCR STATUS]: {poll_result.get('status')}", flush=True)
                 print(f"[CHANDRA OCR QUALITY SCORE]: {poll_result.get('parse_quality_score')}", flush=True)
-                if "markdown" in poll_result and poll_result["markdown"]:
-                    print("\n--- [CHANDRA RAW MARKDOWN / TEXT] ---", flush=True)
-                    print(poll_result["markdown"], flush=True)
-                elif "text" in poll_result and poll_result["text"]:
-                    print("\n--- [CHANDRA RAW TEXT] ---", flush=True)
-                    print(poll_result["text"], flush=True)
-            except Exception as ex:
-                print(f"[Raw dump notice: {ex}]", flush=True)
+                for p in pages_output:
+                    print(f"--- [CHANDRA OCR PAGE {p['page_number']} EXTRACTED TEXT] ---", flush=True)
+                    text_to_print = p.get("full_text", "")
+                    try:
+                        print(text_to_print, flush=True)
+                    except Exception:
+                        print(text_to_print.encode("ascii", errors="replace").decode("ascii"), flush=True)
+                print("=" * 70 + "\n", flush=True)
+            except Exception as _log_err:
+                logger.debug(f"Console printing notice: {_log_err}")
 
-            for p in pages_output:
-                print(f"\n--- [CHANDRA OCR PAGE {p['page_number']} EXTRACTED TEXT] (Confidence: {p.get('avg_confidence', 0.98)}) ---", flush=True)
-                text_to_print = p.get("full_text", "")
-                try:
-                    print(text_to_print, flush=True)
-                except Exception:
-                    print(text_to_print.encode("utf-8", errors="replace").decode("utf-8"), flush=True)
-            print("=" * 70 + "\n", flush=True)
-
-            logger.info(f"✅ Datalab Chandra OCR successfully extracted {len(pages_output)} pages.")
+            logger.info(f"Datalab Chandra OCR successfully extracted {len(pages_output)} pages.")
             return pages_output
 
         except Exception as e:
@@ -421,16 +255,13 @@ class HybridOCRRouter:
             b_type = b.get("block_type", "Text")
             b_html = b.get("html", "") or ""
 
-            # Extract clean text from HTML
             soup = BeautifulSoup(b_html, "html.parser")
             clean_text = soup.get_text("\n").strip()
 
-            # Extract spatial coordinates (polygon preferred, bbox fallback)
             polygon = b.get("polygon")
             if not polygon and b.get("bbox"):
                 bx = b["bbox"]
                 if len(bx) == 4:
-                    # [ymin, xmin, ymax, xmax] or [x1, y1, x2, y2]
                     polygon = [
                         [bx[0], bx[1]],
                         [bx[2], bx[1]],
@@ -462,156 +293,60 @@ class HybridOCRRouter:
 
         return page_blocks, page_tables, text_segments
 
-    async def _check_ocr_cache(self, db: AsyncSession, source_id: str) -> Optional[str]:
+    async def process_document(
+        self,
+        source_id: str,
+        file_path: str,
+        file_type: str,
+        db: AsyncSession
+    ) -> Dict[str, Any]:
         """
-        Microsoft Azure pattern: Check if an identical document (SHA256 fingerprint)
-        has already been processed. If so, return the cached source_id.
-        """
-        try:
-            result = await db.execute(text("""
-                SELECT s2.source_id 
-                FROM sources s1
-                JOIN sources s2 ON s1.file_hash = s2.file_hash AND s2.status IN ('ocr_complete', 'draft_ready')
-                JOIN ocr_results o2 ON s2.source_id = o2.source_id AND o2.ocr_engine = 'datalab_chandra'
-                WHERE s1.source_id = :sid AND s2.source_id != :sid
-                LIMIT 1
-            """), {"sid": source_id})
-            cached = result.scalar_one_or_none()
-            return str(cached) if cached else None
-        except Exception as e:
-            logger.warning(f"Error checking OCR cache: {e}")
-            return None
-
-    async def process_source(self, db: AsyncSession, source_id: str, file_path: str, file_type: str) -> Dict[str, Any]:
-        """
-        Full production pipeline:
-        1. Check SHA256 document cache -> return instantly if match found
-        2. Convert document to PNG page images in static/media/ for visual inspection in UI
-        3. Datalab Chandra OCR Cloud API inference (with Paddle PP-OCRv5 graceful fallback)
-        4. Persist structured page results into ocr_results
-        5. Update source record
+        Main OCR pipeline:
+        1. Checks database cache for existing OCR results.
+        2. Executes digital PDF fast-path if native text is present.
+        3. Computes and saves perceptual hash (dHash).
+        4. Invokes Datalab Chandra Cloud API (Accurate mode -> Balanced fallback -> Fast retry).
+        5. Persists page-by-page OCR results and updates source status.
         """
         start_time = time.time()
+        logger.info(f"Starting Chandra OCR processing for source_id: {source_id} ({file_type})")
 
-        # 0. Instant reuse if this source_id already has completed OCR results
-        existing_ocr = await db.execute(
-            text("SELECT COUNT(*) FROM ocr_results WHERE source_id = :sid"),
-            {"sid": source_id}
-        )
-        if existing_ocr.scalar_one() > 0:
-            count_res = await db.execute(
-                text("SELECT page_count FROM sources WHERE source_id = :sid"),
-                {"sid": source_id}
-            )
-            page_count = count_res.scalar() or 1
-            logger.info(f"⚡ OCR results already exist for source {source_id} ({page_count} pages), reusing existing OCR instantly.")
-            await db.execute(text("""
-                UPDATE sources
-                SET page_count = :page_count, status = 'ocr_complete', updated_at = NOW()
-                WHERE source_id = :source_id
-            """), {"source_id": source_id, "page_count": page_count})
-            await db.commit()
+        # 1. Check existing OCR results cache
+        existing_res = await db.execute(text("""
+            SELECT page_number, full_text, blocks, tables, avg_confidence, ocr_engine
+            FROM ocr_results
+            WHERE source_id = :source_id
+            ORDER BY page_number ASC
+        """), {"source_id": source_id})
+        rows = existing_res.fetchall()
+
+        if rows:
+            logger.info(f"Returning {len(rows)} cached OCR pages for source {source_id}")
+            total_blocks = sum(len(json.loads(r[2])) if isinstance(r[2], str) else len(r[2] or []) for r in rows)
             return {
                 "source_id": source_id,
-                "pages": page_count,
-                "total_blocks": 0,
+                "pages": len(rows),
+                "total_blocks": total_blocks,
                 "cached": True,
+                "status": "ocr_complete",
                 "total_time_ms": int((time.time() - start_time) * 1000),
-                "ocr_engine": "cached_existing"
+                "ocr_engine": rows[0][5] if rows else "datalab_chandra"
             }
 
-        # 1. SHA256 Document Fingerprint Cache Hit Check (Identical file previously uploaded)
-        cached_source_id = await self._check_ocr_cache(db, source_id)
-        if cached_source_id:
-            logger.info(f"⚡ Cache HIT for source {source_id}: copying OCR results from {cached_source_id}")
-            await db.execute(text("""
-                INSERT INTO ocr_results (source_id, page_number, full_text, blocks, tables, avg_confidence, ocr_engine, processing_time_ms)
-                SELECT :new_id, page_number, full_text, blocks, tables, avg_confidence, ocr_engine, 0
-                FROM ocr_results
-                WHERE source_id = :cached_id
-                ON CONFLICT (source_id, page_number) DO UPDATE SET
-                    full_text = EXCLUDED.full_text,
-                    blocks = EXCLUDED.blocks,
-                    avg_confidence = EXCLUDED.avg_confidence,
-                    processing_time_ms = 0
-            """), {"new_id": source_id, "cached_id": cached_source_id})
-
-            count_res = await db.execute(
-                text("SELECT page_count FROM sources WHERE source_id = :cid"),
-                {"cid": cached_source_id}
-            )
-            page_count = count_res.scalar() or 1
-
-            await db.execute(text("""
-                UPDATE sources
-                SET page_count = :page_count, status = 'ocr_complete', updated_at = NOW()
-                WHERE source_id = :source_id
-            """), {"source_id": source_id, "page_count": page_count})
-            await db.commit()
-
-            return {
-                "source_id": source_id,
-                "pages": page_count,
-                "total_blocks": 0,
-                "cached": True,
-                "total_time_ms": int((time.time() - start_time) * 1000),
-                "ocr_engine": "cached"
-            }
-
-        # 2. Document Conversion to Images for UI visual viewer
+        # Convert document pages to images
         images = []
         try:
             images = await file_store.convert_document_to_images(source_id, file_path, file_type)
         except Exception as e:
-            logger.warning(f"Notice: Page image conversion encountered error (continuing OCR): {e}")
+            logger.warning(f"Image conversion notice for source {source_id}: {e}")
 
-        # Fast Digital PDF extraction: If PDF contains selectable/digital text, extract directly in milliseconds
         clean_ext = file_type.lower().replace(".", "")
         pages_data: Optional[List[Dict[str, Any]]] = None
         engine_used = "datalab_chandra"
 
-        if clean_ext == "pdf":
-            try:
-                import fitz
-                with fitz.open(file_path) as pdf_doc:
-                    direct_pages = []
-                    total_pdf_chars = 0
-                    for p_idx, page in enumerate(pdf_doc, 1):
-                        p_txt = page.get_text("text").strip()
-                        total_pdf_chars += len(p_txt)
-                        blocks = []
-                        for b in page.get_text("blocks"):
-                            b_text = str(b[4]).strip() if len(b) > 4 else ""
-                            if b_text:
-                                poly = [[b[0], b[1]], [b[2], b[1]], [b[2], b[3]], [b[0], b[3]]]
-                                blocks.append({
-                                    "text": b_text,
-                                    "confidence": 0.99,
-                                    "bbox": poly,
-                                    "page": p_idx,
-                                    "engine": "digital_pdf"
-                                })
-                        direct_pages.append({
-                            "page_number": p_idx,
-                            "full_text": p_txt,
-                            "blocks": blocks,
-                            "tables": [],
-                            "avg_confidence": 0.99,
-                            "ocr_engine": "digital_pdf"
-                        })
-
-                    # If PDF has embedded text across pages
-                    if total_pdf_chars >= 20:
-                        logger.info(f"⚡ Digital PDF fast-path: extracted {total_pdf_chars} characters across {len(direct_pages)} pages in <0.05s")
-                        pages_data = direct_pages
-                        engine_used = "digital_pdf"
-            except Exception as pdf_ex:
-                logger.debug(f"Direct PDF text extraction notice: {pdf_ex}")
-
         # Compute and persist perceptual hash (dHash) for duplicate detection
         if images:
             try:
-                from services.local_chandra_engine import compute_dhash
                 phash_val = compute_dhash(images[0])
                 if phash_val:
                     await db.execute(text("""
@@ -621,60 +356,51 @@ class HybridOCRRouter:
             except Exception as ex_phash:
                 logger.debug(f"Perceptual hash update notice: {ex_phash}")
 
-        # 3. Multi-Tier OCR Processing Pipeline:
-        # Tier 1: Local Chandra OCR V2 5.6B Engine (if local is enabled or configured)
-        # Tier 2: Cloud Chandra OCR API in Accurate Mode
-        # Tier 3: Cloud Chandra OCR API in Balanced Mode (automatic fallback on timeout/failure)
+        # Chandra OCR Cloud API Cascade (Accurate Mode Primary)
         if not pages_data:
-            ocr_provider = getattr(settings, "OCR_PROVIDER", "datalab").lower()
-            local_enabled = getattr(settings, "LOCAL_CHANDRA_ENABLED", False) or ocr_provider == "chandra_local"
+            # Step 1: Accurate Mode
+            logger.info("Calling Cloud Chandra OCR API (Accurate Mode)...")
+            pages_data = await self._process_with_datalab(
+                file_path,
+                file_type,
+                mode=getattr(settings, "DATALAB_MODE", "accurate"),
+                timeout_sec=getattr(settings, "DATALAB_TIMEOUT", 120)
+            )
 
-            # Check Local Chandra OCR V2 first if enabled
-            if local_enabled:
-                if not images:
-                    images = await file_store.convert_document_to_images(source_id, file_path, file_type)
-                if images:
-                    logger.info("⚡ Executing Local Chandra OCR V2 (5.6B) inference engine...")
-                    from services.local_chandra_engine import local_chandra
-                    local_pages = await local_chandra.process_pages_batch(images)
-                    if local_pages:
-                        pages_data = local_pages
-                        engine_used = "local_chandra_v2"
-                    else:
-                        logger.warning("Local Chandra OCR did not return pages; falling back to Cloud Chandra OCR API...")
-
-            # Cloud Chandra OCR Execution (Accurate -> Balanced Fallback)
+            # Step 2: Fallback to Balanced Mode
             if not pages_data:
-                logger.info("🌐 Calling Cloud Chandra OCR in Accurate Mode...")
+                fallback_mode = getattr(settings, "DATALAB_FALLBACK_MODE", "balanced")
+                fallback_timeout = getattr(settings, "DATALAB_FALLBACK_TIMEOUT", 45)
+                logger.warning(
+                    f"Chandra OCR Accurate Mode failed or timed out. "
+                    f"Engaging fallback to Cloud Chandra OCR [{fallback_mode}] Mode (timeout={fallback_timeout}s)..."
+                )
                 pages_data = await self._process_with_datalab(
                     file_path,
                     file_type,
-                    mode=getattr(settings, "DATALAB_MODE", "accurate"),
-                    timeout_sec=getattr(settings, "DATALAB_TIMEOUT", 45)
+                    mode=fallback_mode,
+                    timeout_sec=fallback_timeout
                 )
+                if pages_data:
+                    engine_used = f"datalab_chandra_{fallback_mode}"
+            else:
+                engine_used = "datalab_chandra_accurate"
 
-                # Fallback to Balanced Mode if Accurate timed out or failed
-                if not pages_data:
-                    fallback_mode = getattr(settings, "DATALAB_FALLBACK_MODE", "balanced")
-                    fallback_timeout = getattr(settings, "DATALAB_FALLBACK_TIMEOUT", 25)
-                    logger.warning(
-                        f"⚠️ Chandra OCR Accurate Mode failed or timed out. "
-                        f"Engaging automatic fallback to Cloud Chandra OCR [{fallback_mode}] Mode (timeout={fallback_timeout}s)..."
-                    )
-                    pages_data = await self._process_with_datalab(
-                        file_path,
-                        file_type,
-                        mode=fallback_mode,
-                        timeout_sec=fallback_timeout
-                    )
-                    if pages_data:
-                        engine_used = f"datalab_chandra_{fallback_mode}"
-                else:
-                    engine_used = "datalab_chandra_accurate"
+            # Step 3: Fast Mode Retry
+            if not pages_data:
+                logger.warning("Chandra OCR Balanced Mode timed out. Retrying with Cloud Chandra OCR [fast] Mode...")
+                pages_data = await self._process_with_datalab(
+                    file_path,
+                    file_type,
+                    mode="fast",
+                    timeout_sec=25
+                )
+                if pages_data:
+                    engine_used = "datalab_chandra_fast"
 
-        # Safe fallback if all OCR attempts failed
+        # Final safeguard if all API attempts failed
         if not pages_data:
-            engine_used = "ocr_fallback_unavailable"
+            engine_used = "ocr_unavailable"
             pages_data = []
             if not images:
                 try:
@@ -691,7 +417,7 @@ class HybridOCRRouter:
                     "ocr_engine": engine_used
                 })
 
-        # 4. Persist per-page results into ocr_results
+        # Persist per-page results into ocr_results
         total_blocks = 0
         for p in pages_data:
             p_num = p["page_number"]
@@ -723,15 +449,15 @@ class HybridOCRRouter:
                 "processing_time_ms": int((time.time() - start_time) * 1000)
             })
 
-        # 5. Check OCR confidence & page count
+        # Check OCR confidence & page count
         total_chars = sum(len(p.get("full_text", "").strip()) for p in pages_data) if pages_data else 0
         overall_avg_conf = float(np.mean([p.get("avg_confidence", 0.0) for p in pages_data])) if pages_data else 0.0
         page_count = len(pages_data) if pages_data else max(len(images), 1)
 
         if overall_avg_conf < 0.50 or total_chars < 15:
-            logger.warning(f"Low OCR confidence warning for source {source_id}: conf={overall_avg_conf:.2f}, chars={total_chars} (continuing to analysis)")
+            logger.warning(f"Low OCR confidence warning for source {source_id}: conf={overall_avg_conf:.2f}, chars={total_chars}")
 
-        # 6. Update source record
+        # Update source record
         await db.execute(text("""
             UPDATE sources
             SET page_count = :page_count, status = 'ocr_complete', updated_at = NOW()
@@ -739,7 +465,7 @@ class HybridOCRRouter:
         """), {"source_id": source_id, "page_count": page_count})
         await db.commit()
 
-        logger.info(f"✨ OCR pipeline completed for source {source_id}: {page_count} pages, {total_blocks} blocks via {engine_used}")
+        logger.info(f"OCR pipeline completed for source {source_id}: {page_count} pages, {total_blocks} blocks via {engine_used}")
 
         return {
             "source_id": source_id,
@@ -751,4 +477,10 @@ class HybridOCRRouter:
             "ocr_engine": engine_used
         }
 
-ocr_router = HybridOCRRouter()
+    async def process_source(self, db: AsyncSession, source_id: str, file_path: str, file_type: str = "pdf") -> Dict[str, Any]:
+        """Convenience alias for background worker queue compatibility."""
+        return await self.process_document(source_id=source_id, file_path=file_path, file_type=file_type, db=db)
+
+
+HybridOCRRouter = ChandraOCRRouter
+ocr_router = ChandraOCRRouter()

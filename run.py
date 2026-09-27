@@ -89,9 +89,15 @@ def run_doctor():
     print(f"  • Backend Port (8000): {'⚠️ Already in use' if b_port_busy else '✓ Available'}")
     print(f"  • Frontend Port(5174): {'⚠️ Already in use' if f_port_busy else '✓ Available'}")
     
-    # Source PDF for Seeding
+    # Master Hierarchy and Taxonomy Source Data
+    hierarchy_source = BACKEND_DIR / "data" / "erode_administrative_hierarchy.json"
     pdf_source = BACKEND_DIR / "data" / "government_taxonomy.pdf"
-    print(f"  • Government Taxonomy: {'✓ Found (' + str(round(pdf_source.stat().st_size / 1024, 1)) + ' KB)' if pdf_source.exists() else '❌ Missing in backend/data/'}")
+    if hierarchy_source.exists():
+        print(f"  • Hierarchy Data:      ✓ Found ({round(hierarchy_source.stat().st_size / 1024, 1)} KB)")
+    elif pdf_source.exists():
+        print(f"  • Government Taxonomy: ✓ Found ({round(pdf_source.stat().st_size / 1024, 1)} KB)")
+    else:
+        print("  • Hierarchy Data:      ⚠️ Default seed rules will be used")
     
     print("=" * 70)
 

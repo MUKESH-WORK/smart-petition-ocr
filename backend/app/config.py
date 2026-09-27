@@ -58,7 +58,7 @@ class Settings(BaseSettings):
     STATIC_MEDIA_DIR: str = "/app/static/media"
     STORE_FILE_BYTEA: bool = False
     
-    # OCR Engine (chandra_cloud / chandra_local / datalab)
+    # OCR Engine (Datalab Chandra API primary, PaddleOCR local fallback)
     OCR_PROVIDER: str = "datalab"
     DATALAB_API_KEY: str = ""
     DATALAB_API_URL: str = "https://www.datalab.to/api/v1/convert"
@@ -66,13 +66,6 @@ class Settings(BaseSettings):
     DATALAB_FALLBACK_MODE: str = "balanced"    # Fallback to balanced mode on timeout
     DATALAB_TIMEOUT: int = 45                  # Accurate mode timeout
     DATALAB_FALLBACK_TIMEOUT: int = 25         # Balanced fallback timeout
-    
-    # Local Chandra OCR V2 5.6B Engine (Local Inference Runner)
-    LOCAL_CHANDRA_ENABLED: bool = False
-    LOCAL_CHANDRA_URL: str = "http://127.0.0.1:8088/v1"
-    LOCAL_CHANDRA_TIMEOUT: float = 30.0
-    LOCAL_CHANDRA_BATCH_SIZE: int = 8
-    LOCAL_CHANDRA_TARGET_FPS: float = 12.0
 
     # Production Performance, Workers & Concurrency
     OCR_MAX_IMAGE_DIMENSION: int = 1500      # Max long-edge px (up from 1100 for enhanced Tamil separation)

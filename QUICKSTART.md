@@ -1,185 +1,204 @@
-# 🚀 GDP Assistant — Quickstart & Installation Guide
+# 🚀 GDP Assistant — Quickstart & Developer Guide
 
-> Whether you are an **evaluator/tester** looking to test Tamil petition OCR in 60 seconds, or a **software developer** building new AI features, this guide will get you up and running effortlessly.
+> This guide provides step-by-step instructions for getting the platform up and running on any machine, whether you prefer 1-click launchers, manual terminal setup, or Docker containers.
 
 ---
 
-## 🎯 Option A: For Testers & Evaluators (1-Click Launch)
+## 📋 Table of Contents
+1. [🌟 Fresh Server Deployment (1-Command Bootstrap)](#-fresh-server-deployment-1-command-bootstrap)
+2. [Prerequisites](#-prerequisites)
+3. [Option A: 1-Click Automated Launch (Local Native)](#-option-a-1-click-automated-launch-local-native)
+4. [Option B: Manual Step-by-Step Developer Setup](#-option-b-manual-step-by-step-developer-setup)
+5. [Option C: Docker Compose Deployment](#-option-c-docker-compose-deployment)
+6. [API Keys & LLM Configuration](#-api-keys--llm-configuration)
+7. [Pre-Configured Officer Test Accounts](#-pre-configured-officer-test-accounts)
+8. [Database Management & CLI Tools](#-database-management--cli-tools)
+9. [Troubleshooting & Diagnostics](#-troubleshooting--diagnostics)
 
-You do **not** need Docker, PostgreSQL, or cloud API keys to run and evaluate GDP Assistant. The platform runs in offline-capable embedded mode.
+---
+
+## 🌟 Fresh Server Deployment (1-Command Bootstrap)
+
+> **For fresh Windows servers with only Git and Docker Desktop installed.**
+
+If Ollama is not installed and the AI model is not downloaded on the server, run the automated bootstrap script:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\setup_host.ps1
+```
+
+### What this script automates:
+1. **Checks Docker & Docker Engine**: Verifies Docker daemon responsiveness.
+2. **Detects & Installs Ollama**: Automatically installs Ollama via `winget` if missing on the host.
+3. **Starts Host Ollama Server**: Starts the `ollama serve` background daemon and verifies `http://127.0.0.1:11434`.
+4. **Downloads Required AI Model**: Pulls `qwen2.5:3b-instruct` automatically if not already present.
+5. **Constructs Environment (`.env`)**: Generates `.env` from `.env.example` if missing without overwriting existing configs.
+6. **Builds & Launches Containers**: Executes `docker compose up -d --build`.
+7. **Monitors Health & Verifies Process Tree**: Waits for `http://localhost/health` and verifies Supervisor sub-processes (Nginx, FastAPI, Redis, Worker).
+
+Once finished, open your browser at **`http://localhost`**.
+
+---
+
+## 🛠️ Prerequisites
+
+Ensure you have installed:
+- **Python 3.11+** ([python.org](https://www.python.org/downloads/))
+- **Node.js 18+ & npm 9+** ([nodejs.org](https://nodejs.org/))
+- **Git** ([git-scm.com](https://git-scm.com/))
+- *(Optional for AI)* **Ollama** ([ollama.com](https://ollama.com/))
+- *(Optional for Enterprise DB)* **Docker Desktop** ([docker.com](https://www.docker.com/products/docker-desktop/))
+
+---
+
+## ⚡ Option A: 1-Click Automated Launch (Fastest)
 
 ### Windows (1-Click)
 1. **First-Time Setup**:
-   - Double-click **`setup.bat`** (or run `.\setup.bat` in PowerShell/CMD).
-   - *This automatically creates the virtual environment, installs Python/Node dependencies, and seeds the authoritative government database.*
+   - Double-click **`setup.bat`**.
+   - *Automatically creates the `.venv`, installs all Python and Node dependencies, and seeds the government database.*
 2. **Launch Application**:
    - Double-click **`run_all.bat`**.
-   - *This launches the backend and frontend servers, and automatically opens your browser to `http://localhost:5174`.*
+   - *Starts both backend and frontend servers, and opens `http://localhost:5174` in your browser.*
 
 ### Linux / macOS (1-Click)
 ```bash
-# 1. First-time setup
 chmod +x setup.sh run_all.sh
 ./setup.sh
-
-# 2. Launch application
 ./run_all.sh
 ```
 
 ---
 
-## 💻 Option B: For Developers
+## 💻 Option B: Manual Step-by-Step Developer Setup
 
-### 1. Environment Doctor (Pre-Flight Diagnostics)
-Check your environment readiness at any time:
-```bash
-python run.py --doctor
-```
-*Outputs a clear health check for Python 3.11+, Node.js, npm, database files, port availability, and taxonomy assets.*
-
----
-
-### 2. Manual Developer Setup
-
-#### Step 1: Clone Repository
+### Step 1: Clone Repository
 ```bash
 git clone https://github.com/MUKESH-WORK/smart-petition-ocr.git
 cd smart-petition-ocr
 ```
 
-#### Step 2: Automated Dependency & Database Setup
+### Step 2: Configure Environment
 ```bash
-python run.py --setup
-```
-*(Or activate manually from the root: `activate.bat` on Windows or `source backend/.venv/bin/activate` on Linux).*
-
-#### Step 3: Environment Configuration
-```bash
-# Copy the template and customize
-cp .env.example .env    # Linux / macOS
-Copy-Item .env.example .env    # Windows PowerShell
+# Copy template to active .env
+cp .env.example .env             # Linux/macOS
+Copy-Item .env.example .env      # Windows PowerShell
 ```
 
-**Minimum required changes:**
-- Set a secure `SECRET_KEY` for JWT authentication
-- *(Optional)* Add `DATALAB_API_KEY` for cloud-powered OCR, or leave blank for local PaddleOCR
+### Step 3: Setup Ollama LLM (Local Offline AI)
+1. Install Ollama from [ollama.com](https://ollama.com).
+2. Pull the required models:
+   ```bash
+   ollama run qwen2.5:3b-instruct
+   ollama pull nomic-embed-text:latest
+   ```
 
-#### Step 4: Run in Development Mode (Hot-Reloading)
+### Step 4: Choose Database
+- **SQLite (Zero setup)**: Set `USE_SQLITE=true` in `.env`.
+- **PostgreSQL 16 + pgvector (Docker)**:
+  ```bash
+  docker compose up -d postgres
+  ```
+
+### Step 5: Backend Setup & Run (Terminal 1)
 ```bash
-# Terminal 1: Backend (FastAPI with Uvicorn Reload)
-python run.py --reload --backend-only
+cd backend
 
-# Terminal 2: Frontend (Vite Dev Server)
+# 1. Create and activate virtual environment
+py -3.11 -m venv .venv           # Windows
+source .venv/bin/activate        # Linux/macOS (.venv\Scripts\activate on Windows)
+
+# 2. Install dependencies
+pip install --upgrade pip
+pip install -r requirements.txt
+
+# 3. Seed database from official government taxonomy
+python scripts/manage_db.py seed-fresh
+
+# 4. Start backend server
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+### Step 6: Frontend Setup & Run (Terminal 2)
+```bash
 cd frontend
+npm install
 npm run dev
 ```
 
+Open [`http://localhost:5173`](http://localhost:5173) or [`http://localhost:5174`](http://localhost:5174) in your browser.
+
 ---
 
-## 🐳 Option C: Docker Compose (Containerized)
+## 🐳 Option C: Docker Compose Deployment
 
 ```bash
-# Copy environment template
+# 1. Copy environment template
 cp .env.example .env
 
-# Launch all services (PostgreSQL + Backend + Frontend)
+# 2. Launch all services
 docker compose up -d
 
-# Verify services are running
+# 3. View service status
 docker compose ps
 ```
 
-| Service | Container | Port | Description |
-| :--- | :--- | :---: | :--- |
-| PostgreSQL 16 + pgvector | `gdp_postgres` | 5432 | Database with vector search |
-| FastAPI Backend | `gdp_backend` | 8000 | API server |
-| React Frontend (Nginx) | `gdp_frontend` | 5174 | Admin portal |
+---
+
+## 🔑 API Keys & LLM Configuration
+
+### Datalab Chandra OCR API Key (`DATALAB_API_KEY`)
+- **Purpose**: Provides deep neural OCR specifically tuned for handwritten Tamil petitions.
+- **How to Obtain**: Register for free at [https://www.datalab.to](https://www.datalab.to) and copy your API key into `.env`:
+  ```env
+  OCR_PROVIDER=datalab
+  DATALAB_API_KEY=your_key_here
+  ```
+- **Fallback**: If left empty, GDP Assistant automatically uses the bundled offline **PaddleOCR** engine with zero cloud dependency.
 
 ---
 
-## 🔑 Pre-Configured Test Accounts
+## 👥 Pre-Configured Officer Test Accounts
 
-The local database is pre-seeded with authoritative officer roles for testing:
-
-| Officer Name | Officer ID | Role | Default Jurisdiction |
+| Officer Name | Officer ID | Role | Permissions |
 | :--- | :--- | :--- | :--- |
-| **District Collector** | `ADM-ERODE-001` | **District Administrator** | Erode District Collectorate |
-| **District Revenue Officer (DRO)** | `DRO-ERODE-001` | **District Administrator** | Revenue Administration |
-| **Sub-Collector / RDO** | `RDO-ERODE-001` | **Department User** | Erode Revenue Division |
-| **Tahsildar (Erode)** | `TAH-ERD-001` | **Field Officer** | Erode Taluk Desk |
-| **Tahsildar (Bhavani)** | `TAH-BHV-001` | **Field Officer** | Bhavani Taluk Desk |
-
-> **Note**: Only users with the **District Administrator** role have access to edit officer profiles and manage taxonomy/hierarchy data. Department Users and Field Officers have read-only access to these modules.
+| **District Collector** | `ADM-ERODE-001` | **District Administrator** | Full Admin, Profile Editing, Taxonomy & Hierarchy Management |
+| **District Revenue Officer (DRO)** | `DRO-ERODE-001` | **District Administrator** | Full Admin, Profile Editing, Petition Approval & Dispatch |
+| **Sub-Collector / RDO** | `RDO-ERODE-001` | **Department User** | Petition Review, Verification, View-Only System Data |
+| **Tahsildar (Erode)** | `TAH-ERD-001` | **Field Officer** | Petition Review, Field Verification |
+| **Tahsildar (Bhavani)** | `TAH-BHV-001` | **Field Officer** | Petition Review, Field Verification |
 
 ---
 
-## 🗄️ Database Management Quick Reference
-
-Use the root CLI utility `python scripts/manage_db.py` to inspect, export, import, or migrate data:
+## 🗄️ Database Management & CLI Tools
 
 ```bash
-# View active database counts and table statistics
+# View active database statistics
 python scripts/manage_db.py stats
 
-# Export database bundle (to send to another developer or machine)
+# Export compressed bundle
 python scripts/manage_db.py export --output gdp_database_bundle.tar.gz
 
-# Import a database bundle onto a new system
+# Import compressed bundle on another system
 python scripts/manage_db.py import --input gdp_database_bundle.tar.gz
 
-# Re-seed fresh from source government PDF (zero external files required)
+# Seed fresh from source government PDF
 python scripts/manage_db.py seed-fresh
 
-# Migrate local SQLite data into enterprise PostgreSQL + pgvector
-python scripts/manage_db.py sync-to-postgres --postgres-url "postgresql+asyncpg://user:pass@host:5432/gdp_db"
+# Migrate SQLite database into PostgreSQL + pgvector
+python scripts/manage_db.py sync-to-postgres --postgres-url "postgresql+asyncpg://dro_user:dro_password_2026@localhost:5432/dro_grievance_db"
 ```
 
 ---
 
-## 🧪 Running Automated Tests
+## 🩺 Troubleshooting & Diagnostics
 
-### Backend Tests
-Verify backend pipeline integrity and OCR fallback logic:
+Run the system doctor anytime to diagnose setup issues:
 ```bash
-python run.py --test
-# Or run directly:
-cd backend && pytest tests/ -v
+python run.py --doctor
 ```
 
-### Frontend Validation
-```bash
-cd frontend
-npm run build    # Verify production build
-npm run lint     # Run OxLint static analysis
-```
-
-### Admin Model Unit Tests
-```bash
-cd frontend
-node --test src/components/admin/adminModel.test.js
-```
-
----
-
-## 🌐 Key Application URLs
-
-Once running:
-- **Civil Desk Workspace**: [`http://localhost:5174`](http://localhost:5174)
-- **FastAPI OpenAPI Interactive Docs**: [`http://127.0.0.1:8000/api/v1/docs`](http://127.0.0.1:8000/api/v1/docs)
-- **Database & Health Telemetry**: [`http://127.0.0.1:8000/api/v1/health`](http://127.0.0.1:8000/api/v1/health)
-- **Translation API**: [`http://127.0.0.1:8000/api/v1/translate`](http://127.0.0.1:8000/api/v1/translate)
-- **Mobile QR Capture Bridge**: Built into the frontend header for scanning physical petitions with any mobile device camera.
-
----
-
-## ❓ Troubleshooting
-
-| Symptom | Cause | Fix |
-| :--- | :--- | :--- |
-| `ModuleNotFoundError` on backend start | Virtual environment not activated | Run `activate.bat` (Windows) or `source backend/.venv/bin/activate` (Linux) |
-| Port 8000 already in use | Another process using the port | Kill the process: `netstat -ano \| findstr 8000` then `taskkill /F /PID <pid>` |
-| Port 5174 already in use | Another Vite dev server running | Close the other server or change port in `vite.config.js` |
-| Tamil text misaligned | Missing Tamil fonts | Install `Noto Sans Tamil` from Google Fonts |
-| OCR returns empty text | No API key and PaddleOCR not installed | Set `DATALAB_API_KEY` in `.env` or install PaddleOCR: `pip install paddleocr paddlepaddle` |
-| Database not found | Fresh clone without seeding | Run `python scripts/manage_db.py seed-fresh` |
-| Docker build fails | Missing Dockerfile | Ensure you're running from the repository root with `docker compose up` |
+- **Missing `sentence_transformers`**: Run `pip install -r backend/requirements.txt` inside your virtual environment.
+- **Port 8000/5174 busy**: Terminate any dangling processes or modify ports in `run.py`.
+- **Ollama offline**: Ensure `ollama serve` is running or start the Ollama desktop client.
+- **Docker PostgreSQL offline**: Check Docker Desktop is running, then run `docker compose up -d postgres`.

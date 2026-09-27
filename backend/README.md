@@ -1,102 +1,84 @@
-# GDP Assistant — Backend
+# 🏛️ GDP Assistant — Backend API & Processing Engine
 
-> FastAPI async backend for the AI-powered grievance redressal platform.
+> High-performance FastAPI asynchronous backend powering deep Tamil optical character recognition (OCR), entity extraction, CM Helpline taxonomy classification, and dynamic bilingual translation.
 
-## Tech Stack
+---
 
-| Technology | Version | Purpose |
+## 🛠️ Tech Stack & Dependencies
+
+| Category | Technology | Purpose |
 | :--- | :--- | :--- |
-| **FastAPI** | 0.111+ | Async API framework |
-| **Uvicorn** | 0.30+ | ASGI server |
-| **SQLAlchemy** | 2.0+ | ORM (async support) |
-| **PostgreSQL 16** | — | Enterprise database with pgvector |
-| **SQLite** | — | Offline embedded database |
-| **SentenceTransformers** | 2.7+ | Multilingual vector embeddings |
-| **PaddleOCR** | 2.7+ | Local offline Tamil OCR |
-| **Ollama / Qwen** | — | Local LLM inference |
-| **Alembic** | 1.13+ | Database migrations |
-| **PyJWT** | 2.8+ | JWT authentication |
+| **Framework** | FastAPI 0.141+ | High-throughput asynchronous ASGI web framework |
+| **ASGI Server** | Uvicorn 0.53+ | Production ASGI server with uvloop / watchfiles |
+| **ORM & Database** | SQLAlchemy 2.0+ & AsyncPG | Dual-engine support for PostgreSQL 16 + pgvector and SQLite |
+| **OCR Engines** | Datalab Chandra API & PaddleOCR 3.7+ | Cloud neural handwriting OCR with local offline CPU fallback |
+| **NLP & Vectors** | SentenceTransformers 6.1+ | 384-dimensional multilingual embeddings (`paraphrase-multilingual-MiniLM-L12-v2`) |
+| **LLM Inference** | Ollama / Qwen 2.5 3B | Local offline summarization, verification, and dynamic translation |
+| **Security & Auth** | PyJWT 2.14+ & Cryptography | Role-based access control and JWT officer sessions |
+| **Document Processing** | PyMuPDF, PyPDFium2, Pillow, OpenCV | High-speed PDF rasterization and adaptive image binarization |
 
-## Quick Start
+---
 
+## 🚀 Manual Step-by-Step Backend Setup
+
+### 1. Create Virtual Environment
 ```bash
-# 1. Create virtual environment
-python -m venv .venv
-# Windows: .venv\Scripts\activate | Linux: source .venv/bin/activate
+# Windows
+py -3.11 -m venv .venv
+.venv\Scripts\activate
 
-# 2. Install dependencies
+# Linux / macOS
+python3.11 -m venv .venv
+source .venv/bin/activate
+```
+
+### 2. Install Dependencies
+```bash
+pip install --upgrade pip
 pip install -r requirements.txt
+```
 
-# 3. Initialize database (if fresh clone)
+### 3. Environment Configuration
+Copy `.env.example` from the root or backend directory:
+```bash
+cp .env.example .env
+```
+
+Configure key variables:
+- `DATALAB_API_KEY`: Obtain from [https://www.datalab.to](https://www.datalab.to) for deep Tamil handwriting OCR (or leave empty for offline PaddleOCR fallback).
+- `SECRET_KEY`: 32+ character JWT signing key.
+- `USE_SQLITE`: Set to `true` for offline embedded SQLite, or `false` for PostgreSQL 16 + pgvector.
+
+### 4. Seed Database
+Construct the complete government taxonomy and administrative hierarchy from the included PDF:
+```bash
 python scripts/manage_db.py seed-fresh
-
-# 4. Start development server
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-## Project Structure
-
-```
-backend/
-├── app/
-│   ├── main.py              # FastAPI application entry point
-│   ├── config.py            # Pydantic settings & environment loader
-│   ├── dependencies.py      # Dependency injection & auth guards
-│   ├── api/v1/              # Versioned API route modules
-│   │   └── translate.py     # Dynamic translation API
-│   └── routers/             # Router modules
-│       └── translate.py     # LLM-powered translation engine
-├── core/
-│   ├── llm_client.py        # LLM client (Ollama/Gemini)
-│   └── security_config.py   # Security configuration
-├── models/                  # SQLAlchemy ORM models
-├── services/
-│   ├── cm_grievance_rag.py  # CM Helpline RAG engine
-│   ├── local_chandra_engine.py  # Local OCR engine
-│   └── semantic_cache.py    # LLM response deduplication
-├── scripts/                 # Data ingestion & DB management
-├── tests/                   # pytest test suites
-├── alembic/                 # Database migrations
-├── Dockerfile               # Production container image
-└── requirements.txt         # Python dependencies
+### 5. Launch Backend Server
+```bash
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-## API Endpoints
+---
 
-| Method | Endpoint | Description |
+## 📡 API Endpoints Reference
+
+| Method | Route | Description |
 | :--- | :--- | :--- |
-| `GET` | `/api/v1/health` | Database & service health telemetry |
-| `POST` | `/api/v1/translate` | Dynamic LLM-powered translation |
-| `POST` | `/api/v1/grievances/upload` | Petition image upload & OCR |
-| `GET` | `/api/v1/admin/taxonomy/stats` | Taxonomy statistics |
-| `GET` | `/api/v1/admin/hierarchy/stats` | Administrative hierarchy stats |
-| `GET` | `/api/v1/docs` | Interactive OpenAPI documentation |
+| `GET` | `/` | API status and greeting |
+| `GET` | `/api/v1/health` | Live database telemetry and service diagnostics |
+| `POST` | `/api/v1/translate` | Dynamic LLM-powered English ↔ Tamil translation |
+| `POST` | `/api/v1/grievances/upload` | Multi-page petition upload, OCR, and classification |
+| `GET` | `/api/v1/admin/taxonomy/stats` | CM Helpline taxonomy metrics across 40 departments |
+| `GET` | `/api/v1/admin/hierarchy/stats` | Administrative hierarchy unit statistics |
+| `GET` | `/api/v1/docs` | Interactive Swagger API documentation |
 
-## Testing
+---
+
+## 🧪 Testing
 
 ```bash
-# Run all tests
+# Run full pytest suite
 pytest tests/ -v
-
-# Run specific test file
-pytest tests/test_production_edge_cases.py -v
 ```
-
-## Docker
-
-```bash
-# Build image
-docker build -t gdp-backend -f Dockerfile ..
-
-# Run container
-docker run -p 8000:8000 --env-file ../.env gdp-backend
-```
-
-## Environment Variables
-
-See the comprehensive [`.env.example`](.env.example) for all available configuration options including:
-- Database connections (PostgreSQL / SQLite)
-- LLM engine settings (Ollama, model selection)
-- OCR provider configuration (Datalab, PaddleOCR, Local Chandra)
-- Performance tuning (workers, pool sizes, timeouts)
-- Semantic cache and deduplication settings

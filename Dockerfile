@@ -29,11 +29,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     HF_HOME=/app/model_cache \
     SENTENCE_TRANSFORMERS_HOME=/app/model_cache \
     PIP_NO_CACHE_DIR=1 \
-    PYTHONPATH=/app/backend:/app
+    PYTHONPATH=/app
 
 WORKDIR /app
 
-# Install OS packages (Nginx, Supervisor, Redis, PDF & CV libraries)
+# Install OS packages (Nginx, Supervisor, Redis, PDF & Computer Vision C-libraries)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     curl \
@@ -66,7 +66,7 @@ RUN rm -f /etc/nginx/sites-enabled/default /etc/nginx/sites-available/default
 COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
 COPY docker/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 
-# 5. Copy backend source code
+# 5. Copy backend source code (single clean copy matching runtime imports)
 COPY backend /app
 
 EXPOSE 80

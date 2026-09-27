@@ -122,7 +122,6 @@ export default function LoginPage({ onLogin }) {
     <main className="login-page">
       <aside className="login-identity" aria-label="Government of Tamil Nadu">
         <header className="login-brand">
-          <img src="/tn-emblem.png" alt="Government of Tamil Nadu" className="login-brand-emblem" />
           <div className="login-brand-text">
             <h2>Erode Collectorate</h2>
             <p>AI Administrative Co-Pilot</p>

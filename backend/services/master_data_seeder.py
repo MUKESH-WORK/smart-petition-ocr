@@ -401,7 +401,7 @@ async def seed_authoritative_hierarchy(db=None):
             batch_texts = [r["search_text"] for r in batch]
             embs = await vector_store.aencode(batch_texts)
             for rec, emb in zip(batch, embs):
-                emb_val = json.dumps(emb) if is_admin_sqlite else emb
+                emb_val = json.dumps(emb if isinstance(emb, list) else (emb.tolist() if hasattr(emb, "tolist") else emb))
                 await db.execute(text("""
                     INSERT INTO master_locations (
                         district_code, district_name_tamil, district_name_en,
@@ -425,7 +425,10 @@ async def seed_authoritative_hierarchy(db=None):
         logger.info(f"Successfully seeded {len(records)} authoritative hierarchy records (Zones, Taluks, Firkas, Munis, Wards, Villages) into Admin DB.")
     except Exception as e:
         logger.error(f"Error seeding authoritative hierarchy: {e}")
-        await db.rollback()
+        try:
+            await db.rollback()
+        except Exception:
+            pass
     finally:
         if own_session:
             await db.close()
@@ -496,6 +499,12 @@ async def seed_intake_channels(db=None):
             logger.info(f"Seeded {inserted} official CM Grievance Ingestion Channels into cm_grievance_channels.")
         else:
             logger.info("All 21 CM Grievance Ingestion Channels already present in DB.")
+    except Exception as e:
+        logger.warning(f"Intake channels seeding notice: {e}")
+        try:
+            await db.rollback()
+        except Exception:
+            pass
     finally:
         if own_session:
             await db.close()
@@ -648,7 +657,7 @@ async def seed_master_data_if_needed():
                 await db.execute(text("DELETE FROM master_locations WHERE embedding IS NULL"))
 
                 for rec, emb in zip(records, all_embs):
-                    emb_val = json.dumps(emb) if is_admin_sqlite else emb
+                    emb_val = json.dumps(emb if isinstance(emb, list) else (emb.tolist() if hasattr(emb, "tolist") else emb))
                     await db.execute(text("""
                         INSERT INTO master_locations (
                             district_code, district_name_tamil, district_name_en,
@@ -675,7 +684,10 @@ async def seed_master_data_if_needed():
                 logger.info(f"Successfully seeded {len(records)} Master Locations with vectors.")
             except Exception as e:
                 logger.error(f"Error seeding master locations: {e}")
-                await db.rollback()
+                try:
+                    await db.rollback()
+                except Exception:
+                    pass
 
         # 2. Seed CM Helpline Taxonomy Mappings (Authoritative Government PDF)
         tax_count = await db.execute(text("SELECT COUNT(*) FROM cm_taxonomy_mappings"))
@@ -741,7 +753,7 @@ async def seed_master_data_if_needed():
                             batch_texts = [r["search_text"] for r in batch]
                             embs = await vector_store.aencode(batch_texts)
                             for rec, emb in zip(batch, embs):
-                                emb_val = json.dumps(emb) if is_admin_sqlite else emb
+                                emb_val = json.dumps(emb if isinstance(emb, list) else (emb.tolist() if hasattr(emb, "tolist") else emb))
                                 await db.execute(text("""
                                     INSERT INTO cm_taxonomy_mappings (
                                         department, department_code, sub_department,
@@ -757,7 +769,10 @@ async def seed_master_data_if_needed():
                         logger.info(f"Successfully seeded {len(all_rows)} Authoritative Taxonomy Mappings with vectors.")
                 except Exception as e:
                     logger.error(f"Error seeding authoritative taxonomy mappings from PDF: {e}")
-                    await db.rollback()
+                    try:
+                        await db.rollback()
+                    except Exception:
+                        pass
 
 def _hash_default_password(raw: str) -> str:
     salt = "DRO_SECURE_SALT_2026"
@@ -950,6 +965,10 @@ async def seed_official_accounts(db=None):
         logger.info("Seeded 1 Administrator and 9 Users in Admin DB.")
     except Exception as e:
         logger.debug(f"Admin users seed notice: {e}")
+        try:
+            await db.rollback()
+        except Exception:
+            pass
     finally:
         if own_session:
             await db.close()
