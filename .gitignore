@@ -30,6 +30,7 @@
 # User and Temporary test scans (STRICTLY BLOCKED)
 *petition*
 *Petition*
+!frontend/src/components/admin/UserPetitionChart.jsx
 !frontend/src/data/mockPetitions.js
 *DocScanner*
 *docscanner*
