@@ -142,9 +142,35 @@ export function mapDraftToPortalDetails(draft = {}, analysis = {}) {
 }
 
 /**
+ * Resolve duplicate petition by choosing to 'reuse' or 'reprocess'
+ */
+export async function resolveDuplicatePetition(sourceId, action, duplicateSourceId) {
+  if (!sourceId) throw new Error('sourceId is required');
+  if (!['reuse', 'reprocess'].includes(action)) {
+    throw new Error('Invalid action: must be "reuse" or "reprocess"');
+  }
+
+  const res = await fetch(`${API_BASE}/grievance/${sourceId}/resolve-duplicate`, {
+    method: 'POST',
+    headers: authHeaders('application/json'),
+    body: JSON.stringify({
+      action,
+      duplicate_source_id: duplicateSourceId || null
+    })
+  });
+
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`Failed to resolve duplicate (${res.status}): ${errText}`);
+  }
+
+  return await res.json();
+}
+
+/**
  * Upload a petition document and run official OCR, Vector Indexing, Entity Extraction, and AI Analysis
  */
-export async function uploadAndAnalyzePetition(file, onProgress, signal) {
+export async function uploadAndAnalyzePetition(file, onProgress, signal, onDuplicateDetected) {
   if (!file) throw new Error('File is required');
 
   const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
@@ -189,7 +215,54 @@ export async function uploadAndAnalyzePetition(file, onProgress, signal) {
   }
 
   const uploadData = await uploadRes.json();
-  const sourceId = uploadData.source_id;
+  const sourceId = uploadData.source_id; // Always NEW source_id
+
+  // If backend detected an existing processed document with the same SHA-256 hash
+  if (uploadData.duplicate_detected) {
+    if (onDuplicateDetected) {
+      const userChoice = await onDuplicateDetected({
+        sourceId: uploadData.source_id,
+        duplicateSourceId: uploadData.duplicate_source_id,
+        petitionerName: uploadData.duplicate_petitioner_name,
+        createdAt: uploadData.duplicate_created_at,
+        summary: uploadData.duplicate_summary,
+        fileName: file.name
+      });
+
+      // User selected 'reuse' or 'reprocess'
+      const resolveRes = await resolveDuplicatePetition(
+        sourceId,
+        userChoice,
+        uploadData.duplicate_source_id
+      );
+
+      if (userChoice === 'reuse') {
+        if (onProgress) {
+          onProgress({
+            stepIndex: 5,
+            stageName: 'draft_ready',
+            stageLabel: 'Ready for Officer Review (Reused)',
+            pageCount: 1,
+            chunkCount: 1,
+            entityCount: 1,
+            ocrConfidence: 98
+          });
+        }
+      } else {
+        if (onProgress) {
+          onProgress({
+            stepIndex: 1,
+            stageName: 'ocr',
+            stageLabel: 'Optical Character Recognition',
+            pageCount: 1,
+            chunkCount: 0,
+            entityCount: 0,
+            ocrConfidence: null
+          });
+        }
+      }
+    }
+  }
 
   // 2. Poll for draft and AI analysis completion
   let draftData = null;

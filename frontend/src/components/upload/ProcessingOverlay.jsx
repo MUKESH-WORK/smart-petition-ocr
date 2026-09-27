@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { FileText, CheckCircle2, Loader2, Circle, ShieldCheck, AlertTriangle, RotateCcw, X } from 'lucide-react';
+import { FileText, CheckCircle2, Loader2, Circle, ShieldCheck, AlertTriangle, RotateCcw, X, Copy, RefreshCw, Zap, Clock, User } from 'lucide-react';
 import { uploadAndAnalyzePetition } from '../../services/apiService';
 import './Upload.css';
 
@@ -16,6 +16,8 @@ export default function ProcessingOverlay({ petition, onComplete, onCancel }) {
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
   const [pipelineError, setPipelineError] = useState(null);
   const [retryNonce, setRetryNonce] = useState(0);
+  const [duplicatePrompt, setDuplicatePrompt] = useState(null);
+  const [resolvingAction, setResolvingAction] = useState(null);
   const [telemetry, setTelemetry] = useState({
     stageName: 'uploaded',
     stageLabel: 'Document Received',
@@ -27,8 +29,23 @@ export default function ProcessingOverlay({ petition, onComplete, onCancel }) {
 
   const handleRetry = useCallback(() => {
     setPipelineError(null);
+    setDuplicatePrompt(null);
+    setResolvingAction(null);
     setCurrentStepIndex(0);
     setRetryNonce((n) => n + 1);
+  }, []);
+
+  const handleDuplicateDetected = useCallback((dupData) => {
+    return new Promise((resolve) => {
+      setDuplicatePrompt({
+        ...dupData,
+        resolveDecision: (action) => {
+          setResolvingAction(action);
+          resolve(action);
+          setDuplicatePrompt(null);
+        }
+      });
+    });
   }, []);
 
   useEffect(() => {
@@ -58,7 +75,7 @@ export default function ProcessingOverlay({ petition, onComplete, onCancel }) {
 
     // Official backend upload & analysis pipeline
     const pipelinePromise = petition?.file
-      ? uploadAndAnalyzePetition(petition.file, onProgressCallback, abortController.signal)
+      ? uploadAndAnalyzePetition(petition.file, onProgressCallback, abortController.signal, handleDuplicateDetected)
       : Promise.resolve(petition);
 
     pipelinePromise
@@ -154,8 +171,80 @@ export default function ProcessingOverlay({ petition, onComplete, onCancel }) {
           </div>
         </div>
 
+        {/* Duplicate Document Decision Card */}
+        {duplicatePrompt && (
+          <div className="duplicate-dialog-card" role="alertdialog" aria-labelledby="dup-heading">
+            <div className="duplicate-header-row">
+              <div className="duplicate-badge-icon">
+                <Copy size={20} className="dup-icon" />
+              </div>
+              <div className="duplicate-title-group">
+                <h3 id="dup-heading" className="duplicate-heading">Duplicate Document Detected</h3>
+                <p className="duplicate-subheading">This document was previously processed.</p>
+              </div>
+            </div>
+
+            {(duplicatePrompt.petitionerName || duplicatePrompt.createdAt || duplicatePrompt.summary) && (
+              <div className="duplicate-meta-grid">
+                {duplicatePrompt.petitionerName && (
+                  <div className="duplicate-meta-item">
+                    <User size={13} className="meta-item-icon" />
+                    <span className="meta-item-label">Petitioner:</span>
+                    <strong className="meta-item-val">{duplicatePrompt.petitionerName}</strong>
+                  </div>
+                )}
+                {duplicatePrompt.createdAt && (
+                  <div className="duplicate-meta-item">
+                    <Clock size={13} className="meta-item-icon" />
+                    <span className="meta-item-label">Processed:</span>
+                    <strong className="meta-item-val">
+                      {new Date(duplicatePrompt.createdAt).toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' })}
+                    </strong>
+                  </div>
+                )}
+                {duplicatePrompt.summary && (
+                  <div className="duplicate-summary-snippet">
+                    <span className="meta-item-label">Previous Summary:</span>
+                    <p className="duplicate-summary-text">{duplicatePrompt.summary}</p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="duplicate-action-buttons">
+              <button
+                type="button"
+                className="btn-reuse-result"
+                onClick={() => duplicatePrompt.resolveDecision('reuse')}
+                disabled={resolvingAction !== null}
+              >
+                {resolvingAction === 'reuse' ? (
+                  <Loader2 size={16} className="spin" />
+                ) : (
+                  <Zap size={16} />
+                )}
+                <span>⚡ Use Previous Result</span>
+              </button>
+
+              <button
+                type="button"
+                className="btn-reprocess-result"
+                onClick={() => duplicatePrompt.resolveDecision('reprocess')}
+                disabled={resolvingAction !== null}
+              >
+                {resolvingAction === 'reprocess' ? (
+                  <Loader2 size={16} className="spin" />
+                ) : (
+                  <RefreshCw size={16} />
+                )}
+                <span>🔄 Process Again</span>
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Processing Steps List */}
-        <div className="processing-steps-list">
+        <div className={`processing-steps-list ${duplicatePrompt ? 'processing-steps-paused' : ''}`}>
           {PROCESSING_STEPS.map((step, idx) => {
             const isCompleted = idx < currentStepIndex;
             const isCurrent = idx === currentStepIndex && !pipelineError;
@@ -180,10 +269,6 @@ export default function ProcessingOverlay({ petition, onComplete, onCancel }) {
                   <span className="step-label">{step.label}</span>
                   {isCurrent && <span className="step-detail-hint">— {step.detail}</span>}
                 </div>
-
-                {isCompleted && (
-                  <span className="step-done-badge">Ready</span>
-                )}
               </div>
             );
           })}

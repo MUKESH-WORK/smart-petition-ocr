@@ -192,7 +192,7 @@ class Source(Base):
     file_name = Column(String(255), nullable=False)
     file_type = Column(String(20), nullable=False)
     file_size_bytes = Column(Integer)
-    file_hash = Column(String(64), unique=True)
+    file_hash = Column(String(64), index=True, nullable=True)
     phash = Column(String(64), nullable=True)
     page_count = Column(Integer, default=0)
     status = Column(String(30), default="uploaded")

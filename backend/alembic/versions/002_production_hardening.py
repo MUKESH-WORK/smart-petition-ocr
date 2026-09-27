@@ -51,7 +51,7 @@ def upgrade() -> None:
     ON audit_log (source_id, timestamp DESC);
     """)
 
-    # 6. Update sources status check constraint to include intermediate pipeline states
+    # 6. Update sources status check constraint to include intermediate pipeline and duplicate states
     op.execute("ALTER TABLE sources DROP CONSTRAINT IF EXISTS sources_status_check;")
     op.execute("""
     ALTER TABLE sources ADD CONSTRAINT sources_status_check 
@@ -70,6 +70,8 @@ def upgrade() -> None:
         'draft_ready',
         'officer_approved',
         'pushed_to_dro',
+        'duplicate_found',
+        'duplicate_pending',
         'rejected',
         'completed',
         'failed'

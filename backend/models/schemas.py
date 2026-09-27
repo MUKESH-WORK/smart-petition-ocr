@@ -21,6 +21,8 @@ class SourceStatus(str, Enum):
     DRAFT_READY = "draft_ready"
     OFFICER_APPROVED = "officer_approved"
     PUSHED_TO_DRO = "pushed_to_dro"
+    DUPLICATE_FOUND = "duplicate_found"
+    DUPLICATE_PENDING = "duplicate_pending"
     REJECTED = "rejected"
     COMPLETED = "completed"
     FAILED = "failed"
@@ -44,6 +46,26 @@ class SourceUploadResponse(BaseModel):
     page_count: int
     status: Union[SourceStatus, str]
     created_at: datetime
+    message: Optional[str] = None
+    duplicate_detected: bool = False
+    duplicate_source_id: Optional[str] = None
+    duplicate_petitioner_name: Optional[str] = None
+    duplicate_file_name: Optional[str] = None
+    duplicate_created_at: Optional[datetime] = None
+    duplicate_summary: Optional[str] = None
+
+
+class DuplicateResolveRequest(BaseModel):
+    action: str = Field(..., description="'reuse' or 'reprocess'")
+    duplicate_source_id: Optional[str] = None
+
+    @field_validator("action")
+    @classmethod
+    def validate_action(cls, v: str) -> str:
+        v_clean = v.strip().lower()
+        if v_clean not in ("reuse", "reprocess"):
+            raise ValueError("action must be either 'reuse' or 'reprocess'")
+        return v_clean
 
 
 class SourceStatusResponse(BaseModel):

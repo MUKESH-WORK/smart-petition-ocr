@@ -306,7 +306,6 @@ export default function SummaryChatView({ petition, onLogUserMessage }) {
         >
           <FileCheck2 size={16} />
           <span>Extracted Form Details</span>
-          <span className="tab-pill-ready">Ready</span>
         </button>
 
         <button

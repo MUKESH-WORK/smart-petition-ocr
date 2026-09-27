@@ -16,7 +16,8 @@ from models.database import get_db
 from models.schemas import (
     SourceUploadResponse, SourceStatusResponse, OCRDocumentResponse, OCRPageResult,
     EntityExtractionResponse, ExtractedEntityItem, AIAnalysisResponse,
-    ChatRequest, GrievanceDraftResponse, DraftUpdate, DraftApproveRequest
+    ChatRequest, GrievanceDraftResponse, DraftUpdate, DraftApproveRequest,
+    DuplicateResolveRequest
 )
 from services.file_store import file_store
 from services.ocr_router import ocr_router
@@ -56,10 +57,11 @@ async def upload_petition(
     2. Authenticate officer via JWT, X-Officer-Id header, or Form officer_id
     3. Enforce file extension whitelist (422 if invalid)
     4. Compute SHA256 & save to uploads/
-    5. Insert sources record (status='uploaded')
-    6. Save BYTEA into PostgreSQL for single-store archival (if configured)
-    7. Enqueue OCR job into background queue
-    8. Log audit event
+    5. Always insert a NEW sources record (retains its unique source_id)
+    6. Check if an exact duplicate document (by SHA-256) was previously processed
+       - If duplicate found: Return status='duplicate_found' with duplicate metadata (User choice: Reuse vs Process Again)
+       - If no duplicate (or process_now=True): Asynchronously enqueue OCR job into background queue
+    7. Log audit event
     """
     # Officer authentication check (fails closed with 401 if unauthenticated)
     eff_officer_id = None
@@ -85,7 +87,8 @@ async def upload_petition(
         )
 
     try:
-        source_id = str(uuid.uuid4())
+        # 1. Always generate a fresh unique UUID for the new upload
+        new_source_id = str(uuid.uuid4())
         content = await file.read()
         ext = os.path.splitext(file.filename)[1].lower().replace(".", "")
         if ext not in ALLOWED_EXTENSIONS:
@@ -94,10 +97,12 @@ async def upload_petition(
                 detail="ஆவண வடிவம் ஆதரிக்கப்படவில்லை. PDF அல்லது படங்களை (JPG, PNG) பதிவேற்றவும்."
             )
 
-        # Save to disk and calculate SHA256
-        file_path, file_hash, file_size = await file_store.save_uploaded_file(source_id, file.filename, content)
+        # 2. Save file to disk with unique source_id and calculate SHA-256
+        file_path, file_hash, file_size = await file_store.save_uploaded_file(new_source_id, file.filename, content)
+        logger.info(f"📄 [UPLOAD] New source_id={new_source_id}")
+        logger.info(f"📄 [UPLOAD] file_hash={file_hash}")
 
-        # Ensure officer exists to satisfy foreign key
+        # 3. Ensure officer exists to satisfy foreign key
         if eff_officer_id:
             eff_officer_id = str(eff_officer_id).strip()
             try:
@@ -110,17 +115,14 @@ async def upload_petition(
             except Exception as e:
                 logger.debug(f"Officer record validation notice: {e}")
 
-        # Insert into sources (save BYTEA only if configured)
+        # 4. Insert into sources as a clean separate row (EVERY upload gets a NEW source_id)
         file_data_db = content if getattr(settings, "STORE_FILE_BYTEA", False) else None
         res_insert = await db.execute(text("""
             INSERT INTO sources (source_id, officer_id, file_name, file_type, file_size_bytes, file_hash, page_count, status, file_data, created_at, updated_at)
             VALUES (:source_id, :officer_id, :file_name, :file_type, :file_size, :file_hash, 0, 'uploaded', :file_data, NOW(), NOW())
-            ON CONFLICT (file_hash) DO UPDATE SET
-                file_name = EXCLUDED.file_name,
-                updated_at = NOW()
             RETURNING source_id, file_name, file_size_bytes, page_count, status, created_at
         """), {
-            "source_id": source_id,
+            "source_id": new_source_id,
             "officer_id": eff_officer_id,
             "file_name": file.filename,
             "file_type": ext,
@@ -129,27 +131,239 @@ async def upload_petition(
             "file_data": file_data_db
         })
         row = res_insert.mappings().one()
-        source_id = str(row["source_id"])
         await db.commit()
 
-        # Check if an identical document (SHA-256) already exists in sources table
+        # 5. Duplicate Check: Check if an identical document (SHA-256) was previously processed with a valid draft
         existing_res = await db.execute(text("""
             SELECT s.source_id, s.status, s.file_name, s.file_size_bytes, s.page_count, s.created_at,
-                   (SELECT COUNT(*) FROM grievance_drafts gd WHERE gd.source_id = s.source_id) as draft_count
+                   gd.petitioner_name, gd.description
             FROM sources s
+            JOIN grievance_drafts gd ON gd.source_id = s.source_id
             WHERE s.file_hash = :hash
+              AND s.source_id != :new_id
+              AND s.status IN ('draft_ready', 'officer_approved', 'pushed_to_dro')
             ORDER BY s.created_at DESC
             LIMIT 1
-        """), {"hash": file_hash})
+        """), {"hash": file_hash, "new_id": new_source_id})
         existing_match = existing_res.mappings().one_or_none()
 
-        if existing_match and existing_match["source_id"] != row["source_id"]:
-            ext_status = existing_match["status"]
-            ext_draft_count = existing_match["draft_count"] or 0
-            if ext_status in ('draft_ready', 'officer_approved', 'pushed_to_dro') and ext_draft_count > 0:
-                logger.info(f"⚡ [IDEMPOTENT DEDUP] Identical petition ({file_hash[:8]}) already processed (source_id={existing_match['source_id']}). Reusing draft instantly.")
-                # Copy draft across to new source_id for current user session
+        # If an identical processed document exists and user hasn't explicitly requested force re-processing
+        if existing_match and not process_now:
+            dup_id = str(existing_match["source_id"])
+            logger.info(f"🔍 [DUPLICATE] New source_id={new_source_id}")
+            logger.info(f"🔍 [DUPLICATE] Previous source_id={dup_id}")
+            logger.info(f"🔍 [DUPLICATE] Waiting for user decision")
+            
+            # Mark new source status as duplicate_pending
+            await db.execute(text("UPDATE sources SET status = 'duplicate_pending', updated_at = NOW() WHERE source_id = :sid"), {"sid": new_source_id})
+            await db.commit()
+
+            return SourceUploadResponse(
+                source_id=row["source_id"],
+                file_name=row["file_name"],
+                file_size_bytes=row["file_size_bytes"] or 0,
+                page_count=existing_match["page_count"] or 1,
+                status="duplicate_found",
+                created_at=row["created_at"],
+                message="Exact duplicate petition detected. Choose whether to reuse previous analysis or process again.",
+                duplicate_detected=True,
+                duplicate_source_id=dup_id,
+                duplicate_petitioner_name=existing_match.get("petitioner_name"),
+                duplicate_file_name=existing_match.get("file_name"),
+                duplicate_created_at=existing_match.get("created_at"),
+                duplicate_summary=existing_match.get("description")
+            )
+
+        # 6. Normal flow: Asynchronously enqueue OCR job into job queue for this NEW source_id
+        await job_queue.enqueue(db, "ocr", new_source_id, {"file_path": file_path, "file_type": ext})
+        logger.info(f"🚀 [PIPELINE] Enqueued OCR for new source_id={new_source_id}")
+
+        # Log audit event
+        await log_audit_event(
+            action="UPLOAD_PETITION",
+            source_id=new_source_id,
+            officer_id=eff_officer_id,
+            details={"file_name": file.filename, "file_size": file_size, "hash": file_hash},
+            ip_address=request.client.host if request.client else "127.0.0.1"
+        )
+
+        return SourceUploadResponse(
+            source_id=row["source_id"],
+            file_name=row["file_name"],
+            file_size_bytes=row["file_size_bytes"] or 0,
+            page_count=row["page_count"] or 1,
+            status=row["status"],
+            created_at=row["created_at"],
+            duplicate_detected=False
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.post("/{source_id}/resolve-duplicate", response_model=SourceUploadResponse)
+async def resolve_duplicate(
+    source_id: str,
+    req: DuplicateResolveRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Resolve duplicate petition decision:
+    - 'reuse': Atomically copy OCR, Chunks, Entities, AI Analysis, and Grievance Draft to new source_id.
+    - 'reprocess': Enqueue full pipeline (OCR -> Vector -> Entities -> LLM) for new source_id.
+    """
+    try:
+        eff_officer_id = None
+        auth_header = request.headers.get("authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            from core.security import decode_access_token
+            payload = decode_access_token(auth_header[7:].strip())
+            if payload and "officer_id" in payload:
+                eff_officer_id = payload["officer_id"]
+
+        if not eff_officer_id:
+            eff_officer_id = (
+                request.headers.get("x-officer-id")
+                or request.headers.get("X-Officer-Id")
+            )
+
+        action = req.action.strip().lower()
+        if action not in ("reuse", "reprocess"):
+            raise HTTPException(status_code=400, detail="Invalid action. Must be 'reuse' or 'reprocess'.")
+
+        # 1. Verify that the target new source exists
+        src_res = await db.execute(text("SELECT * FROM sources WHERE source_id = :sid"), {"sid": source_id})
+        new_source = src_res.mappings().one_or_none()
+        if not new_source:
+            raise HTTPException(status_code=404, detail="Target source document not found.")
+
+        file_hash = new_source["file_hash"]
+        file_type = new_source["file_type"]
+
+        if action == "reprocess":
+            logger.info(f"🔄 [DUPLICATE] User selected reprocess (new source_id={source_id})")
+            file_path = file_store.get_file_path(source_id)
+            if not file_path or not os.path.exists(file_path):
+                file_path = os.path.join(settings.UPLOAD_DIR, f"{source_id}_{file_hash[:8]}.{file_type.replace('.', '')}")
+
+            await db.execute(text("UPDATE sources SET status = 'uploaded', updated_at = NOW() WHERE source_id = :sid"), {"sid": source_id})
+            await job_queue.enqueue(db, "ocr", source_id, {"file_path": file_path, "file_type": file_type})
+            await db.commit()
+
+            logger.info(f"🚀 [REPROCESS] Enqueued OCR for source_id={source_id}")
+            await log_audit_event(
+                action="REPROCESS_DUPLICATE_PETITION",
+                source_id=source_id,
+                officer_id=eff_officer_id,
+                details={"action": "reprocess", "file_hash": file_hash},
+                ip_address=request.client.host if request.client else "127.0.0.1"
+            )
+
+            return SourceUploadResponse(
+                source_id=new_source["source_id"],
+                file_name=new_source["file_name"],
+                file_size_bytes=new_source["file_size_bytes"] or 0,
+                page_count=new_source["page_count"] or 1,
+                status="processing",
+                created_at=new_source["created_at"],
+                message="Re-processing initiated successfully.",
+                duplicate_detected=False
+            )
+
+        elif action == "reuse":
+            logger.info(f"⚡ [DUPLICATE] User selected reuse (new source_id={source_id})")
+
+            # 2. Strict Security: Find verified duplicate source with the EXACT same file_hash
+            dup_query = """
+                SELECT s.*
+                FROM sources s
+                JOIN grievance_drafts gd ON gd.source_id = s.source_id
+                WHERE s.file_hash = :hash
+                  AND s.source_id != :new_id
+                  AND s.status IN ('draft_ready', 'officer_approved', 'pushed_to_dro')
+            """
+            params = {"hash": file_hash, "new_id": source_id}
+
+            if req.duplicate_source_id:
+                dup_query += " AND s.source_id = :dup_id"
+                params["dup_id"] = req.duplicate_source_id
+
+            dup_query += " ORDER BY s.created_at DESC LIMIT 1"
+
+            dup_res = await db.execute(text(dup_query), params)
+            old_source = dup_res.mappings().one_or_none()
+
+            if not old_source:
+                raise HTTPException(
+                    status_code=400,
+                    detail="No matching verified duplicate source with the same file hash was found to reuse."
+                )
+
+            old_source_id = str(old_source["source_id"])
+
+            # 3. Transactional Copy of all artifacts to new_source_id
+            try:
+                # A. Copy OCR Results
+                await db.execute(text("""
+                    INSERT INTO ocr_results (source_id, page_number, full_text, blocks, tables, avg_confidence, ocr_engine, processing_time_ms)
+                    SELECT :new_id, page_number, full_text, blocks, tables, avg_confidence, ocr_engine, processing_time_ms
+                    FROM ocr_results
+                    WHERE source_id = :old_id
+                    ON CONFLICT (source_id, page_number) DO UPDATE SET
+                        full_text = EXCLUDED.full_text,
+                        blocks = EXCLUDED.blocks,
+                        tables = EXCLUDED.tables,
+                        avg_confidence = EXCLUDED.avg_confidence,
+                        ocr_engine = EXCLUDED.ocr_engine,
+                        processing_time_ms = EXCLUDED.processing_time_ms
+                """), {"new_id": source_id, "old_id": old_source_id})
+
+                # B. Copy Document Chunks
+                await db.execute(text("""
+                    DELETE FROM document_chunks WHERE source_id = :new_id;
+                """), {"new_id": source_id})
+                await db.execute(text("""
+                    INSERT INTO document_chunks (source_id, chunk_index, page_number, chunk_text, embedding)
+                    SELECT :new_id, chunk_index, page_number, chunk_text, embedding
+                    FROM document_chunks
+                    WHERE source_id = :old_id
+                """), {"new_id": source_id, "old_id": old_source_id})
+
+                # C. Copy Extracted Entities
+                await db.execute(text("""
+                    DELETE FROM extracted_entities WHERE source_id = :new_id;
+                """), {"new_id": source_id})
+                await db.execute(text("""
+                    INSERT INTO extracted_entities (source_id, entity_type, entity_value, confidence, source_page, validation_status, extracted_by)
+                    SELECT :new_id, entity_type, entity_value, confidence, source_page, validation_status, extracted_by
+                    FROM extracted_entities
+                    WHERE source_id = :old_id
+                """), {"new_id": source_id, "old_id": old_source_id})
+
+                # D. Copy AI Analysis
+                await db.execute(text("""
+                    DELETE FROM ai_analysis WHERE source_id = :new_id;
+                """), {"new_id": source_id})
+                await db.execute(text("""
+                    INSERT INTO ai_analysis (source_id, grievance_type_suggested, grievance_subtype_suggested, department_suggested,
+                                            priority_suggested, description_summary_tamil, description_summary_english,
+                                            action_items, claims, hallucination_score, grounding_score, raw_ai_response)
+                    SELECT :new_id, grievance_type_suggested, grievance_subtype_suggested, department_suggested,
+                           priority_suggested, description_summary_tamil, description_summary_english,
+                           action_items, claims, hallucination_score, grounding_score, raw_ai_response
+                    FROM ai_analysis
+                    WHERE source_id = :old_id
+                """), {"new_id": source_id, "old_id": old_source_id})
+
+                # E. Copy Grievance Draft with a NEW unique draft ID
                 new_draft_id = str(uuid.uuid4())
+                await db.execute(text("""
+                    DELETE FROM grievance_drafts WHERE source_id = :new_id;
+                """), {"new_id": source_id})
                 await db.execute(text("""
                     INSERT INTO grievance_drafts (
                         id, source_id, officer_id, petitioner_name, father_husband_name, complainant_signatory,
@@ -163,7 +377,7 @@ async def upload_petition(
                         created_at, updated_at
                     )
                     SELECT
-                        :new_draft_id, :new_id, officer_id, petitioner_name, father_husband_name, complainant_signatory,
+                        :new_draft_id, :new_id, COALESCE(:officer_id, officer_id), petitioner_name, father_husband_name, complainant_signatory,
                         phone, is_own_phone, alternate_phone, address, gender,
                         community_or_individual, description, grievance_source, ref_number,
                         department, sub_department, local_body_type, grievance_type, grievance_subtype,
@@ -175,85 +389,68 @@ async def upload_petition(
                     FROM grievance_drafts
                     WHERE source_id = :old_id
                     LIMIT 1
-                """), {"new_draft_id": new_draft_id, "new_id": source_id, "old_id": str(existing_match["source_id"])})
-                
-                await db.execute(text("UPDATE sources SET status = 'draft_ready', updated_at = NOW() WHERE source_id = :sid"), {"sid": source_id})
-                await db.commit()
+                """), {
+                    "new_draft_id": new_draft_id,
+                    "new_id": source_id,
+                    "old_id": old_source_id,
+                    "officer_id": eff_officer_id or str(new_source.get("officer_id") or "DRO_OFFICER")
+                })
 
-                return SourceUploadResponse(
-                    source_id=row["source_id"],
-                    file_name=row["file_name"],
-                    file_size_bytes=row["file_size_bytes"] or 0,
-                    page_count=row["page_count"] or 1,
-                    status="draft_ready",
-                    created_at=row["created_at"],
-                    message="Identical petition detected (previously processed). Reused instantly from verified cache with zero re-processing cost."
+                # F. Copy Static Media Preview Images for new source_id
+                old_page_count = old_source["page_count"] or 1
+                for p_num in range(1, old_page_count + 1):
+                    old_img = file_store.get_page_image_path(old_source_id, p_num)
+                    new_img = file_store.get_page_image_path(source_id, p_num)
+                    if os.path.exists(old_img) and not os.path.exists(new_img):
+                        try:
+                            import shutil
+                            shutil.copyfile(old_img, new_img)
+                        except Exception as img_err:
+                            logger.debug(f"Image preview copy notice: {img_err}")
+
+                # G. Update new sources row to draft_ready
+                await db.execute(text("""
+                    UPDATE sources
+                    SET status = 'draft_ready',
+                        page_count = :page_count,
+                        phash = :phash,
+                        updated_at = NOW()
+                    WHERE source_id = :new_id
+                """), {
+                    "new_id": source_id,
+                    "page_count": old_page_count,
+                    "phash": old_source.get("phash")
+                })
+
+                await db.commit()
+                logger.info(f"⚡ [REUSE] Copied previous result from {old_source_id} to new source_id={source_id}")
+
+                await log_audit_event(
+                    action="REUSE_DUPLICATE_PETITION",
+                    source_id=source_id,
+                    officer_id=eff_officer_id,
+                    details={"action": "reuse", "reused_from": old_source_id, "file_hash": file_hash},
+                    ip_address=request.client.host if request.client else "127.0.0.1"
                 )
 
-        # Check if an existing approved draft exists for this source
-        existing_draft = await db.execute(text("""
-            SELECT id FROM grievance_drafts 
-            WHERE source_id = :source_id
-            LIMIT 1
-        """), {"source_id": source_id})
-        has_draft = existing_draft.mappings().one_or_none() is not None
+                return SourceUploadResponse(
+                    source_id=new_source["source_id"],
+                    file_name=new_source["file_name"],
+                    file_size_bytes=new_source["file_size_bytes"] or 0,
+                    page_count=old_page_count,
+                    status="draft_ready",
+                    created_at=new_source["created_at"],
+                    message="Previous analysis reused successfully.",
+                    duplicate_detected=False
+                )
 
-        # If processing is already underway in job queue, return processing status immediately
-        active_job = await db.execute(text("""
-            SELECT id FROM job_queue 
-            WHERE source_id = :source_id 
-              AND status IN ('pending', 'processing')
-            LIMIT 1
-        """), {"source_id": source_id})
-        if active_job.mappings().one_or_none():
-            logger.info(f"Pipeline already in progress for source {source_id}, returning immediately.")
-            return SourceUploadResponse(
-                source_id=row["source_id"],
-                file_name=row["file_name"],
-                file_size_bytes=row["file_size_bytes"] or 0,
-                page_count=row["page_count"] or 1,
-                status="processing",
-                created_at=row["created_at"],
-                message="Petition processing already underway."
-            )
+            except HTTPException:
+                raise
+            except Exception as e:
+                await db.rollback()
+                logger.error(f"Failed to copy previous results to source {source_id}: {e}", exc_info=True)
+                raise HTTPException(status_code=500, detail=f"Failed to copy duplicate results: {str(e)}")
 
-        # If this source document has already been fully processed and draft actually exists in DB, return immediately
-        if row.get("status") in ('draft_ready', 'officer_approved', 'pushed_to_dro') and has_draft:
-            logger.info(f"Source {source_id} already has status '{row['status']}' and valid draft in DB, returning immediately.")
-            return SourceUploadResponse(
-                source_id=row["source_id"],
-                file_name=row["file_name"],
-                file_size_bytes=row["file_size_bytes"] or 0,
-                page_count=row["page_count"] or 1,
-                status=row["status"],
-                created_at=row["created_at"],
-                message="Petition draft already available."
-            )
-
-        # Asynchronously enqueue OCR job into job queue (never block the HTTP thread)
-        await job_queue.enqueue(db, "ocr", source_id, {"file_path": file_path, "file_type": ext})
-
-        # Log audit event
-        await log_audit_event(
-            action="UPLOAD_PETITION",
-            source_id=source_id,
-            officer_id=eff_officer_id,
-            details={"file_name": file.filename, "file_size": file_size, "hash": file_hash},
-            ip_address=request.client.host if request.client else "127.0.0.1"
-        )
-
-        # Refresh row status
-        res_final = await db.execute(text("SELECT source_id, file_name, file_size_bytes, page_count, status, created_at FROM sources WHERE source_id = :source_id"), {"source_id": source_id})
-        row_final = res_final.mappings().one()
-
-        return SourceUploadResponse(
-            source_id=row_final["source_id"],
-            file_name=row_final["file_name"],
-            file_size_bytes=row_final["file_size_bytes"] or 0,
-            page_count=row_final["page_count"] or 1,
-            status=row_final["status"],
-            created_at=row_final["created_at"]
-        )
     except HTTPException:
         raise
     except Exception as exc:

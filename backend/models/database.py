@@ -268,6 +268,57 @@ async def init_db_schema():
                     await alter_conn.execute(text(alter_sql))
             except Exception as e:
                 logger.debug(f"Schema alter note: {e}")
+
+        # Drop any UNIQUE constraints/indexes on sources(file_hash) to support Option C multi-upload
+        try:
+            async with user_engine.begin() as alter_conn:
+                await alter_conn.execute(text("""
+                    DO $$
+                    DECLARE
+                        r RECORD;
+                    BEGIN
+                        FOR r IN (
+                            SELECT conname
+                            FROM pg_constraint
+                            WHERE conrelid = 'sources'::regclass
+                              AND contype = 'u'
+                              AND (conname LIKE '%file_hash%' OR conname = 'sources_file_hash_key')
+                        ) LOOP
+                            EXECUTE 'ALTER TABLE sources DROP CONSTRAINT IF EXISTS ' || quote_ident(r.conname);
+                        END LOOP;
+                    END $$;
+                """))
+                await alter_conn.execute(text("DROP INDEX IF EXISTS idx_sources_file_hash_unique;"))
+                await alter_conn.execute(text("CREATE INDEX IF NOT EXISTS idx_sources_file_hash ON sources(file_hash);"))
+
+                # Update sources_status_check check constraint
+                await alter_conn.execute(text("ALTER TABLE sources DROP CONSTRAINT IF EXISTS sources_status_check;"))
+                await alter_conn.execute(text("""
+                    ALTER TABLE sources ADD CONSTRAINT sources_status_check 
+                    CHECK (status IN (
+                        'uploaded',
+                        'pending',
+                        'processing',
+                        'ocr_processing',
+                        'ocr_complete',
+                        'ocr_review',
+                        'vector_indexing',
+                        'vector_indexed',
+                        'entity_extracting',
+                        'entity_extracted',
+                        'ai_analyzing',
+                        'draft_ready',
+                        'officer_approved',
+                        'pushed_to_dro',
+                        'duplicate_found',
+                        'duplicate_pending',
+                        'rejected',
+                        'completed',
+                        'failed'
+                    ));
+                """))
+        except Exception as e:
+            logger.debug(f"Sources constraint migration note: {e}")
     else:
         # SQLite dynamic column safety
         async with user_engine.begin() as sqlite_conn:
