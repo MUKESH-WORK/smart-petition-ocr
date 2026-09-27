@@ -353,7 +353,7 @@ async def resolve_duplicate(
                         "page_number": chunk["page_number"],
                         "chunk_text": chunk["chunk_text"],
                         "embedding": chunk["embedding"],
-                        "metadata": chunk.get("metadata"),
+                        "metadata": json.dumps(chunk.get("metadata")) if chunk.get("metadata") is not None else None,
                     })
 
                 # C. Copy Extracted Entities
