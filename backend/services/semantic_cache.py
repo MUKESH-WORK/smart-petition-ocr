@@ -46,17 +46,23 @@ class SemanticCacheManager:
         self,
         db: AsyncSession,
         prompt_text: str,
-        threshold: Optional[float] = None
+        threshold: Optional[float] = None,
+        source_id: Optional[str] = None
     ) -> Optional[Dict[str, Any]]:
         """
         Looks up prompt in semantic cache.
         Returns cached response dictionary on hit, or None on miss.
         """
+        prompt_hash = self.compute_prompt_hash(prompt_text)
+
         if not getattr(settings, "SEMANTIC_CACHE_ENABLED", True):
+            logger.info(
+                f"ℹ️ [SEMANTIC CACHE] Cache disabled (SEMANTIC_CACHE_ENABLED=False). "
+                f"Bypassing cache for source_id={source_id or 'unknown'} (hash={prompt_hash[:12]}) to force fresh LLM execution."
+            )
             return None
 
         sim_threshold = threshold if threshold is not None else getattr(settings, "SEMANTIC_CACHE_THRESHOLD", 0.92)
-        prompt_hash = self.compute_prompt_hash(prompt_text)
 
         # 1. Exact hash fast-path lookup (<2ms)
         try:
@@ -81,7 +87,11 @@ class SemanticCacheManager:
                 if isinstance(resp_data, str):
                     resp_data = json.loads(resp_data)
 
-                logger.info(f"⚡ [SEMANTIC CACHE] Exact Hash HIT for prompt (id={cache_id})")
+                logger.info(
+                    f"⚡ [SEMANTIC CACHE] Exact Hash HIT for source_id={source_id or 'unknown'} | "
+                    f"cache_id={cache_id} | prompt_hash={prompt_hash[:16]} | similarity=1.0000 | "
+                    f"cached_petitioner={resp_data.get('Petitioner_Name') or resp_data.get('petitioner_name')}"
+                )
                 return {
                     "data": resp_data,
                     "similarity": 1.0,
@@ -110,7 +120,7 @@ class SemanticCacheManager:
                     q_list = query_vec.tolist()
                     result = await db.execute(text("""
                         SELECT id, response_json, hit_count,
-                               1 - (embedding <=> CAST(:qvec AS vector)) as similarity
+                                1 - (embedding <=> CAST(:qvec AS vector)) as similarity
                         FROM semantic_cache
                         WHERE (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
                         ORDER BY embedding <=> CAST(:qvec AS vector) ASC
@@ -125,7 +135,12 @@ class SemanticCacheManager:
                         resp_data = best["response_json"]
                         if isinstance(resp_data, str):
                             resp_data = json.loads(resp_data)
-                        logger.info(f"🎯 [SEMANTIC CACHE] pgvector HIT (Similarity: {sim_score} >= {sim_threshold})")
+                        logger.info(
+                            f"🎯 [SEMANTIC CACHE] pgvector HIT for source_id={source_id or 'unknown'} | "
+                            f"cache_id={cache_id} | prompt_hash={prompt_hash[:16]} | similarity={sim_score} >= {sim_threshold} | "
+                            f"cached_petitioner={resp_data.get('Petitioner_Name') or resp_data.get('petitioner_name')} | "
+                            f"cached_result={str(resp_data)[:160]}"
+                        )
                         return {
                             "data": resp_data,
                             "similarity": sim_score,
@@ -178,7 +193,12 @@ class SemanticCacheManager:
                 if isinstance(resp_data, str):
                     resp_data = json.loads(resp_data)
                 sim_rounded = round(best_sim, 4)
-                logger.info(f"🎯 [SEMANTIC CACHE] Vector Cosine HIT (Similarity: {sim_rounded} >= {sim_threshold})")
+                logger.info(
+                    f"🎯 [SEMANTIC CACHE] Vector Cosine HIT for source_id={source_id or 'unknown'} | "
+                    f"cache_id={cache_id} | prompt_hash={prompt_hash[:16]} | similarity={sim_rounded} >= {sim_threshold} | "
+                    f"cached_petitioner={resp_data.get('Petitioner_Name') or resp_data.get('petitioner_name')} | "
+                    f"cached_result={str(resp_data)[:160]}"
+                )
                 return {
                     "data": resp_data,
                     "similarity": sim_rounded,

@@ -1,0 +1,162 @@
+[
+  {
+    "department": "Revenue and Disaster Management (REV)",
+    "department_code": "REV",
+    "sub_department": "Social Security Schemes (SSS) / Revenue Administration",
+    "grievance_type": "Social Security Schemes (SSS)",
+    "grievance_sub_type": "Old Age Pension (OAP)",
+    "responsible_officer": "Special Tahsildar (SSS) / Tahsildar"
+  },
+  {
+    "department": "Revenue and Disaster Management (REV)",
+    "department_code": "REV",
+    "sub_department": "Social Security Schemes (SSS) / Revenue Administration",
+    "grievance_type": "Destitute Widow Pension Scheme (DWPS) / Social Security Schemes",
+    "grievance_sub_type": "Destitute Widow Pension (DWP)",
+    "responsible_officer": "Special Tahsildar (SSS) / Tahsildar"
+  },
+  {
+    "department": "Revenue and Disaster Management (REV)",
+    "department_code": "REV",
+    "sub_department": "Social Security Schemes (SSS) / Revenue Administration",
+    "grievance_type": "Social Security Schemes (SSS)",
+    "grievance_sub_type": "Differently Abled Pension (DAP)",
+    "responsible_officer": "Special Tahsildar (SSS) / Tahsildar"
+  },
+  {
+    "department": "Revenue and Disaster Management (REV)",
+    "department_code": "REV",
+    "sub_department": "Revenue Administration",
+    "grievance_type": "Public Relief Fund / Financial Assistance",
+    "grievance_sub_type": "Chief Minister's Public Relief Fund (CMPRF)",
+    "responsible_officer": "District Collector / District Revenue Officer (DRO)"
+  },
+  {
+    "department": "Revenue and Disaster Management (REV)",
+    "department_code": "REV",
+    "sub_department": "Revenue Administration / Land Records",
+    "grievance_type": "Land Administration and Patta Transfer",
+    "grievance_sub_type": "Patta Transfer - Individual / Sub-division",
+    "responsible_officer": "Tahsildar / Zonal Deputy Tahsildar"
+  },
+  {
+    "department": "Revenue and Disaster Management (REV)",
+    "department_code": "REV",
+    "sub_department": "Revenue Administration / நில நிர்வாகம்",
+    "grievance_type": "Natham Patta /Free House Site Patta",
+    "grievance_sub_type": "Free House Site Patta (HSD)",
+    "responsible_officer": "Tahsildar, Erode"
+  },
+  {
+    "department": "Revenue and Disaster Management (REV)",
+    "department_code": "REV",
+    "sub_department": "Revenue Administration",
+    "grievance_type": "Land Encroachment",
+    "grievance_sub_type": "Eviction of Encroachments on Government Land / Pathway",
+    "responsible_officer": "Tahsildar / Revenue Divisional Officer (RDO)"
+  },
+  {
+    "department": "Revenue and Disaster Management (REV)",
+    "department_code": "REV",
+    "sub_department": "Revenue Administration",
+    "grievance_type": "Certificates and Verification",
+    "grievance_sub_type": "Legal Heir Certificate / Community Certificate",
+    "responsible_officer": "Tahsildar / Zonal Deputy Tahsildar"
+  },
+  {
+    "department": "Municipal Administration and Water Supply (MAWS)",
+    "department_code": "MAWS",
+    "sub_department": "Commissionerate of Municipal Administration (CMA)",
+    "grievance_type": "Drinking Water",
+    "grievance_sub_type": "New Water Connection - Household Water Connection",
+    "responsible_officer": "Commissioner Municipality, Commissioner Municipal Corporation, Executive Officer - Town Panchayat"
+  },
+  {
+    "department": "Municipal Administration and Water Supply (MAWS)",
+    "department_code": "MAWS",
+    "sub_department": "Commissionerate of Municipal Administration (CMA)",
+    "grievance_type": "Drinking Water",
+    "grievance_sub_type": "Insufficient Water Supply",
+    "responsible_officer": "Commissioner Municipality, Commissioner Municipal Corporation, Executive Officer - Town Panchayat"
+  },
+  {
+    "department": "Municipal Administration and Water Supply (MAWS)",
+    "department_code": "MAWS",
+    "sub_department": "Commissionerate of Municipal Administration (CMA)",
+    "grievance_type": "Street Lights - MAWS",
+    "grievance_sub_type": "Street Lights - MAWS",
+    "responsible_officer": "Commissioner Municipal Corporation / Municipality, Erode"
+  },
+  {
+    "department": "Municipal Administration and Water Supply (MAWS)",
+    "department_code": "MAWS",
+    "sub_department": "Commissionerate of Municipal Administration (CMA)",
+    "grievance_type": "Storm Water Drains - MAWS",
+    "grievance_sub_type": "Storm Water Drains - MAWS",
+    "responsible_officer": "Commissioner Municipal Corporation / Municipality, Erode"
+  },
+  {
+    "department": "Rural Development and Panchayat Raj Department (RDPR)",
+    "department_code": "RDPR",
+    "sub_department": "Rural Development and Panchayat Raj",
+    "grievance_type": "Village Infrastructure",
+    "grievance_sub_type": "Drinking Water Supply - RD",
+    "responsible_officer": "Block Development Officer - Village Panchayat"
+  },
+  {
+    "department": "Rural Development and Panchayat Raj Department (RDPR)",
+    "department_code": "RDPR",
+    "sub_department": "Rural Development and Panchayat Raj",
+    "grievance_type": "Village Infrastructure",
+    "grievance_sub_type": "Street Light - RD",
+    "responsible_officer": "Block Development Officer - Village Panchayat"
+  },
+  {
+    "department": "Rural Development and Panchayat Raj Department (RDPR)",
+    "department_code": "RDPR",
+    "sub_department": "Rural Development and Panchayat Raj",
+    "grievance_type": "Village Infrastructure",
+    "grievance_sub_type": "Drainage and Sewage Issues",
+    "responsible_officer": "Block Development Officer - Village Panchayat"
+  },
+  {
+    "department": "Higher Education Department (HIGHEDU)",
+    "department_code": "HIGHEDU",
+    "sub_department": "Director Of Collegiate Education",
+    "grievance_type": "Scholarship - High Edu",
+    "grievance_sub_type": "Scholarship - High Edu",
+    "responsible_officer": "Joint Director of Collegiate Education"
+  },
+  {
+    "department": "Information Technology Department (IT)",
+    "department_code": "IT",
+    "sub_department": "Commissionerate of eGovernance/Tamil Nadu e-Governance Agency",
+    "grievance_type": "Application Related Complaints - CeG",
+    "grievance_sub_type": "eSevai - Complaint related to Aadhaar Enrolment",
+    "responsible_officer": "e-sevai helpdesk"
+  },
+  {
+    "department": "Energy Department (ENERGY)",
+    "department_code": "ENERGY",
+    "sub_department": "TANGEDCO",
+    "grievance_type": "Electricity Supply and Metering",
+    "grievance_sub_type": "Low Voltage / Power Fluctuation / Transformer Repair",
+    "responsible_officer": "Section Officer (Distribution) - TANGEDCO"
+  },
+  {
+    "department": "Co-operation, Food and Consumer Protection Department (FOODCO)",
+    "department_code": "FOODCO",
+    "sub_department": "Civil Supplies and Consumer Protection",
+    "grievance_type": "Civil Supplies and Ration Services",
+    "grievance_sub_type": "Smart Card / Ration Card Services / PDS Supplies",
+    "responsible_officer": "District Supply Officer (DSO) / Taluk Supply Officer (TSO)"
+  },
+  {
+    "department": "General Administration",
+    "department_code": "GAD",
+    "sub_department": "General Administration / பொது நிர்வாகம்",
+    "grievance_type": "General Grievance",
+    "grievance_sub_type": "Public Grievance Redressal",
+    "responsible_officer": "துறை அலுவலர்"
+  }
+]

@@ -460,6 +460,210 @@ export async function uploadAndAnalyzePetition(file, onProgress, signal, onDupli
 }
 
 /**
+ * Track, resolve duplicate (Option C), and analyze an already uploaded petition (e.g. from Mobile QR upload)
+ */
+export async function trackAndAnalyzeUploadedPetition(uploadedPetition, onProgress, signal, onDuplicateDetected) {
+  if (!uploadedPetition) throw new Error('Uploaded petition metadata is required');
+
+  const sourceId = uploadedPetition.source_id || uploadedPetition.sourceId;
+  if (!sourceId) throw new Error('source_id is required to track petition processing');
+
+  const fileName = uploadedPetition.fileName || 'petition.pdf';
+  const isPdf = Boolean(
+    uploadedPetition.isPdf ||
+    (uploadedPetition.fileType && uploadedPetition.fileType.toLowerCase().includes('pdf')) ||
+    fileName.toLowerCase().endsWith('.pdf')
+  );
+  const sizeFormatted = uploadedPetition.fileSize || '1.5 MB';
+  const previewUrl = uploadedPetition.previewUrl || `${API_BASE}/grievance/${sourceId}/file`;
+
+  // 1. Handle Option C Duplicate Check if flagged during mobile upload
+  if (uploadedPetition.duplicate_detected) {
+    if (onDuplicateDetected) {
+      const userChoice = await onDuplicateDetected({
+        sourceId: sourceId,
+        duplicateSourceId: uploadedPetition.duplicate_source_id,
+        petitionerName: uploadedPetition.duplicate_petitioner_name,
+        createdAt: uploadedPetition.duplicate_created_at,
+        summary: uploadedPetition.duplicate_summary,
+        fileName: fileName
+      });
+
+      // User selected 'reuse' or 'reprocess'
+      await resolveDuplicatePetition(
+        sourceId,
+        userChoice,
+        uploadedPetition.duplicate_source_id
+      );
+
+      if (userChoice === 'reuse') {
+        if (onProgress) {
+          onProgress({
+            stepIndex: 5,
+            stageName: 'draft_ready',
+            stageLabel: 'Ready for Officer Review (Reused)',
+            pageCount: 1,
+            chunkCount: 1,
+            entityCount: 1,
+            ocrConfidence: 98
+          });
+        }
+      } else {
+        if (onProgress) {
+          onProgress({
+            stepIndex: 1,
+            stageName: 'ocr',
+            stageLabel: 'Optical Character Recognition',
+            pageCount: 1,
+            chunkCount: 0,
+            entityCount: 0,
+            ocrConfidence: null
+          });
+        }
+      }
+    }
+  }
+
+  // 2. Poll for draft and AI analysis completion
+  let draftData = null;
+  let analysisData = {};
+  let fullOcrText = '';
+  let avgConfidence = 96;
+
+  let attempts = 0;
+  const maxAttempts = 250;
+  let pollBreak = false;
+
+  while (attempts < maxAttempts && !pollBreak) {
+    if (signal && signal.aborted) throw new Error('Processing cancelled');
+    attempts++;
+    await new Promise((resolve) => setTimeout(resolve, 800));
+
+    let sData = null;
+    try {
+      const statusRes = await fetch(`${API_BASE}/grievance/${sourceId}/status`, { signal });
+      if (statusRes.ok) {
+        sData = await statusRes.json();
+      }
+    } catch (_netErr) {
+      if (signal && signal.aborted) throw new Error('Processing cancelled');
+      continue;
+    }
+
+    if (!sData) continue;
+
+    if (sData.status === 'failed') {
+      throw new Error('Petition processing failed in the background worker. Please try again.');
+    }
+
+    let stepIdx = 1;
+    let stageLabel = 'Optical Character Recognition';
+    if (sData.status === 'draft_ready' || sData.status === 'officer_approved' || (sData.draft_ready && sData.ai_analysis_ready)) {
+      stepIdx = 5;
+      stageLabel = 'Ready for Officer Review';
+      pollBreak = true;
+    } else if (sData.ai_analysis_ready || sData.status === 'ai_analyzing') {
+      stepIdx = 4;
+      stageLabel = 'CM Grievance RAG Mapping';
+    } else if (sData.entity_count > 0 || sData.status === 'entity_extracting') {
+      stepIdx = 3;
+      stageLabel = 'Entity & Location Extraction';
+    } else if (sData.chunk_count > 0 || sData.status === 'vector_indexing') {
+      stepIdx = 2;
+      stageLabel = 'Semantic Vector Indexing';
+    } else if (sData.page_count > 0 || sData.status === 'ocr_complete') {
+      stepIdx = 1;
+      stageLabel = 'OCR Recognition Complete';
+    }
+
+    if (onProgress) {
+      onProgress({
+        stepIndex: stepIdx,
+        stageName: sData.status,
+        stageLabel,
+        pageCount: sData.page_count || 1,
+        chunkCount: sData.chunk_count || 0,
+        entityCount: sData.entity_count || 0,
+        ocrConfidence: sData.ocr_confidence ? Math.round(sData.ocr_confidence * 100) : null
+      });
+    }
+
+    if (pollBreak) break;
+  }
+
+  await new Promise((resolve) => setTimeout(resolve, 300));
+
+  // 3. Fetch final draft, analysis, and OCR results in parallel
+  const [draftRes, analysisRes, ocrRes] = await Promise.allSettled([
+    fetch(`${API_BASE}/grievance/${sourceId}/draft`, { signal }),
+    fetch(`${API_BASE}/grievance/${sourceId}/analysis`, { signal }),
+    fetch(`${API_BASE}/grievance/${sourceId}/ocr`, { signal })
+  ]);
+
+  if (draftRes.status === 'fulfilled' && draftRes.value.ok) {
+    draftData = await draftRes.value.json();
+  }
+  if (analysisRes.status === 'fulfilled' && analysisRes.value.ok) {
+    analysisData = await analysisRes.value.json();
+  }
+  if (ocrRes.status === 'fulfilled' && ocrRes.value.ok) {
+    const ocrData = await ocrRes.value.json();
+    if (ocrData.pages && ocrData.pages.length > 0) {
+      fullOcrText = ocrData.pages.map((p) => p.full_text || '').join('\n\n');
+      avgConfidence = Math.round((ocrData.pages[0].avg_confidence || 0.95) * 100);
+    }
+  }
+
+  // Retry fetching draft if backend is finalizing insert
+  let draftRetries = 0;
+  while (!draftData && draftRetries < 8) {
+    if (signal && signal.aborted) throw new Error('Processing cancelled');
+    draftRetries++;
+    await new Promise((r) => setTimeout(r, 800));
+    try {
+      const dRes = await fetch(`${API_BASE}/grievance/${sourceId}/draft`, { signal });
+      if (dRes.ok) {
+        draftData = await dRes.json();
+        break;
+      }
+    } catch (_e) {}
+  }
+
+  const portalDetails = mapDraftToPortalDetails(draftData || {}, analysisData);
+  const summaryTamil = analysisData.description_summary_tamil || '';
+  const summaryEnglish = analysisData.description_summary_english || '';
+  const displaySummary = summaryTamil || summaryEnglish || (draftData && draftData.description) || 'மனு பெறப்பட்டு ஆவணப்படுத்தப்பட்டுள்ளது.';
+
+  const petitionDoc = {
+    file: uploadedPetition.file || null,
+    id: draftData?.dro_grievance_id || `PET-${sourceId.slice(0, 8).toUpperCase()}`,
+    source_id: sourceId,
+    fileName: fileName,
+    fileSize: sizeFormatted,
+    fileType: uploadedPetition.fileType || (isPdf ? 'PDF Document (Scanned)' : 'Scanned Image'),
+    isPdf: isPdf,
+    previewUrl: previewUrl,
+    documentFileUrl: `${API_BASE}/grievance/${sourceId}/file`,
+    uploadedAt: `Today at ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
+    totalPages: draftData?.page_count || 1,
+    language: 'Tamil',
+    confidenceScore: avgConfidence,
+    status: 'Analysis Complete',
+    summary: displaySummary,
+    summaryTamil: summaryTamil,
+    summaryEnglish: summaryEnglish,
+    actionItems: analysisData.action_items || [],
+    groundingScore: analysisData.grounding_score ?? 0.95,
+    hallucinationScore: analysisData.hallucination_score ?? 0.05,
+    portalDetails: portalDetails,
+    rawOcrText: fullOcrText || (draftData?.description ? `[OCR EXTRACT]\n${draftData.description}` : ''),
+    qaDatabase: []
+  };
+
+  return petitionDoc;
+}
+
+/**
  * Ask document assistant question via RAG LLM endpoint
  */
 export async function askDocumentAssistant(sourceId, question, petition) {
@@ -497,12 +701,46 @@ export async function askDocumentAssistant(sourceId, question, petition) {
 export async function fetchAuditHistory(officerId = null) {
   const records = [];
   const seenIds = new Set();
-  const currentOfficerId = getOfficerId();
 
-  // 1. Fetch from Grievance / Document History
+  // 1. Fetch unified, deduplicated System and Grievance audit activities directly from backend
+  try {
+    const activities = await fetchAdminActivity(200, officerId);
+    if (Array.isArray(activities)) {
+      activities.forEach((act) => {
+        const actId = act.id || `ACT-${Math.random()}`;
+        if (!seenIds.has(actId)) {
+          seenIds.add(actId);
+
+          const cat = act.category || 'GDP Assistant';
+          const isPetitionRecord = act.source_id && act.source_id !== 'SYS-AUDIT' && act.source_id !== 'GDP-APP';
+
+          records.push({
+            id: actId,
+            timestamp: act.date || act.timestamp || new Date().toISOString(),
+            category: cat,
+            categoryLabel: act.categoryLabel || cat,
+            type: act.type || 'EVENT',
+            officer: act.officer || act.officer_name || act.officer_id || 'SYSTEM',
+            officer_name: act.officer_name || act.officer || act.officer_id || 'SYSTEM',
+            officer_id: act.officer_id || 'SYSTEM',
+            officer_role: act.officer_role || '',
+            actor: act.actor || act.officer_name || act.officer_id || 'SYSTEM',
+            source_id: act.source_id || actId,
+            details: act.detail || act.details || 'Administrative action recorded',
+            rawPetition: act.rawPetition || null,
+            isClickable: isPetitionRecord
+          });
+        }
+      });
+    }
+  } catch (err) {
+    console.warn('Could not fetch unified audit activity:', err);
+  }
+
+  // 2. Fetch any extra document history entries if not already in activity stream
   try {
     const params = new URLSearchParams();
-    params.append('limit', '100');
+    params.append('limit', '50');
     if (officerId && officerId !== 'all') {
       params.append('officer_id', officerId);
     }
@@ -513,7 +751,7 @@ export async function fetchAuditHistory(officerId = null) {
       const rows = await res.json();
       rows.forEach((item) => {
         const rowId = item.dro_grievance_id || item.draft_id || `AUD-${(item.source_id || '').slice(0, 8)}`;
-        if (!seenIds.has(rowId)) {
+        if (!seenIds.has(rowId) && !seenIds.has(`AUD-${item.source_id}`)) {
           seenIds.add(rowId);
           records.push({
             id: rowId,
@@ -521,72 +759,23 @@ export async function fetchAuditHistory(officerId = null) {
             category: 'GDP Assistant',
             categoryLabel: 'GDP Assistant',
             type: item.status || 'PROCESSED',
-            officer: item.officer_id || currentOfficerId,
-            officer_id: item.officer_id || currentOfficerId,
+            officer: item.officer_name || item.officer_id || 'DRO Officer',
+            officer_name: item.officer_name || item.officer_id || 'DRO Officer',
+            officer_id: item.officer_id || 'DRO_ERODE_01',
+            officer_role: item.officer_designation || 'Revenue Officer',
+            actor: item.officer_name ? `${item.officer_name} (${item.officer_designation || 'Officer'})` : (item.officer_id || 'DRO Officer'),
             source_id: item.source_id || rowId,
             details: item.grievance_type
               ? `${item.petitioner_name || 'Petition'}: ${item.grievance_type} (${item.department || 'General'})`
-              : (item.file_name || 'Petition processed'),
-            rawPetition: item
+              : (item.file_name || 'Petition document processed'),
+            rawPetition: item,
+            isClickable: true
           });
         }
       });
     }
   } catch (err) {
-    console.warn('Could not fetch grievance history:', err);
-  }
-
-  // 2. Fetch System and Admin CRUD activities
-  try {
-    const params = new URLSearchParams();
-    params.append('limit', '100');
-    if (officerId && officerId !== 'all') {
-      params.append('officer_id', officerId);
-    }
-    const adminRes = await fetch(`${API_BASE}/admin/activity?${params.toString()}`, {
-      headers: authHeaders()
-    });
-    if (adminRes.ok) {
-      const activities = await adminRes.json();
-      activities.forEach((act) => {
-        const actId = act.id || `ACT-${Math.random()}`;
-        if (!seenIds.has(actId)) {
-          seenIds.add(actId);
-
-          let cat = 'GDP Assistant';
-          const typeUpper = (act.type || '').toUpperCase();
-          const detailLower = (act.detail || '').toLowerCase();
-
-          if (detailLower.includes('taxonomy') || detailLower.includes('master data') || detailLower.includes('intake channel') || ['TAXONOMY', 'MASTER_DATA', 'INGEST'].includes(typeUpper)) {
-            cat = 'Master Data';
-          } else if (detailLower.includes('hierarchy') || detailLower.includes('taluk') || detailLower.includes('village') || detailLower.includes('block') || ['HIERARCHY', 'TALUK', 'VILLAGE', 'BLOCK'].includes(typeUpper)) {
-            cat = 'Administrative Hierarchy';
-          } else if (detailLower.includes('login') || detailLower.includes('logged in') || detailLower.includes('logged out') || detailLower.includes('session') || ['LOGIN', 'LOGOUT', 'SESSION', 'AUTH'].includes(typeUpper)) {
-            cat = 'Security & Session';
-          } else if (detailLower.includes('user') || detailLower.includes('officer') || detailLower.includes('password') || detailLower.includes('credential') || ['CREATE_USER', 'UPDATE_USER', 'DELETE_USER', 'PASSWORD_RESET'].includes(typeUpper)) {
-            cat = 'User Management';
-          } else if (detailLower.includes('petition') || detailLower.includes('document') || detailLower.includes('upload') || ['UPLOAD', 'PROCESS', 'APPROVE', 'INTEGRATE', 'PETITION'].includes(typeUpper)) {
-            cat = 'GDP Assistant';
-          } else if (['CREATE', 'UPDATE', 'DELETE'].includes(typeUpper)) {
-            cat = 'System Admin';
-          }
-
-          records.push({
-            id: actId,
-            timestamp: act.date || act.timestamp || new Date().toISOString(),
-            category: cat,
-            categoryLabel: cat,
-            type: act.type || 'EVENT',
-            officer: act.officer_id || 'SYSTEM',
-            officer_id: act.officer_id || 'SYSTEM',
-            source_id: actId.startsWith('AUD-') ? actId : (act.source_id || 'SYS-AUDIT'),
-            details: act.detail || 'Administrative action recorded'
-          });
-        }
-      });
-    }
-  } catch (err) {
-    // Non-admins might not have access to admin activity, ignore gracefully
+    console.debug('Grievance history supplementary fetch notice:', err);
   }
 
   // Sort unified audit logs descending by timestamp

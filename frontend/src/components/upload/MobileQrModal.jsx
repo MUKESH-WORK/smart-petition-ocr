@@ -5,7 +5,10 @@ import {
   X, 
   CheckCircle2, 
   Loader2, 
-  RefreshCw 
+  RefreshCw,
+  Wifi,
+  Copy,
+  Check
 } from 'lucide-react';
 import { 
   createUploadSession, 
@@ -22,6 +25,8 @@ export default function MobileQrModal({ isOpen, onClose, onDocumentUploaded }) {
   const [receivedFileMeta, setReceivedFileMeta] = useState(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [availableHosts, setAvailableHosts] = useState([]);
+  const [selectedHostUrl, setSelectedHostUrl] = useState('');
 
   const unsubscribeRef = useRef(null);
   const sessionIdRef = useRef('');
@@ -36,7 +41,9 @@ export default function MobileQrModal({ isOpen, onClose, onDocumentUploaded }) {
       (uploadedData.fileName && uploadedData.fileName.toLowerCase().endsWith('.pdf'))
     );
 
-    const previewUrl = uploadedData.dataUrl || (uploadedData.file ? URL.createObjectURL(uploadedData.file) : null);
+    const sourceId = uploadedData.source_id || uploadedData.sourceId;
+    const documentFileUrl = sourceId ? `/api/v1/grievance/${sourceId}/file` : null;
+    let previewUrl = uploadedData.dataUrl || (uploadedData.file ? URL.createObjectURL(uploadedData.file) : documentFileUrl);
     
     let fileObj = uploadedData.file || null;
     if (!fileObj && uploadedData.dataUrl) {
@@ -55,17 +62,27 @@ export default function MobileQrModal({ isOpen, onClose, onDocumentUploaded }) {
 
     const uploadedDoc = {
       file: fileObj,
-      id: `PET-${uploadedData.sessionId ? uploadedData.sessionId.substring(0, 6).toUpperCase() : Math.floor(100 + Math.random() * 900)}`,
+      source_id: sourceId,
+      sourceId: sourceId,
+      id: sourceId ? `PET-${sourceId.slice(0, 8).toUpperCase()}` : `PET-${uploadedData.sessionId ? uploadedData.sessionId.substring(0, 6).toUpperCase() : Math.floor(100 + Math.random() * 900)}`,
       fileName: uploadedData.fileName || (isPdf ? 'mobile_petition.pdf' : 'mobile_petition.jpg'),
       fileSize: uploadedData.fileSize || (isPdf ? '2.4 MB' : '1.8 MB'),
       fileType: uploadedData.fileType || (isPdf ? 'PDF Document (Mobile)' : 'Scanned Image (Mobile)'),
       isPdf: isPdf,
       previewUrl: previewUrl,
+      documentFileUrl: documentFileUrl,
       uploadedAt: `Today at ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
-      totalPages: 1,
+      totalPages: uploadedData.page_count || 1,
       language: 'Tamil',
       confidenceScore: 95,
-      status: 'Processing',
+      status: uploadedData.status || 'uploaded',
+      duplicate_detected: Boolean(uploadedData.duplicate_detected),
+      duplicate_source_id: uploadedData.duplicate_source_id || null,
+      duplicate_petitioner_name: uploadedData.duplicate_petitioner_name || null,
+      duplicate_file_name: uploadedData.duplicate_file_name || null,
+      duplicate_summary: uploadedData.duplicate_summary || null,
+      duplicate_created_at: uploadedData.duplicate_created_at || uploadedData.created_at || null,
+      isMobileUpload: true,
       summary: '',
       portalDetails: null,
       rawOcrText: '',
@@ -77,6 +94,24 @@ export default function MobileQrModal({ isOpen, onClose, onDocumentUploaded }) {
       onClose();
     }, 900);
   }, [onDocumentUploaded, onClose]);
+
+  const generateQrForUrl = async (targetUrl) => {
+    try {
+      const dataUrl = await QRCode.toDataURL(targetUrl, {
+        width: 320,
+        margin: 2,
+        color: {
+          dark: '#102C57',
+          light: '#FFFFFF'
+        },
+        errorCorrectionLevel: 'M'
+      });
+      setQrDataUrl(dataUrl);
+      setCaptureUrl(targetUrl);
+    } catch (err) {
+      console.error('Failed to generate QR code:', err);
+    }
+  };
 
   const initSession = useCallback(async () => {
     setIsGenerating(true);
@@ -94,29 +129,29 @@ export default function MobileQrModal({ isOpen, onClose, onDocumentUploaded }) {
       const sessionResult = await createUploadSession();
       const newSessionId = typeof sessionResult === 'object' ? sessionResult.sessionId : sessionResult;
       const networkHost = typeof sessionResult === 'object' ? sessionResult.networkHost : null;
+      const hosts = (typeof sessionResult === 'object' && Array.isArray(sessionResult.availableHosts)) 
+        ? sessionResult.availableHosts 
+        : [];
 
       setSessionId(newSessionId);
       sessionIdRef.current = newSessionId;
+      setAvailableHosts(hosts);
 
       // Automatically route to public host if available or local network host
       let targetOrigin = window.location.origin;
       if ((window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') && networkHost) {
-        targetOrigin = networkHost;
+        try {
+          const parsed = new URL(networkHost);
+          const portPart = window.location.port ? `:${window.location.port}` : (parsed.port ? `:${parsed.port}` : '');
+          targetOrigin = `${window.location.protocol}//${parsed.hostname}${portPart}`;
+        } catch {
+          targetOrigin = networkHost;
+        }
       }
 
+      setSelectedHostUrl(targetOrigin);
       const targetUrl = `${targetOrigin}/capture/${newSessionId}`;
-      setCaptureUrl(targetUrl);
-
-      const dataUrl = await QRCode.toDataURL(targetUrl, {
-        width: 320,
-        margin: 2,
-        color: {
-          dark: '#102C57',
-          light: '#FFFFFF'
-        },
-        errorCorrectionLevel: 'M'
-      });
-      setQrDataUrl(dataUrl);
+      await generateQrForUrl(targetUrl);
 
       unsubscribeRef.current = subscribeToUpload(newSessionId, (uploadedData) => {
         handleUploadSuccess(uploadedData);
@@ -127,6 +162,22 @@ export default function MobileQrModal({ isOpen, onClose, onDocumentUploaded }) {
       setIsGenerating(false);
     }
   }, [handleUploadSuccess]);
+
+  const handleSwitchHost = (hostUrl) => {
+    if (!sessionIdRef.current) return;
+    try {
+      const parsed = new URL(hostUrl);
+      const portPart = window.location.port ? `:${window.location.port}` : (parsed.port ? `:${parsed.port}` : '');
+      const newOrigin = `${window.location.protocol}//${parsed.hostname}${portPart}`;
+      setSelectedHostUrl(newOrigin);
+      const targetUrl = `${newOrigin}/capture/${sessionIdRef.current}`;
+      generateQrForUrl(targetUrl);
+    } catch {
+      setSelectedHostUrl(hostUrl);
+      const targetUrl = `${hostUrl}/capture/${sessionIdRef.current}`;
+      generateQrForUrl(targetUrl);
+    }
+  };
 
   // Initialize new session when modal opens
   useEffect(() => {
@@ -199,6 +250,7 @@ export default function MobileQrModal({ isOpen, onClose, onDocumentUploaded }) {
       <div 
         className="qr-modal-card qr-centered-modal-card" 
         onClick={(e) => e.stopPropagation()}
+        style={{ maxWidth: '440px' }}
       >
         
         {/* Modal Header */}
@@ -246,11 +298,31 @@ export default function MobileQrModal({ isOpen, onClose, onDocumentUploaded }) {
               </div>
 
               <p className="qr-modal-instruction">
-                Scan this QR code with your phone to upload the petition (PDF document, camera photo, JPG, PNG & any image format).
+                Scan this QR code with your phone camera or open the direct link below.
               </p>
 
+              {/* Direct Link Badge */}
               {captureUrl && (
-                <div style={{ textAlign: 'center', margin: '2px 0 10px', fontSize: '0.78rem' }}>
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  background: '#F1F5F9',
+                  borderRadius: '6px',
+                  padding: '6px 10px',
+                  margin: '4px 0 10px',
+                  fontSize: '0.75rem',
+                  border: '1px solid #E2E8F0'
+                }}>
+                  <span style={{ 
+                    overflow: 'hidden', 
+                    textOverflow: 'ellipsis', 
+                    whiteSpace: 'nowrap', 
+                    fontFamily: 'monospace',
+                    color: '#334155'
+                  }}>
+                    {captureUrl}
+                  </span>
                   <button
                     type="button"
                     onClick={() => {
@@ -259,17 +331,58 @@ export default function MobileQrModal({ isOpen, onClose, onDocumentUploaded }) {
                       setTimeout(() => setCopied(false), 2000);
                     }}
                     style={{
-                      background: 'none',
-                      border: 'none',
+                      background: '#FFFFFF',
+                      border: '1px solid #CBD5E1',
+                      borderRadius: '4px',
+                      padding: '3px 7px',
                       color: '#2563EB',
                       cursor: 'pointer',
-                      textDecoration: 'underline',
-                      padding: 0,
-                      fontSize: '0.78rem'
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      fontSize: '0.72rem',
+                      fontWeight: 500,
+                      marginLeft: '8px',
+                      flexShrink: 0
                     }}
                   >
-                    {copied ? '✓ Direct Link Copied!' : 'Copy Direct Mobile Link'}
+                    {copied ? <Check size={12} color="#16A34A" /> : <Copy size={12} />}
+                    <span>{copied ? 'Copied' : 'Copy'}</span>
                   </button>
+                </div>
+              )}
+
+              {/* Multiple IP / Interface Switcher */}
+              {availableHosts.length > 1 && (
+                <div style={{ margin: '0 0 10px', textAlign: 'center' }}>
+                  <div style={{ fontSize: '0.7rem', color: '#64748B', marginBottom: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
+                    <Wifi size={11} />
+                    <span>Select Laptop Network Interface:</span>
+                  </div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', justifyContent: 'center' }}>
+                    {availableHosts.map((h, idx) => {
+                      const isSelected = selectedHostUrl.includes(h.ip);
+                      return (
+                        <button
+                          key={idx}
+                          type="button"
+                          onClick={() => handleSwitchHost(h.url || h.ip)}
+                          style={{
+                            fontSize: '0.7rem',
+                            padding: '2px 8px',
+                            borderRadius: '12px',
+                            border: isSelected ? '1px solid #2563EB' : '1px solid #CBD5E1',
+                            background: isSelected ? '#EFF6FF' : '#F8FAFC',
+                            color: isSelected ? '#1D4ED8' : '#475569',
+                            fontWeight: isSelected ? 600 : 400,
+                            cursor: 'pointer'
+                          }}
+                        >
+                          {h.name}: {h.ip}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
               )}
 

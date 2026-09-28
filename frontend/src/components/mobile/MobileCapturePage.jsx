@@ -14,6 +14,12 @@ import {
   Edit3
 } from 'lucide-react';
 import { uploadPetitionImage } from '../../services/uploadSessionService';
+import { 
+  saveMobileDraft, 
+  loadMobileDraft, 
+  deleteMobileDraft, 
+  downscaleMobilePhotoIfHuge 
+} from '../../utils/mobileStorage';
 import './MobileCapture.css';
 
 function getSessionIdFromLocation(propId) {
@@ -50,33 +56,27 @@ export default function MobileCapturePage({ sessionId: propSessionId }) {
   const docInputRef = useRef(null);
   const galleryInputRef = useRef(null);
 
-  // Restore draft from sessionStorage if mobile browser reloaded after opening camera
+  // Restore draft from IndexedDB if mobile browser reloads or unloads after opening camera
   useEffect(() => {
     if (!sessionId) return;
-    try {
-      const savedDraft = sessionStorage.getItem(`mobile_draft_${sessionId}`);
-      if (savedDraft) {
-        const parsed = JSON.parse(savedDraft);
-        if (parsed.dataUrl && parsed.fileDetails) {
-          setPreviewUrl(parsed.dataUrl);
-          setCustomFileName(parsed.customFileName || parsed.fileDetails.name || '');
-          setFileDetails(parsed.fileDetails);
-          
-          // Reconstruct File from dataUrl
-          fetch(parsed.dataUrl)
-            .then(res => res.blob())
-            .then(blob => {
-              const file = new File([blob], parsed.fileDetails.name || 'petition.jpg', {
-                type: parsed.fileDetails.type || blob.type || 'image/jpeg'
-              });
-              setSelectedFile(file);
-            })
-            .catch(err => console.warn('Draft restoration warning:', err));
-        }
-      }
-    } catch (e) {
-      console.warn('Session draft recovery error:', e);
-    }
+    let isMounted = true;
+
+    loadMobileDraft(sessionId)
+      .then((draft) => {
+        if (!isMounted || !draft || !draft.file) return;
+        const objectUrl = URL.createObjectURL(draft.file);
+        setSelectedFile(draft.file);
+        setPreviewUrl(objectUrl);
+        setCustomFileName(draft.customFileName || draft.meta?.name || '');
+        setFileDetails(draft.meta);
+      })
+      .catch((err) => {
+        console.warn('Draft restoration notice:', err);
+      });
+
+    return () => {
+      isMounted = false;
+    };
   }, [sessionId]);
 
   // Clean up object URLs on unmount or file change
@@ -88,18 +88,18 @@ export default function MobileCapturePage({ sessionId: propSessionId }) {
     };
   }, [previewUrl]);
 
-  const handleFileChange = (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const handleFileChange = async (e) => {
+    const rawFile = e.target.files?.[0];
+    if (!rawFile) return;
 
     const isPdf = Boolean(
-      (file.type && file.type === 'application/pdf') ||
-      (file.name && file.name.toLowerCase().endsWith('.pdf'))
+      (rawFile.type && rawFile.type === 'application/pdf') ||
+      (rawFile.name && rawFile.name.toLowerCase().endsWith('.pdf'))
     );
 
     const isImage = Boolean(
-      (file.type && file.type.startsWith('image/')) ||
-      (file.name && file.name.match(/\.(jpg|jpeg|png|webp|heic|bmp|tiff|tif|svg)$/i))
+      (rawFile.type && rawFile.type.startsWith('image/')) ||
+      (rawFile.name && rawFile.name.match(/\.(jpg|jpeg|png|webp|heic|bmp|tiff|tif|svg)$/i))
     );
 
     if (!isPdf && !isImage) {
@@ -108,27 +108,43 @@ export default function MobileCapturePage({ sessionId: propSessionId }) {
     }
 
     setErrorMessage('');
-    setSelectedFile(file);
 
-    const url = URL.createObjectURL(file);
-    setPreviewUrl(url);
+    // Safely downscale huge camera photos (e.g. 48MP) to 2400px at high JPEG quality
+    // This maintains crisp resolution for Tamil text while preventing mobile memory crashes
+    let processedFile = rawFile;
+    if (isImage) {
+      try {
+        processedFile = await downscaleMobilePhotoIfHuge(rawFile, 2400, 0.92);
+      } catch (scaleErr) {
+        console.warn('Downscaling fallback to original file:', scaleErr);
+        processedFile = rawFile;
+      }
+    }
 
-    const sizeFormatted = file.size > 1024 * 1024 
-      ? `${(file.size / (1024 * 1024)).toFixed(1)} MB` 
-      : `${Math.max(1, Math.round(file.size / 1024))} KB`;
+    if (previewUrl && previewUrl.startsWith('blob:')) {
+      URL.revokeObjectURL(previewUrl);
+    }
+
+    const objectUrl = URL.createObjectURL(processedFile);
+    setSelectedFile(processedFile);
+    setPreviewUrl(objectUrl);
+
+    const sizeFormatted = processedFile.size > 1024 * 1024 
+      ? `${(processedFile.size / (1024 * 1024)).toFixed(1)} MB` 
+      : `${Math.max(1, Math.round(processedFile.size / 1024))} KB`;
 
     // Detect extension from file name or default
-    const existingExtMatch = file.name ? file.name.match(/\.[0-9a-z]+$/i) : null;
+    const existingExtMatch = processedFile.name ? processedFile.name.match(/\.[0-9a-z]+$/i) : null;
     const defaultExt = isPdf ? '.pdf' : (existingExtMatch ? existingExtMatch[0] : '.jpg');
 
-    const initialName = file.name && !file.name.match(/^\d{10,}/) 
-      ? file.name 
+    const initialName = processedFile.name && !processedFile.name.match(/^\d{10,}/) 
+      ? processedFile.name 
       : `petition_${new Date().toISOString().slice(0, 10)}${defaultExt}`;
 
     const meta = {
       name: initialName,
       size: sizeFormatted,
-      type: file.type || (isPdf ? 'application/pdf' : 'image/jpeg'),
+      type: processedFile.type || (isPdf ? 'application/pdf' : 'image/jpeg'),
       isPdf: isPdf,
       lastModified: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     };
@@ -136,25 +152,11 @@ export default function MobileCapturePage({ sessionId: propSessionId }) {
     setCustomFileName(initialName);
     setFileDetails(meta);
 
-    // Cache to sessionStorage for mobile browser reload resilience
-    try {
-      const reader = new FileReader();
-      reader.onload = () => {
-        if (reader.result && sessionId) {
-          try {
-            sessionStorage.setItem(`mobile_draft_${sessionId}`, JSON.stringify({
-              dataUrl: reader.result,
-              customFileName: initialName,
-              fileDetails: meta
-            }));
-          } catch {
-            // Storage quota exceeded on giant images is safely ignored
-          }
-        }
-      };
-      reader.readAsDataURL(file);
-    } catch {
-      // Ignore FileReader errors
+    // Persist draft to IndexedDB for robust camera reload resilience
+    if (sessionId) {
+      saveMobileDraft(sessionId, processedFile, meta, initialName).catch((err) => {
+        console.warn('IndexedDB auto-save warning:', err);
+      });
     }
   };
 
@@ -167,9 +169,11 @@ export default function MobileCapturePage({ sessionId: propSessionId }) {
     setFileDetails(null);
     setCustomFileName('');
     setErrorMessage('');
-    try {
-      if (sessionId) sessionStorage.removeItem(`mobile_draft_${sessionId}`);
-    } catch {}
+    
+    if (sessionId) {
+      deleteMobileDraft(sessionId).catch(() => {});
+    }
+
     if (cameraInputRef.current) cameraInputRef.current.value = '';
     if (docInputRef.current) docInputRef.current.value = '';
     if (galleryInputRef.current) galleryInputRef.current.value = '';
@@ -203,13 +207,16 @@ export default function MobileCapturePage({ sessionId: propSessionId }) {
     try {
       await uploadPetitionImage(sessionId, selectedFile, finalFileName);
       setFileDetails(prev => ({ ...prev, name: finalFileName }));
-      try {
-        if (sessionId) sessionStorage.removeItem(`mobile_draft_${sessionId}`);
-      } catch {}
+      
+      // Clean up temporary draft from IndexedDB upon successful upload
+      if (sessionId) {
+        deleteMobileDraft(sessionId).catch(() => {});
+      }
+      
       setIsUploading(false);
       setUploadSuccess(true);
     } catch (err) {
-      console.error('Upload failed:', err);
+      console.error('Mobile upload error:', err);
       setIsUploading(false);
       setErrorMessage(err.message || 'Failed to upload petition. Please tap Upload Petition to retry.');
     }

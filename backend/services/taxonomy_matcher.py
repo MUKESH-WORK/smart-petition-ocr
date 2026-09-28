@@ -7,6 +7,170 @@ from typing import Dict, Any, Optional, List, Set
 logger = logging.getLogger(__name__)
 
 
+CANONICAL_PREDEFINED_TAXONOMY: List[Dict[str, str]] = [
+    {
+        "department": "Revenue and Disaster Management (REV)",
+        "department_code": "REV",
+        "sub_department": "Social Security Schemes (SSS) / Revenue Administration",
+        "grievance_type": "Social Security Schemes (SSS)",
+        "grievance_sub_type": "Old Age Pension (OAP)",
+        "responsible_officer": "Special Tahsildar (SSS) / Tahsildar"
+    },
+    {
+        "department": "Revenue and Disaster Management (REV)",
+        "department_code": "REV",
+        "sub_department": "Social Security Schemes (SSS) / Revenue Administration",
+        "grievance_type": "Destitute Widow Pension Scheme (DWPS) / Social Security Schemes",
+        "grievance_sub_type": "Destitute Widow Pension (DWP)",
+        "responsible_officer": "Special Tahsildar (SSS) / Tahsildar"
+    },
+    {
+        "department": "Revenue and Disaster Management (REV)",
+        "department_code": "REV",
+        "sub_department": "Social Security Schemes (SSS) / Revenue Administration",
+        "grievance_type": "Social Security Schemes (SSS)",
+        "grievance_sub_type": "Differently Abled Pension (DAP)",
+        "responsible_officer": "Special Tahsildar (SSS) / Tahsildar"
+    },
+    {
+        "department": "Revenue and Disaster Management (REV)",
+        "department_code": "REV",
+        "sub_department": "Revenue Administration",
+        "grievance_type": "Public Relief Fund / Financial Assistance",
+        "grievance_sub_type": "Chief Minister's Public Relief Fund (CMPRF)",
+        "responsible_officer": "District Collector / District Revenue Officer (DRO)"
+    },
+    {
+        "department": "Revenue and Disaster Management (REV)",
+        "department_code": "REV",
+        "sub_department": "Revenue Administration / Land Records",
+        "grievance_type": "Land Administration and Patta Transfer",
+        "grievance_sub_type": "Patta Transfer - Individual / Sub-division",
+        "responsible_officer": "Tahsildar / Zonal Deputy Tahsildar"
+    },
+    {
+        "department": "Revenue and Disaster Management (REV)",
+        "department_code": "REV",
+        "sub_department": "Revenue Administration / நில நிர்வாகம்",
+        "grievance_type": "Natham Patta /Free House Site Patta",
+        "grievance_sub_type": "Free House Site Patta (HSD)",
+        "responsible_officer": "Tahsildar, Erode"
+    },
+    {
+        "department": "Revenue and Disaster Management (REV)",
+        "department_code": "REV",
+        "sub_department": "Revenue Administration",
+        "grievance_type": "Land Encroachment",
+        "grievance_sub_type": "Eviction of Encroachments on Government Land / Pathway",
+        "responsible_officer": "Tahsildar / Revenue Divisional Officer (RDO)"
+    },
+    {
+        "department": "Revenue and Disaster Management (REV)",
+        "department_code": "REV",
+        "sub_department": "Revenue Administration",
+        "grievance_type": "Certificates and Verification",
+        "grievance_sub_type": "Legal Heir Certificate / Community Certificate",
+        "responsible_officer": "Tahsildar / Zonal Deputy Tahsildar"
+    },
+    {
+        "department": "Municipal Administration and Water Supply (MAWS)",
+        "department_code": "MAWS",
+        "sub_department": "Commissionerate of Municipal Administration (CMA)",
+        "grievance_type": "Drinking Water",
+        "grievance_sub_type": "New Water Connection - Household Water Connection",
+        "responsible_officer": "Commissioner Municipality, Commissioner Municipal Corporation, Executive Officer - Town Panchayat"
+    },
+    {
+        "department": "Municipal Administration and Water Supply (MAWS)",
+        "department_code": "MAWS",
+        "sub_department": "Commissionerate of Municipal Administration (CMA)",
+        "grievance_type": "Drinking Water",
+        "grievance_sub_type": "Insufficient Water Supply",
+        "responsible_officer": "Commissioner Municipality, Commissioner Municipal Corporation, Executive Officer - Town Panchayat"
+    },
+    {
+        "department": "Municipal Administration and Water Supply (MAWS)",
+        "department_code": "MAWS",
+        "sub_department": "Commissionerate of Municipal Administration (CMA)",
+        "grievance_type": "Street Lights - MAWS",
+        "grievance_sub_type": "Street Lights - MAWS",
+        "responsible_officer": "Commissioner Municipal Corporation / Municipality, Erode"
+    },
+    {
+        "department": "Municipal Administration and Water Supply (MAWS)",
+        "department_code": "MAWS",
+        "sub_department": "Commissionerate of Municipal Administration (CMA)",
+        "grievance_type": "Storm Water Drains - MAWS",
+        "grievance_sub_type": "Storm Water Drains - MAWS",
+        "responsible_officer": "Commissioner Municipal Corporation / Municipality, Erode"
+    },
+    {
+        "department": "Rural Development and Panchayat Raj Department (RDPR)",
+        "department_code": "RDPR",
+        "sub_department": "Rural Development and Panchayat Raj",
+        "grievance_type": "Village Infrastructure",
+        "grievance_sub_type": "Drinking Water Supply - RD",
+        "responsible_officer": "Block Development Officer - Village Panchayat"
+    },
+    {
+        "department": "Rural Development and Panchayat Raj Department (RDPR)",
+        "department_code": "RDPR",
+        "sub_department": "Rural Development and Panchayat Raj",
+        "grievance_type": "Village Infrastructure",
+        "grievance_sub_type": "Street Light - RD",
+        "responsible_officer": "Block Development Officer - Village Panchayat"
+    },
+    {
+        "department": "Rural Development and Panchayat Raj Department (RDPR)",
+        "department_code": "RDPR",
+        "sub_department": "Rural Development and Panchayat Raj",
+        "grievance_type": "Village Infrastructure",
+        "grievance_sub_type": "Drainage and Sewage Issues",
+        "responsible_officer": "Block Development Officer - Village Panchayat"
+    },
+    {
+        "department": "Higher Education Department (HIGHEDU)",
+        "department_code": "HIGHEDU",
+        "sub_department": "Director Of Collegiate Education",
+        "grievance_type": "Scholarship - High Edu",
+        "grievance_sub_type": "Scholarship - High Edu",
+        "responsible_officer": "Joint Director of Collegiate Education"
+    },
+    {
+        "department": "Information Technology Department (IT)",
+        "department_code": "IT",
+        "sub_department": "Commissionerate of eGovernance/Tamil Nadu e-Governance Agency",
+        "grievance_type": "Application Related Complaints - CeG",
+        "grievance_sub_type": "eSevai - Complaint related to Aadhaar Enrolment",
+        "responsible_officer": "e-sevai helpdesk"
+    },
+    {
+        "department": "Energy Department (ENERGY)",
+        "department_code": "ENERGY",
+        "sub_department": "TANGEDCO",
+        "grievance_type": "Electricity Supply and Metering",
+        "grievance_sub_type": "Low Voltage / Power Fluctuation / Transformer Repair",
+        "responsible_officer": "Section Officer (Distribution) - TANGEDCO"
+    },
+    {
+        "department": "Co-operation, Food and Consumer Protection Department (FOODCO)",
+        "department_code": "FOODCO",
+        "sub_department": "Civil Supplies and Consumer Protection",
+        "grievance_type": "Civil Supplies and Ration Services",
+        "grievance_sub_type": "Smart Card / Ration Card Services / PDS Supplies",
+        "responsible_officer": "District Supply Officer (DSO) / Taluk Supply Officer (TSO)"
+    },
+    {
+        "department": "General Administration",
+        "department_code": "GAD",
+        "sub_department": "General Administration / பொது நிர்வாகம்",
+        "grievance_type": "General Grievance",
+        "grievance_sub_type": "Public Grievance Redressal",
+        "responsible_officer": "துறை அலுவலர்"
+    }
+]
+
+
 class CMHelplineTaxonomyValidator:
     """
     Connects directly to backend/data/cm_helpline_taxonomy.json.
@@ -44,14 +208,18 @@ class CMHelplineTaxonomyValidator:
         return {
             "ஆக்கிரமிப்பு": ["encroachment"],
             "போக வழி": ["encroachment", "pathway"],
-            "வழிப்பாதை": ["encroachment", "road"],
+            "வழிப்பாதை": ["encroachment", "pathway"],
             "பட்டா": ["patta", "patta transfer"],
             "உட்பிரிவு": ["sub division", "survey"],
             "சர்வே": ["survey"],
             "வாரிசு": ["legal heir", "heir", "certificate"],
-            "விதவை": ["destitute widow", "widow", "pension"],
-            "முதியோர்": ["old age pension", "pension"],
-            "உதவித்தொகை": ["pension", "scholarship", "financial assistance"],
+            "விதவை": ["destitute widow", "widow", "pension", "dwps"],
+            "முதியோர்": ["old age pension", "pension", "oap", "social security"],
+            "உதவித்தொகை": ["pension", "financial assistance", "social security", "oap"],
+            "உதவித் தொகை": ["pension", "financial assistance", "social security", "oap"],
+            "உதவி தொகை": ["pension", "financial assistance", "social security", "oap"],
+            "நிதி உதவி": ["financial assistance", "pension", "social security"],
+            "வயது மூப்பு": ["old age pension", "pension", "oap", "social security"],
             "குடிநீர்": ["drinking water", "water supply"],
             "சாலை": ["road", "street"],
             "தெருவிளக்கு": ["street light", "lighting"],
@@ -86,7 +254,7 @@ class CMHelplineTaxonomyValidator:
     def load_taxonomy(self) -> None:
         """
         Dynamically loads and parses all records directly from cm_taxonomy_mappings in the database.
-        Zero hardcoded values, zero fallback JSON dependencies.
+        Falls back to authoritative predefined CM Helpline taxonomy records if DB / file is empty.
         Extracts departments, acronyms, grievance types, and sub-types entirely from authoritative data.
         """
         db_candidates = [
@@ -127,9 +295,16 @@ class CMHelplineTaxonomyValidator:
                     self.taxonomy = json.load(f)
             except Exception as e:
                 logger.error(f"Error loading taxonomy: {e}")
-                self.taxonomy = []
+                self.taxonomy = CANONICAL_PREDEFINED_TAXONOMY
         else:
-            self.taxonomy = []
+            self.taxonomy = CANONICAL_PREDEFINED_TAXONOMY
+            # Save to JSON path for future persistence
+            try:
+                os.makedirs(os.path.dirname(self.taxonomy_path), exist_ok=True)
+                with open(self.taxonomy_path, "w", encoding="utf-8") as f:
+                    json.dump(CANONICAL_PREDEFINED_TAXONOMY, f, ensure_ascii=False, indent=2)
+            except Exception as e:
+                logger.debug(f"Taxonomy cache file write notice: {e}")
 
         try:
             # Reset containers
@@ -164,7 +339,7 @@ class CMHelplineTaxonomyValidator:
 
             # Sort canonical departments dynamically
             self.departments = sorted(list(dept_set))
-            logger.info(f"Initialized {len(self.taxonomy)} taxonomy records, {len(self.departments)} departments from DB.")
+            logger.info(f"Initialized {len(self.taxonomy)} taxonomy records, {len(self.departments)} departments.")
         except Exception as e:
             logger.error(f"Error processing taxonomy records: {e}")
 
@@ -259,9 +434,9 @@ class CMHelplineTaxonomyValidator:
         departments extracted from cm_helpline_taxonomy.json.
         """
         if not dept_input:
-            return None
+            return "General Administration"
 
-        raw = dept_input.strip()
+        raw = str(dept_input).strip()
         raw_upper = raw.upper()
 
         # 1. Exact match against data departments
@@ -286,7 +461,28 @@ class CMHelplineTaxonomyValidator:
             if dept_core in raw.lower() or raw.lower() in dept_core:
                 return dept
 
-        return raw
+        # 4. Keyword / concept routing to official departments
+        raw_lower = raw.lower()
+        if any(k in raw_lower for k in ["revenue", "வருவாய்", "நில நிர்வாகம்", "social security", "சமூக பாதுகாப்பு", "ஓய்வூதியம்", "pension", "உதவித்தொகை", "உதவித் தொகை", "உதவி தொகை"]):
+            return self.department_acronyms.get("REV", "Revenue and Disaster Management (REV)")
+        if any(k in raw_lower for k in ["municipal", "water supply", "cma", "twad", "மாநகராட்சி", "நகராட்சி", "குடிநீர்"]):
+            return self.department_acronyms.get("MAWS", "Municipal Administration and Water Supply (MAWS)")
+        if any(k in raw_lower for k in ["rural", "panchayat", "ஊராட்சி", "பஞ்சாயத்து"]):
+            return self.department_acronyms.get("RDPR", "Rural Development and Panchayat Raj Department (RDPR)")
+        if any(k in raw_lower for k in ["education", "collegiate", "scholarship", "கல்வி", "கல்லூரி"]):
+            return self.department_acronyms.get("HIGHEDU", "Higher Education Department (HIGHEDU)")
+        if any(k in raw_lower for k in ["energy", "electricity", "tangedco", "மின்"]):
+            return self.department_acronyms.get("ENERGY", "Energy Department (ENERGY)")
+        if any(k in raw_lower for k in ["police", "home", "காவல்"]):
+            return self.department_acronyms.get("HOMEEXE", "Home, Prohibition and Excise Department (HOMEEXE)")
+        if any(k in raw_lower for k in ["civil supplies", "food", "ration", "ரேஷன்", "உணவு"]):
+            return self.department_acronyms.get("FOODCO", "Co-operation, Food and Consumer Protection Department (FOODCO)")
+        if any(k in raw_lower for k in ["technology", "it", "esevai", "ceg", "ஆதார்"]):
+            return self.department_acronyms.get("IT", "Information Technology Department (IT)")
+
+        # Reject unrecognized / hallucinated strings (e.g. "தேவாலய மாநாடு")
+        logger.warning(f"Unrecognized department '{raw}' rejected -> defaulting to 'General Administration'")
+        return "General Administration"
 
     def get_types_for_department(self, department: str) -> List[str]:
         """Returns all grievance types for a department from the JSON dataset."""
@@ -318,7 +514,7 @@ class CMHelplineTaxonomyValidator:
         3. Fills official sub_department and responsible_officer.
         4. Gracefully passes through if novel.
         """
-        dept_norm = self.normalize_department(detected_dept) or "General Administration / பொது நிர்வாகம்"
+        dept_norm = self.normalize_department(detected_dept) or "General Administration"
         gtype_in = (detected_type or "").strip()
         gsub_in = (detected_subtype or "").strip()
 
@@ -339,8 +535,8 @@ class CMHelplineTaxonomyValidator:
             item = self.subtypes_map[gsub_in.lower()]
             return {
                 "department": item["department"],
-                "grievance_type": item["grievance_type"] or gtype_in or "General Grievance",
-                "grievance_subtype": item["grievance_sub_type"] or gsub_in or "Public Grievance Redressal",
+                "grievance_type": item["grievance_type"] or "General Grievance",
+                "grievance_subtype": item["grievance_sub_type"] or "Public Grievance Redressal",
                 "sub_department": item.get("sub_department", ""),
                 "responsible_officer": item.get("responsible_officer", ""),
                 "validated": True,
@@ -350,7 +546,7 @@ class CMHelplineTaxonomyValidator:
         # Step 2: Semantic concept bridge for Tamil grievance terminology
         concept_terms = set()
         is_education_query = any(k in (gtype_in + " " + gsub_in + " " + petition_text).lower() for k in ["கல்வி", "படிப்பு", "கல்லூரி", "பள்ளி", "மாணவர்", "scholarship", "education", "degree"])
-        is_employee_query = any(k in (gtype_in + " " + gsub_in + " " + petition_text).lower() for k in ["employee", "பணியாளர்", "ஊழியர்", "ஆசிரியர் பணி", "ஓய்வூதியம்", "pension"])
+        is_employee_query = any(k in (gtype_in + " " + gsub_in + " " + petition_text).lower() for k in ["employee", "பணியாளர்", "ஊழியர்", "ஆசிரியர் பணி"])
 
         for tam_key, eng_synonyms in self.concept_map.items():
             if tam_key in gtype_in or tam_key in gsub_in or tam_key in petition_text:
@@ -363,7 +559,7 @@ class CMHelplineTaxonomyValidator:
         # If query is specifically about education/scholarship, do not lock into Revenue or mismatched departments
         if is_education_query and dept_norm and "education" not in dept_norm.lower() and "welfare" not in dept_norm.lower():
             search_items = self.taxonomy
-        elif dept_norm:
+        elif dept_norm and dept_norm != "General Administration" and dept_norm in self.dept_entries:
             search_items = self.dept_entries.get(dept_norm, self.taxonomy)
         else:
             search_items = self.taxonomy
@@ -389,7 +585,7 @@ class CMHelplineTaxonomyValidator:
                     score += 10.0
 
             # Penalize employee/pension grievances if the applicant is a citizen/student
-            if not is_employee_query and ("employee" in t_gtype or "pension" in t_gsub or "pension" in t_gtype):
+            if not is_employee_query and ("employee" in t_gtype or "pension" in t_gsub or "pension" in t_gtype) and is_education_query:
                 score -= 30.0
 
             # Subtype specific semantic constraints
@@ -404,6 +600,13 @@ class CMHelplineTaxonomyValidator:
                 if "temple land" in t_gsub or "temple land" in t_gtype:
                     score -= 40.0
 
+            # Financial assistance / Old Age Pension / Social Security Schemes priority
+            if any(s in query_text for s in ["உதவித்தொகை", "உதவித் தொகை", "உதவி தொகை", "நிதி உதவி", "வயது மூப்பு", "முதியோர்", "வேலைக்கு செல்ல முடியவில்லை", "வாழ்வாதாரம்"]):
+                if "social security" in t_gtype or "old age pension" in t_gsub or "oap" in t_gsub or "pension" in t_gsub:
+                    score += 40.0
+                if "revenue" in t_dept:
+                    score += 20.0
+
             # Encroachment priority for land/pathway grievances
             if any(e in query_text for e in ["encroachment", "ஆக்கிரமிப்பு", "பொதுப்பாதை", "முள்வேலி", "வழிப்பாதை"]):
                 if "encroachment" in t_gsub or "encroachment" in t_gtype or "eviction of encroachments" in t_gsub:
@@ -413,7 +616,7 @@ class CMHelplineTaxonomyValidator:
                             score += 20.0
 
             # Scholarship priority when seeking educational financial assistance
-            if any(s in query_text for s in ["scholarship", "உதவித்தொகை", "கல்வி உதவி"]):
+            if any(s in query_text for s in ["scholarship", "கல்வி உதவித்தொகை", "கல்வி உதவி"]):
                 if "scholarship" in t_gsub:
                     score += 35.0
                 elif "scholarship" in t_gtype:
@@ -470,14 +673,8 @@ class CMHelplineTaxonomyValidator:
 
         # If confident match found in taxonomy
         if best_item and best_score >= 10.0:
-            final_type = best_item["grievance_type"] or gtype_in or "General Grievance"
-            final_subtype = best_item["grievance_sub_type"] or gsub_in or "Public Grievance Redressal"
-
-            # Retain Tamil classification alongside official English taxonomy entry if input was in Tamil
-            if gtype_in and any('\u0B80' <= c <= '\u0BFF' for c in gtype_in) and gtype_in not in final_type:
-                final_type = f"{gtype_in} / {final_type}" if final_type else gtype_in
-            if gsub_in and any('\u0B80' <= c <= '\u0BFF' for c in gsub_in) and gsub_in not in final_subtype:
-                final_subtype = f"{gsub_in} / {final_subtype}" if final_subtype else gsub_in
+            final_type = best_item["grievance_type"] or "General Grievance"
+            final_subtype = best_item["grievance_sub_type"] or "Public Grievance Redressal"
 
             return {
                 "department": best_item["department"],
@@ -490,11 +687,11 @@ class CMHelplineTaxonomyValidator:
             }
 
         # Graceful passthrough with normalized department
-        fallback_dept = dept_norm or "General Administration / பொது நிர்வாகம்"
+        fallback_dept = dept_norm or "General Administration"
         return {
             "department": fallback_dept,
-            "grievance_type": gtype_in or "General Grievance",
-            "grievance_subtype": gsub_in or "Public Grievance Redressal",
+            "grievance_type": "General Grievance",
+            "grievance_subtype": "Public Grievance Redressal",
             "sub_department": f"{fallback_dept.split('(')[0].strip()} / நிர்வாகம்",
             "responsible_officer": "துறை அலுவலர்",
             "validated": False,

@@ -74,14 +74,24 @@ function usePetitionMetrics() {
       if (!response.ok) throw new Error('Unavailable');
       return response.json();
     };
-    Promise.allSettled([read('admin/stats'), read('grievance/history?limit=20')]).then(([stats, history]) => {
+    Promise.allSettled([read('admin/stats'), read('grievance/history?limit=100&officer_id=all')]).then(([stats, history]) => {
       if (!active) return;
       const petitions = history.status === 'fulfilled' && Array.isArray(history.value)
         ? [...new Map(history.value.map(item => [item.source_id, item])).values()] : null;
-      setMetrics({ loading: false, total: stats.status === 'fulfilled' && Number.isFinite(stats.value.total_sources) ? stats.value.total_sources : null,
-        success: petitions ? petitions.filter(item => ['draft_ready', 'officer_approved', 'pushed_to_dro'].includes(item.status)).length : null,
-        failures: petitions ? petitions.filter(item => ['failed', 'error'].includes(item.status)).length : null,
-        sample: petitions?.length ?? null, petitions });
+      
+      const statsData = stats.status === 'fulfilled' ? stats.value : {};
+      const totalCount = Number.isFinite(statsData.total_sources) ? statsData.total_sources : (Number.isFinite(statsData.total_petitions) ? statsData.total_petitions : null);
+      const successCount = Number.isFinite(statsData.success_count) ? statsData.success_count : (petitions ? petitions.filter(item => ['draft_ready', 'officer_approved', 'pushed_to_dro', 'completed'].includes(item.status)).length : null);
+      const failureCount = Number.isFinite(statsData.failure_count) ? statsData.failure_count : (petitions ? petitions.filter(item => ['failed', 'error', 'rejected'].includes(item.status)).length : null);
+
+      setMetrics({
+        loading: false,
+        total: totalCount,
+        success: successCount,
+        failures: failureCount,
+        sample: petitions?.length ?? null,
+        petitions
+      });
     }).finally(() => clearTimeout(timeout));
     return () => { active = false; controller.abort(); clearTimeout(timeout); };
   }, []);
@@ -115,12 +125,11 @@ export default function AdminDashboard({ state, dbHealth, commit, onNavigate, cu
     loadRealActivity();
   }, []);
 
-  const recentScope = metrics.sample === null ? (metrics.loading ? 'Loading…' : 'Unavailable') : `Latest ${metrics.sample} petitions`;
   const kpis = [
     { label: 'Active Users', value: state.users.filter(user => user.status === 'Active').length, note: 'Authoritative accounts in database' },
     { label: 'Total Petitions', value: metrics.total, note: metrics.loading ? 'Loading…' : metrics.total === null ? 'Unavailable' : 'All uploaded petitions' },
-    { label: 'Success', value: metrics.success, note: recentScope },
-    { label: 'Failures', value: metrics.failures, note: recentScope }
+    { label: 'Success', value: metrics.success, note: metrics.loading ? 'Loading…' : metrics.success === null ? 'Unavailable' : 'District-wide' },
+    { label: 'Failures', value: metrics.failures, note: metrics.loading ? 'Loading…' : metrics.failures === null ? 'Unavailable' : 'District-wide' }
   ];
   const taxonomyCounts = [
     ['Departments', taxStats ? taxStats.total_departments : (new Set(state.mappings.map(item => item.department.toLowerCase())).size || 40)],

@@ -74,15 +74,23 @@ export default function AuditLogsView({
     return (auditRecords || []).map((rec) => {
       const catLower = (rec.category || '').toLowerCase();
       const typeUpper = String(rec.type || '').toUpperCase();
-      const isSecurityOrSystem = 
-        catLower.includes('security') ||
-        catLower.includes('session') ||
-        catLower.includes('auth') ||
-        catLower.includes('hierarchy') ||
-        catLower.includes('taxonomy') ||
-        catLower.includes('master data') ||
-        catLower.includes('user') ||
-        ['LOGIN', 'LOGOUT', 'CONFIG', 'USER_CREATE', 'USER_UPDATE', 'USER_DELETE'].includes(typeUpper);
+      
+      let cat = rec.category;
+      if (!cat) {
+        if (['LOGIN', 'LOGOUT', 'AUTH', 'SESSION'].includes(typeUpper) || catLower.includes('security') || catLower.includes('session')) {
+          cat = 'Security & Session';
+        } else if (['CREATE_USER', 'UPDATE_USER', 'DELETE_USER', 'PASSWORD_RESET', 'USER'].includes(typeUpper) || catLower.includes('user')) {
+          cat = 'User Management';
+        } else if (['HIERARCHY', 'TALUK', 'FIRKA', 'VILLAGE', 'WARD'].includes(typeUpper) || catLower.includes('hierarchy')) {
+          cat = 'Administrative Hierarchy';
+        } else if (['TAXONOMY', 'MASTER_DATA', 'INGEST'].includes(typeUpper) || catLower.includes('taxonomy') || catLower.includes('master')) {
+          cat = 'Master Data';
+        } else if (['BACKUP', 'RESTORE'].includes(typeUpper) || catLower.includes('backup')) {
+          cat = 'System Backup';
+        } else {
+          cat = 'GDP Assistant';
+        }
+      }
 
       const hasPetitionData = Boolean(
         rec.rawPetition?.petition_number ||
@@ -93,26 +101,24 @@ export default function AuditLogsView({
         (rec.rawPetition && (String(rec.rawPetition.id || '').startsWith('PET-') || String(rec.rawPetition.id || '').startsWith('petition-')))
       );
 
-      const isGdpAssistantRecord = !isSecurityOrSystem && (
-        hasPetitionData ||
-        catLower.includes('gdp') ||
-        catLower.includes('petition') ||
-        catLower.includes('grievance') ||
-        ['UPLOAD', 'OCR', 'ANALYZE', 'PROCESS', 'APPROVE', 'INTEGRATE'].includes(typeUpper)
+      const isPetitionDoc = Boolean(
+        rec.source_id && rec.source_id !== 'SYS-AUDIT' && rec.source_id !== 'GDP-APP' && rec.source_id !== 'N/A'
       );
 
       return {
         id: rec.id || `AUD-${Math.floor(Math.random() * 100000)}`,
         timestamp: rec.timestamp || rec.uploadedAt || rec.date || new Date().toISOString(),
-        category: rec.category || (isGdpAssistantRecord ? 'GDP Assistant' : 'Security & Session'),
-        categoryLabel: rec.categoryLabel || rec.category || (isGdpAssistantRecord ? 'GDP Assistant' : 'Security & Session'),
+        category: cat,
+        categoryLabel: rec.categoryLabel || cat,
         type: rec.type || 'EVENT',
-        officer: rec.officer || rec.officer_id || 'SYSTEM',
-        officer_id: rec.officer_id || rec.officer || 'SYSTEM',
+        officer: rec.officer || rec.officer_name || rec.officer_id || 'SYSTEM',
+        officer_name: rec.officer_name || rec.officer || rec.officer_id || 'SYSTEM',
+        officer_id: rec.officer_id || 'SYSTEM',
+        actor: rec.actor || (rec.officer ? `${rec.officer}` : rec.officer_id || 'SYSTEM'),
         source_id: rec.source_id || rec.id || 'N/A',
-        details: rec.details || rec.summary || rec.fileName || '',
-        rawPetition: isGdpAssistantRecord ? (rec.rawPetition || rec) : null,
-        isClickable: isGdpAssistantRecord
+        details: rec.details || rec.detail || rec.summary || rec.fileName || '',
+        rawPetition: hasPetitionData ? (rec.rawPetition || rec) : null,
+        isClickable: isPetitionDoc && (hasPetitionData || Boolean(rec.source_id))
       };
     });
   }, [auditRecords]);
@@ -131,9 +137,10 @@ export default function AuditLogsView({
     });
     // 2. Incorporate officers from audit records
     realLogs.forEach((log) => {
-      const off = log.officer || log.officer_id;
-      if (off && !officerMap.has(String(off))) {
-        officerMap.set(String(off), String(off));
+      const off = log.officer || log.officer_name || log.officer_id;
+      const offId = log.officer_id || log.officer;
+      if (offId && !officerMap.has(String(offId))) {
+        officerMap.set(String(offId), String(off));
       }
     });
     return Array.from(officerMap.entries()).map(([id, label]) => ({ id, label }));
@@ -219,7 +226,7 @@ export default function AuditLogsView({
     if (name.includes('taxonomy') || name.includes('master') || type.includes('taxonomy') || type.includes('ingest')) {
       return { icon: Database, styleClass: 'cat-badge-purple', label: 'Master Data' };
     }
-    if (name.includes('hierarchy') || name.includes('taluk') || name.includes('village') || name.includes('block')) {
+    if (name.includes('hierarchy') || name.includes('taluk') || name.includes('village') || name.includes('block') || type.includes('hierarchy')) {
       return { icon: Layers, styleClass: 'cat-badge-blue', label: 'Hierarchy' };
     }
     if (name.includes('user') || type.includes('user') || type.includes('password') || type.includes('credential')) {
@@ -228,10 +235,13 @@ export default function AuditLogsView({
     if (name.includes('security') || name.includes('session') || type.includes('login') || type.includes('logout') || type.includes('auth')) {
       return { icon: ShieldCheck, styleClass: 'cat-badge-amber', label: 'Security & Auth' };
     }
+    if (name.includes('backup') || type.includes('backup') || type.includes('restore')) {
+      return { icon: Database, styleClass: 'cat-badge-green', label: 'System Backup' };
+    }
     if (name.includes('data') || name.includes('visualization')) {
       return { icon: BarChart2, styleClass: 'cat-badge-blue', label: 'Data & Analytics' };
     }
-    if (name.includes('gdp') || type.includes('upload') || type.includes('process') || type.includes('approve') || type.includes('integrate') || type.includes('petition')) {
+    if (name.includes('gdp') || type.includes('upload') || type.includes('process') || type.includes('approve') || type.includes('integrate') || type.includes('reprocess') || type.includes('reuse') || type.includes('petition')) {
       return { icon: MessageSquareText, styleClass: 'cat-badge-blue', label: 'GDP Assistant' };
     }
     return { icon: FileCheck, styleClass: 'cat-badge-green', label: catName || 'Audit Entry' };

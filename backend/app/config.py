@@ -91,7 +91,7 @@ class Settings(BaseSettings):
     LLM_KEEP_ALIVE_ENABLED: bool = True       # Keep LLM resident in VRAM
     
     # AI Semantic Cache
-    SEMANTIC_CACHE_ENABLED: bool = True
+    SEMANTIC_CACHE_ENABLED: bool = False      # Temporarily disabled to force fresh LLM calls for AI analysis
     SEMANTIC_CACHE_THRESHOLD: float = 0.92    # Vector cosine similarity threshold for cache hit
     SEMANTIC_CACHE_TTL_DAYS: int = 30         # Cache TTL in days
     

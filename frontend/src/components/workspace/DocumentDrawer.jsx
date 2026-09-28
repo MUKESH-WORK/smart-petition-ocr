@@ -16,7 +16,14 @@ export default function DocumentDrawer({
 
   const totalPages = petition?.totalPages || 1;
   const fileName = petition?.fileName || 'Document';
-  const hasPreview = Boolean(petition?.previewUrl);
+  const sourceId = petition?.source_id || petition?.sourceId;
+  const isPdf = Boolean(
+    petition?.isPdf ||
+    (petition?.fileType && petition.fileType.toLowerCase().includes('pdf')) ||
+    (fileName && fileName.toLowerCase().endsWith('.pdf'))
+  );
+  const effectivePreviewUrl = petition?.previewUrl || (sourceId ? `/api/v1/grievance/${sourceId}/file` : null);
+  const hasPreview = Boolean(effectivePreviewUrl);
 
   const handlePrevPage = () => {
     setCurrentPage((prev) => Math.max(prev - 1, 1));
@@ -67,15 +74,15 @@ export default function DocumentDrawer({
           <div className="drawer-canvas-container">
             <div className="document-sheet-wrapper">
               {hasPreview ? (
-                petition.isPdf ? (
+                isPdf ? (
                   <iframe
-                    src={petition.previewUrl}
+                    src={effectivePreviewUrl}
                     title={fileName}
                     className="real-uploaded-document-pdf"
                   />
                 ) : (
                   <img
-                    src={petition.previewUrl}
+                    src={effectivePreviewUrl}
                     alt={fileName}
                     className="real-uploaded-document-image"
                   />

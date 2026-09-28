@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { FileText, CheckCircle2, Loader2, Circle, ShieldCheck, AlertTriangle, RotateCcw, X, Copy, RefreshCw, Zap, Clock, User } from 'lucide-react';
-import { uploadAndAnalyzePetition } from '../../services/apiService';
+import { uploadAndAnalyzePetition, trackAndAnalyzeUploadedPetition } from '../../services/apiService';
 import './Upload.css';
 
 const PROCESSING_STEPS = [
@@ -74,9 +74,14 @@ export default function ProcessingOverlay({ petition, onComplete, onCancel }) {
     };
 
     // Official backend upload & analysis pipeline
-    const pipelinePromise = petition?.file
-      ? uploadAndAnalyzePetition(petition.file, onProgressCallback, abortController.signal, handleDuplicateDetected)
-      : Promise.resolve(petition);
+    let pipelinePromise;
+    if (petition?.file) {
+      pipelinePromise = uploadAndAnalyzePetition(petition.file, onProgressCallback, abortController.signal, handleDuplicateDetected);
+    } else if (petition?.source_id || petition?.sourceId) {
+      pipelinePromise = trackAndAnalyzeUploadedPetition(petition, onProgressCallback, abortController.signal, handleDuplicateDetected);
+    } else {
+      pipelinePromise = Promise.resolve(petition);
+    }
 
     pipelinePromise
       .then((realAnalyzedDoc) => {

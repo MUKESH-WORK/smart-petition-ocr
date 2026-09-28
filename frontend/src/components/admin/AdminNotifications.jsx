@@ -17,12 +17,14 @@ const ACTION_LABELS = {
 };
 
 function auditNotification(record) {
-  const action = ACTION_LABELS[record.action] || String(record.action || 'Activity recorded').replaceAll('_', ' ').toLowerCase();
+  const actionLabel = ACTION_LABELS[record.type || record.action] || record.detail || record.details;
   return {
-    id: `server:${record.id}:${record.timestamp}`,
-    detail: action,
-    actor: record.officer_id || 'System / Officer',
-    date: record.timestamp
+    id: String(record.id || `server:${record.timestamp || record.date}`),
+    detail: record.detail || record.details || actionLabel || String(record.action || 'Activity recorded').replaceAll('_', ' ').toLowerCase(),
+    actor: record.actor || (record.officer_name ? `${record.officer_name} (${record.officer_role || 'Officer'})` : (record.officer || record.officer_id || 'System / Officer')),
+    date: record.date || record.timestamp || new Date().toISOString(),
+    type: record.type || record.action || 'EVENT',
+    category: record.category || 'System'
   };
 }
 
@@ -92,7 +94,7 @@ export default function AdminNotifications({ activity = [], petitionActivity = [
       controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 10000);
       try {
-        const response = await fetch('/api/v1/admin/audit-logs?limit=100', {
+        const response = await fetch('/api/v1/admin/activity?limit=100', {
           headers: { 'X-Officer-Id': getOfficerId() },
           signal: controller.signal
         });
@@ -117,7 +119,7 @@ export default function AdminNotifications({ activity = [], petitionActivity = [
     }
 
     refresh();
-    const interval = setInterval(refresh, 30000);
+    const interval = setInterval(refresh, 20000);
     document.addEventListener('visibilitychange', refresh);
     window.addEventListener('focus', refresh);
     return () => {
@@ -129,16 +131,29 @@ export default function AdminNotifications({ activity = [], petitionActivity = [
     };
   }, []);
 
-  // Consolidate notifications from local actions, GDP workspace actions, and server audit records
+  // Consolidate notifications cleanly from unified activity feed without duplicates
   const notifications = useMemo(() => {
-    const local = (activity || []).map(item => ({ ...item, id: `local:${item.id}`, actor: 'Admin · Local action' }));
-    const session = (petitionActivity || []).filter(item => /^AUD-\d+$/.test(item.id)).map(item => ({
-      id: `session:${item.id}`, detail: item.details, actor: 'GDP Assistant', date: item.timestamp
-    }));
-    return [...local, ...session, ...serverActivity]
+    const pool = [];
+    const seen = new Set();
+
+    const addRecord = (item) => {
+      if (!item) return;
+      const id = String(item.id || item.date || Math.random());
+      if (!seen.has(id)) {
+        seen.add(id);
+        pool.push(auditNotification(item));
+      }
+    };
+
+    // Add server polled activities first
+    (serverActivity || []).forEach(addRecord);
+    // Add workspace activity feed
+    (activity || []).forEach(addRecord);
+
+    return pool
       .sort((a, b) => new Date(b.date) - new Date(a.date))
       .slice(0, 100);
-  }, [activity, petitionActivity, serverActivity]);
+  }, [activity, serverActivity]);
 
   // Determine whether an item is unread
   const isUnread = useCallback((item) => {

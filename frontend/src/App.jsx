@@ -13,7 +13,7 @@ import LoginPage from './components/auth/LoginPage';
 import AdminWorkspace from './components/admin/AdminWorkspace';
 import AdminNotifications from './components/admin/AdminNotifications';
 import { ChevronRight, ChevronLeft } from 'lucide-react';
-import { fetchAuditHistory, fetchPetitionBySourceId, logoutAdminSession, updateMyProfile, fetchAdminUsers } from './services/apiService';
+import { fetchAuditHistory, fetchAdminActivity, fetchPetitionBySourceId, logoutAdminSession, updateMyProfile, fetchAdminUsers } from './services/apiService';
 import ErrorBoundary from './components/common/ErrorBoundary';
 import PrivacyPolicyPage from './components/pages/PrivacyPolicyPage';
 import TermsPage from './components/pages/TermsPage';
@@ -296,9 +296,15 @@ function Workstation({ session, onLogout }) {
   const handleRefreshAudit = useCallback(async (officerId = null) => {
     try {
       const activeOfficerId = officerId || (!isAdmin ? (session?.officerId || session?.id || session?.user?.id || localStorage.getItem('officer_id')) : null);
-      const records = await fetchAuditHistory(activeOfficerId);
+      const [records, activities] = await Promise.all([
+        fetchAuditHistory(activeOfficerId),
+        isAdmin ? fetchAdminActivity(50) : Promise.resolve([])
+      ]);
       if (Array.isArray(records)) {
         setAuditRecords(records);
+      }
+      if (Array.isArray(activities) && activities.length > 0) {
+        setAdminActivity(activities);
       }
     } catch (err) {
       console.warn('Failed to refresh audit history:', err);
@@ -337,14 +343,16 @@ function Workstation({ session, onLogout }) {
         try {
           sessionStorage.setItem(ACTIVE_PETITION_KEY, JSON.stringify(finalPetition));
         } catch (e) {}
+        const currentOfficerName = officerProfile?.fullName || officerProfile?.name || session?.name || 'Officer';
         const auditEntry = {
           id: `AUD-${Date.now()}`,
           timestamp: new Date().toISOString(),
           category: 'GDP Assistant',
           categoryLabel: 'GDP Assistant',
-          officer: 'USER',
+          officer: currentOfficerName,
+          officer_id: session?.officerId || session?.id || 'OFFICER',
           source_id: finalPetition.source_id || finalPetition.id || 'SESSION-001',
-          details: `Processed: ${finalPetition.fileName} (${finalPetition.portalDetails?.grievanceType || 'Grievance Analysis Complete'})`,
+          details: `Processed: ${finalPetition.fileName || 'Petition'} (${finalPetition.portalDetails?.grievanceType || 'Grievance Analysis Complete'})`,
           rawPetition: finalPetition
         };
         setAuditRecords((records) => [auditEntry, ...records]);
@@ -354,19 +362,22 @@ function Workstation({ session, onLogout }) {
     });
     setViewState('workspace');
     setIsDrawerOpen(false);
-  }, []);
+  }, [officerProfile, session]);
 
   // Log user-submitted prompts in GDP Assistant to Audit Trail
   const handleLogUserMessage = (promptText, petition) => {
     if (!promptText) return;
+    const currentOfficerName = officerProfile?.fullName || officerProfile?.name || session?.name || 'Officer';
+    const cleanSnippet = promptText.length > 80 ? `${promptText.slice(0, 80)}...` : promptText;
     const newEntry = {
       id: `AUD-${Date.now()}`,
       timestamp: new Date().toISOString(),
       category: 'GDP Assistant',
       categoryLabel: 'GDP Assistant',
-      officer: 'USER',
+      officer: currentOfficerName,
+      officer_id: session?.officerId || session?.id || 'OFFICER',
       source_id: petition?.id || petition?.fileName || 'SESSION-001',
-      details: promptText,
+      details: `Assistant Query: "${cleanSnippet}"`,
       rawPetition: petition
     };
     setAuditRecords((prev) => [newEntry, ...prev]);

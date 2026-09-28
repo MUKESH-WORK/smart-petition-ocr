@@ -12,7 +12,7 @@ from sqlalchemy import text
 
 from models.database import get_db, get_admin_db, get_audit_db, is_admin_sqlite, AuditAsyncSessionLocal
 from models.schemas import QueueStatusResponse, MasterLocationCreate
-from app.dependencies import get_current_officer, get_optional_officer
+from app.dependencies import get_current_officer, get_optional_officer, log_audit_event
 
 logger = logging.getLogger(__name__)
 
@@ -150,17 +150,30 @@ async def admin_session_login(req: LoginRequest, db: AsyncSession = Depends(get_
             text("UPDATE admin_users SET status = 'Active', last_login = CURRENT_TIMESTAMP WHERE id = :id OR LOWER(email) = :email"),
             {"id": user_primary_id, "email": email}
         )
-        # Record live LOGIN activity event
+        # Record live LOGIN activity event in Admin DB
         await db.execute(text("""
-            INSERT INTO admin_activity_log (id, type, detail, officer_id, date)
-            VALUES (:id, 'LOGIN', :detail, :officer_id, :date)
+            INSERT INTO admin_activity_log (id, type, detail, officer_id)
+            VALUES (:id, 'LOGIN', :detail, :officer_id)
         """), {
             "id": f"ACT-{uuid.uuid4().hex[:8]}",
             "detail": f"Officer {user.get('name')} logged in (System status -> Active).",
-            "officer_id": user_primary_id,
-            "date": datetime.now(timezone.utc).isoformat()
+            "officer_id": user_primary_id
         })
         await db.commit()
+
+        # Also write 1:1 Security & Session event to decoupled Audit DB
+        await log_audit_event(
+            action="LOGIN",
+            source_id=None,
+            officer_id=user_primary_id,
+            details={
+                "officer_id": user_primary_id,
+                "name": user.get("name"),
+                "email": email,
+                "role": user.get("role") or ("District Administrator" if user.get("is_admin") else "Department User"),
+                "message": f"Officer {user.get('name')} logged in (System status -> Active)."
+            }
+        )
     except Exception as e:
         logger.debug(f"Admin DB login update notice: {e}")
 
@@ -233,17 +246,27 @@ async def admin_session_logout(
             text("UPDATE admin_users SET status = 'Inactive' WHERE id = :id OR LOWER(email) = :id_lower"),
             {"id": officer_id, "id_lower": str(officer_id).lower()}
         )
-        # Record live LOGOUT activity event
+        # Record live LOGOUT activity event in Admin DB
         await db.execute(text("""
-            INSERT INTO admin_activity_log (id, type, detail, officer_id, date)
-            VALUES (:id, 'LOGOUT', :detail, :officer_id, :date)
+            INSERT INTO admin_activity_log (id, type, detail, officer_id)
+            VALUES (:id, 'LOGOUT', :detail, :officer_id)
         """), {
             "id": f"ACT-{uuid.uuid4().hex[:8]}",
             "detail": f"Officer {officer_id} logged out.",
-            "officer_id": officer_id,
-            "date": datetime.now(timezone.utc).isoformat()
+            "officer_id": officer_id
         })
         await db.commit()
+
+        # Also write 1:1 Security & Session event to decoupled Audit DB
+        await log_audit_event(
+            action="LOGOUT",
+            source_id=None,
+            officer_id=officer_id,
+            details={
+                "officer_id": officer_id,
+                "message": f"Officer {officer_id} logged out."
+            }
+        )
     except Exception as e:
         logger.debug(f"Admin DB logout update notice: {e}")
 
@@ -1134,14 +1157,33 @@ async def get_system_stats(
     current_officer: Dict[str, Any] = Depends(get_current_officer),
     db: AsyncSession = Depends(get_db)
 ):
+    # Total sources / petitions across all officers
     sources_cnt = await db.execute(text("SELECT COUNT(*) FROM sources"))
+    
+    # Global district-wide successful petitions
+    success_cnt = await db.execute(text("""
+        SELECT COUNT(*) FROM sources 
+        WHERE status IN ('draft_ready', 'officer_approved', 'pushed_to_dro', 'completed')
+    """))
+    
+    # Global district-wide failed/error petitions
+    failure_cnt = await db.execute(text("""
+        SELECT COUNT(*) FROM sources 
+        WHERE status IN ('failed', 'error', 'rejected')
+    """))
+    
     chunks_cnt = await db.execute(text("SELECT COUNT(*) FROM document_chunks"))
     drafts_cnt = await db.execute(text("SELECT COUNT(*) FROM grievance_drafts"))
     approved_cnt = await db.execute(text("SELECT COUNT(*) FROM grievance_drafts WHERE officer_approved = TRUE"))
     audit_cnt = await db.execute(text("SELECT COUNT(*) FROM audit_log"))
 
+    total_sources_val = sources_cnt.scalar_one()
+
     return {
-        "total_sources": sources_cnt.scalar_one(),
+        "total_sources": total_sources_val,
+        "total_petitions": total_sources_val,
+        "success_count": success_cnt.scalar_one(),
+        "failure_count": failure_cnt.scalar_one(),
         "total_chunks": chunks_cnt.scalar_one(),
         "total_drafts": drafts_cnt.scalar_one(),
         "approved_drafts": approved_cnt.scalar_one(),
@@ -1167,19 +1209,16 @@ async def list_master_locations(
 
 @router.get("/audit-logs")
 async def list_audit_logs(
-    limit: int = 50,
+    limit: int = 100,
     action: Optional[str] = None,
+    officer_id: Optional[str] = None,
     current_officer: Dict[str, Any] = Depends(get_current_officer),
-    db: AsyncSession = Depends(get_audit_db)
+    db: AsyncSession = Depends(get_admin_db)
 ):
-    sql = """
-        SELECT * FROM audit_log
-        WHERE (:action IS NULL OR action = :action)
-        ORDER BY timestamp DESC
-        LIMIT :limit
     """
-    res = await db.execute(text(sql), {"action": action, "limit": limit})
-    return [dict(r) for r in res.mappings().all()]
+    Returns unified official audit log stream across admin actions and petition processing.
+    """
+    return await _get_unified_live_activities(db, limit=limit, officer_id=officer_id)
 
 
 # ---------------------------------------------------------
@@ -1701,6 +1740,33 @@ async def _get_unified_live_activities(
     combined = []
     eff_officer = officer_id if (officer_id and officer_id not in ["all", "ALL", ""]) else None
 
+    # Load officer directory map for authoritative name and role enrichment
+    officer_map = {}
+    try:
+        res_users = await db.execute(text("SELECT id, name, role, department, is_admin FROM admin_users"))
+        for u in res_users.mappings().all():
+            u_id = str(u["id"])
+            officer_map[u_id] = {
+                "name": u.get("name") or u_id,
+                "role": "District Administrator" if u.get("is_admin") else (u.get("role") or "Department User"),
+                "department": u.get("department") or "Revenue Administration"
+            }
+    except Exception as e:
+        logger.debug(f"User map preload notice: {e}")
+
+    # Helper to resolve actor string
+    def _resolve_officer(off_id: str):
+        if not off_id or off_id in ["SYSTEM", "None", "null"]:
+            return "System / GDP Co-Pilot", "System Automated", "SYSTEM"
+        info = officer_map.get(str(off_id))
+        if info:
+            return info["name"], info["role"], str(off_id)
+        if "ADM" in str(off_id).upper():
+            return "District Administrator", "Administrator", str(off_id)
+        if "DRO" in str(off_id).upper():
+            return "DRO Officer", "Revenue Officer", str(off_id)
+        return str(off_id), "Officer", str(off_id)
+
     # 1. Fetch from admin_activity_log
     try:
         if eff_officer:
@@ -1722,12 +1788,41 @@ async def _get_unified_live_activities(
             res = await db.execute(text(sql_admin), {"limit": limit})
 
         for r in res.mappings().all():
+            raw_type = str(r["type"] or "UPDATE").upper()
+            detail = str(r["detail"] or "Administrative event recorded")
+            raw_officer = str(r.get("officer_id") or "SYSTEM")
+            off_name, off_role, off_id = _resolve_officer(raw_officer)
+
+            # Categorize accurately
+            if raw_type in ["LOGIN", "LOGOUT", "AUTH", "SESSION"] or "logged in" in detail.lower() or "logged out" in detail.lower():
+                category = "Security & Session"
+            elif raw_type in ["CREATE_USER", "UPDATE_USER", "DELETE_USER", "PASSWORD_RESET"] or "user" in detail.lower() or "officer" in detail.lower():
+                category = "User Management"
+            elif raw_type in ["HIERARCHY", "TALUK", "FIRKA", "VILLAGE", "WARD"] or "hierarchy" in detail.lower():
+                category = "Administrative Hierarchy"
+            elif raw_type in ["TAXONOMY", "MASTER_DATA", "INGEST"] or "taxonomy" in detail.lower() or "grievance" in detail.lower():
+                category = "Master Data"
+            elif raw_type in ["BACKUP", "RESTORE"] or "backup" in detail.lower():
+                category = "System Backup"
+            elif raw_type in ["UPLOAD", "OCR", "PROCESS", "APPROVE", "INTEGRATE", "PETITION"] or "petition" in detail.lower():
+                category = "GDP Assistant"
+            else:
+                category = "Admin System"
+
             combined.append({
                 "id": str(r["id"]),
-                "type": str(r["type"] or "UPDATE"),
-                "detail": str(r["detail"] or "Administrative event recorded"),
+                "type": raw_type,
+                "category": category,
+                "categoryLabel": category,
+                "detail": detail,
                 "date": str(r["date"]) if r.get("date") else datetime.now(timezone.utc).isoformat(),
-                "officer_id": str(r.get("officer_id") or "SYSTEM")
+                "timestamp": str(r["date"]) if r.get("date") else datetime.now(timezone.utc).isoformat(),
+                "officer_id": off_id,
+                "officer": off_name,
+                "officer_name": off_name,
+                "officer_role": off_role,
+                "actor": f"{off_name} ({off_role})" if off_name != off_id else off_id,
+                "source_id": "SYS-AUDIT"
             })
     except Exception as e:
         logger.debug(f"Admin activity fetch notice: {e}")
@@ -1757,7 +1852,7 @@ async def _get_unified_live_activities(
                 row_id = r["id"]
                 timestamp = r["timestamp"]
                 source_id = str(r["source_id"] or "")
-                row_officer_id = r.get("officer_id") or "SYSTEM"
+                raw_officer_id = str(r.get("officer_id") or "SYSTEM")
                 action = str(r["action"] or "PETITION").upper()
 
                 details_raw = r.get("details")
@@ -1766,49 +1861,128 @@ async def _get_unified_live_activities(
                 except Exception:
                     details_obj = {}
 
+                off_name, off_role, off_id = _resolve_officer(raw_officer_id)
+                category = "GDP Assistant"
+
                 if action == "UPLOAD_PETITION":
                     act_type = "UPLOAD"
                     file_name = details_obj.get("file_name") or (f"Document {source_id[:8]}..." if source_id else "Petition document")
                     detail = f"Uploaded petition document ({file_name})."
+                elif action == "REPROCESS_DUPLICATE_PETITION":
+                    act_type = "REPROCESS"
+                    detail = f"Reprocess duplicate petition - {source_id[:8] if source_id else ''}"
+                elif action == "REUSE_DUPLICATE_PETITION":
+                    act_type = "REUSE"
+                    detail = f"Reuse verified duplicate petition - {source_id[:8] if source_id else ''}"
                 elif action == "ANALYSIS_COMPLETE":
                     act_type = "PROCESS"
                     detail = f"AI analysis and categorization completed for petition {source_id[:8] if source_id else ''}."
-                elif action == "OFFICER_APPROVED" or action == "APPROVE_AND_SUBMIT_PETITION":
+                elif action in ["OFFICER_APPROVED", "APPROVE_DRAFT", "APPROVE_AND_SUBMIT_PETITION"]:
                     act_type = "APPROVE"
                     dro_id = details_obj.get("dro_grievance_id")
                     detail = f"Officer approved grievance draft {f'({dro_id})' if dro_id else ''} for petition {source_id[:8] if source_id else ''}."
                 elif action == "PUSH_TO_DRO":
                     act_type = "INTEGRATE"
                     detail = f"Pushed approved petition {source_id[:8] if source_id else ''} to Revenue (DRO) repository."
+                elif action == "UPDATE_DRAFT":
+                    act_type = "UPDATE"
+                    detail = f"Updated petition draft details ({source_id[:8] if source_id else ''})."
+                elif action == "LOGIN":
+                    act_type = "LOGIN"
+                    category = "Security & Session"
+                    detail = details_obj.get("message") or f"Officer {off_name} logged in (System status -> Active)."
+                elif action == "LOGOUT":
+                    act_type = "LOGOUT"
+                    category = "Security & Session"
+                    detail = details_obj.get("message") or f"Officer {off_name} logged out."
                 else:
                     act_type = action.split("_")[0] if "_" in action else action
-                    detail = f"{action.replace('_', ' ').title()} - {source_id[:8] if source_id else ''}"
+                    detail = f"{action.replace('_', ' ').title()}{f' - {source_id[:8]}' if source_id else ''}"
 
                 combined.append({
                     "id": f"AUD-{row_id}",
                     "type": act_type,
+                    "category": category,
+                    "categoryLabel": category,
                     "detail": detail,
                     "date": str(timestamp) if timestamp else datetime.now(timezone.utc).isoformat(),
-                    "officer_id": str(row_officer_id)
+                    "timestamp": str(timestamp) if timestamp else datetime.now(timezone.utc).isoformat(),
+                    "officer_id": off_id,
+                    "officer": off_name,
+                    "officer_name": off_name,
+                    "officer_role": off_role,
+                    "actor": f"{off_name} ({off_role})" if off_name != off_id else off_id,
+                    "source_id": source_id or "GDP-APP"
                 })
     except Exception as e:
         logger.debug(f"User DB audit log merge notice: {e}")
 
-    # 3. Sort chronologically descending with timezone normalization
-    def _parse_sort_date(d_str: str) -> datetime:
-        try:
-            dt = datetime.fromisoformat(d_str.replace("Z", "+00:00"))
-        except Exception:
+    # 3. Timezone-normalized date parser and deduplicator
+    is_sqlite = bool(is_admin_sqlite)
+
+    def _parse_admin_date(d_val) -> datetime:
+        if not d_val:
+            return datetime.min.replace(tzinfo=timezone.utc)
+        if isinstance(d_val, datetime):
+            dt = d_val
+        else:
             try:
-                dt = datetime.strptime(d_str[:19], "%Y-%m-%d %H:%M:%S")
+                dt = datetime.fromisoformat(str(d_val).replace("Z", "+00:00"))
             except Exception:
-                return datetime.min.replace(tzinfo=timezone.utc)
+                try:
+                    dt = datetime.strptime(str(d_val)[:19], "%Y-%m-%d %H:%M:%S")
+                except Exception:
+                    return datetime.min.replace(tzinfo=timezone.utc)
+        if dt.tzinfo is None:
+            if is_sqlite:
+                dt = dt.replace(tzinfo=timezone.utc)
+            else:
+                dt = dt.astimezone() # Local server time to timezone-aware
+        return dt.astimezone(timezone.utc)
+
+    def _parse_audit_date(d_val) -> datetime:
+        if not d_val:
+            return datetime.min.replace(tzinfo=timezone.utc)
+        if isinstance(d_val, datetime):
+            dt = d_val
+        else:
+            try:
+                dt = datetime.fromisoformat(str(d_val).replace("Z", "+00:00"))
+            except Exception:
+                try:
+                    dt = datetime.strptime(str(d_val)[:19], "%Y-%m-%d %H:%M:%S")
+                except Exception:
+                    return datetime.min.replace(tzinfo=timezone.utc)
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)
-        return dt
+        return dt.astimezone(timezone.utc)
 
-    combined.sort(key=lambda x: _parse_sort_date(x["date"]), reverse=True)
-    return combined[:limit]
+    seen_keys = set()
+    deduped = []
+    
+    # Standardize timestamps for all items
+    for item in combined:
+        source_is_audit = str(item.get("id", "")).startswith("AUD-")
+        dt = _parse_audit_date(item["date"]) if source_is_audit else _parse_admin_date(item["date"])
+        item["date"] = dt.isoformat()
+        item["timestamp"] = dt.isoformat()
+        item["_dt"] = dt
+
+    # Sort descending by UTC timestamp
+    combined.sort(key=lambda x: x["_dt"], reverse=True)
+
+    for item in combined:
+        dt = item["_dt"]
+        bucket = int(dt.timestamp() / 60) # 1-minute window
+        key = f"{item.get('type')}_{item.get('officer_id')}_{bucket}"
+        if key not in seen_keys and item.get("id") not in seen_keys:
+            seen_keys.add(key)
+            seen_keys.add(item.get("id"))
+            # Clean up internal sorting helper
+            item.pop("_dt", None)
+            deduped.append(item)
+
+    return deduped[:limit]
 
 
 @router.get("/activity")

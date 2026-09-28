@@ -4,6 +4,7 @@ import json
 import tempfile
 import asyncio
 import logging
+from typing import Optional, List, Dict, Any
 from contextlib import asynccontextmanager
 
 # Ensure backend directory is in sys.path for robust imports across all processes
@@ -34,7 +35,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy import text
 
 from app.config import settings
-from app.routers import grievance, search, admin, translate
+from app.routers import grievance, search, admin, translate, petitions
 from models.database import engine, AsyncSessionLocal, init_db_schema, is_sqlite
 from services.job_queue import job_queue
 
@@ -208,6 +209,7 @@ app.mount("/static/media", StaticFiles(directory=settings.STATIC_MEDIA_DIR), nam
 
 # Mount API Routers
 app.include_router(grievance.router, prefix=settings.API_V1_STR)
+app.include_router(petitions.router, prefix=settings.API_V1_STR)
 app.include_router(search.router, prefix=settings.API_V1_STR)
 app.include_router(admin.router, prefix=settings.API_V1_STR)
 app.include_router(translate.router, prefix=settings.API_V1_STR)
@@ -341,7 +343,8 @@ async def root(request: Request):
 
 @app.get("/app")
 @app.get("/ui")
-async def serve_ui():
+@app.get("/capture/{session_id}")
+async def serve_ui(session_id: Optional[str] = None):
     """Explicit endpoint to serve the frontend application."""
     index_file = os.path.join(frontend_dist, "index.html")
     if os.path.isfile(index_file):

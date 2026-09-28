@@ -1037,16 +1037,21 @@ class EntityExtractor:
                             clean_g = clean_cand
                             break
 
-                if clean_g and not self._is_invalid_value(clean_g) and clean_g not in ["-", "--"] and not any(e["entity_type"] == "grievance_type" for e in entities):
-                    entities.append({
-                        "entity_type": "grievance_type",
-                        "entity_value": clean_g,
-                        "confidence": 0.95,
-                        "source_page": page_number,
-                        "extracted_by": "structural",
-                        "validation_status": "pending",
-                        "officer_corrected": False
-                    })
+                if clean_g and not self._is_invalid_value(clean_g) and clean_g not in ["-", "--"]:
+                    # If clean_g is a long narrative sentence or petition subject title, classify as petition_subject
+                    is_sentence_subject = len(clean_g) > 40 or any(m in clean_g for m in ["கோருதல்", "வேண்டி", "குறித்து", "தொடர்பாக", "விண்ணப்பம்", "அபாயம்", "பணிகளால்", "."])
+                    target_etype = "petition_subject" if is_sentence_subject else "grievance_type"
+                    
+                    if not any(e["entity_type"] == target_etype for e in entities):
+                        entities.append({
+                            "entity_type": target_etype,
+                            "entity_value": clean_g,
+                            "confidence": 0.95,
+                            "source_page": page_number,
+                            "extracted_by": "structural",
+                            "validation_status": "pending",
+                            "officer_corrected": False
+                        })
 
         # 5. Extract Door Number and Street Name from sender address block
         if not any(e["entity_type"] == "door_no" for e in entities):

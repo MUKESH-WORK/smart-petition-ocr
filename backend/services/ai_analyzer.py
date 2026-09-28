@@ -218,22 +218,42 @@ class AIAnalyzer:
                         pet_name = cs
                         break
 
-        g_type = entity_map.get("grievance_type", "")
-        if not g_type or g_type in ["பொது குறை", "-", "--", "None", "none", "unknown"] or len(g_type) <= 2:
+        raw_g = entity_map.get("grievance_type") or entity_map.get("petition_subject") or ""
+        if not raw_g or raw_g in ["பொது குறை", "-", "--", "None", "none", "unknown"] or len(raw_g) <= 2:
+            detected_category = None
+        elif len(raw_g) > 40 or any(m in raw_g for m in ["கோருதல்", "வேண்டி", "குறித்து", "தொடர்பாக", "விண்ணப்பம்", "அபாயம்", "பணிகளால்", "."]):
+            # Long sentence or subject phrase; do not use as taxonomy category
             detected_category = None
         else:
-            detected_category = g_type
+            detected_category = raw_g
 
-        if any(k in doc_text.lower() for k in ["குடிநீர்", "தண்ணீர்", "குடிநீர் இணைப்பு", "drinking water", "water connection", "water supply"]):
+        # Check financial assistance / pension FIRST before civic utilities
+        if any(k in doc_text.lower() for k in [
+            "உதவித்தொகை", "உதவித் தொகை", "உதவி தொகை", "நிதி உதவி", "நிதியுதவி",
+            "வயது மூப்பு", "முதியோர்", "ஓய்வூதியம்", "வேலைக்கு செல்ல முடியவில்லை",
+            "மகனோ", "மகளோ உதவி இல்லை", "oap", "pension", "financial assistance"
+        ]):
+            if any(w in doc_text.lower() for w in ["விதவை", "widow", "dwps", "ஆதரவற்ற விதவை"]):
+                detected_category = "விதவை ஓய்வூதியம் / உதவித்தொகை"
+            elif any(w in doc_text.lower() for w in ["கல்வி", "scholarship", "கல்லூரி"]):
+                detected_category = "கல்வி உதவித்தொகை"
+            elif any(w in doc_text.lower() for w in ["மாற்றுத்திறனாளி", "differently abled", "ஊனம்", "dap"]):
+                detected_category = "மாற்றுத்திறனாளி ஓய்வூதியம்"
+            else:
+                detected_category = "முதியோர் உதவித்தொகை / ஓய்வூதியம்"
+        elif any(k in doc_text.lower() for k in ["குடிநீர்", "தண்ணீர்", "குடிநீர் இணைப்பு", "drinking water", "water connection", "water supply"]):
             detected_category = "குடிநீர் வசதி"
         elif any(k in doc_text.lower() for k in ["தெருவிளக்கு", "பழுதடைந்த தெருவிளக்கு", "street light"]):
             detected_category = "தெருவிளக்கு வசதி"
         elif any(k in doc_text.lower() for k in ["கழிவுநீர்", "வடிகால்", "சாக்கடை", "drainage", "storm water", "sewage"]):
             detected_category = "கழிவுநீர் / வடிகால் வசதி"
+        elif any(k in doc_text.lower() for k in ["சாலைப்பணி", "சாலை பணி", "சாலை சீரமைப்பு", "சாலை பராமரிப்பு", "நெடுஞ்சாலை பணி", "விபத்து அபாயம்", "பழுதடைந்த சாலை"]):
+            detected_category = "சாலை வசதி / பராமரிப்பு"
 
         if not detected_category:
             for cat, keywords in {
-                "விதவை ஓய்வூதியம் / உதவித்தொகை": ["ஆதரவற்ற விதவை", "விதவை", "widow", "dwps", "dwp", "முதியோர் ஓய்வூதியம்", "ஓய்வூதியம்", "pension", "oap"],
+                "முதியோர் உதவித்தொகை / ஓய்வூதியம்": ["முதியோர்", "வயது மூப்பு", "உதவித்தொகை", "உதவித் தொகை", "உதவி தொகை", "நிதி உதவி", "ஓய்வூதியம்", "oap", "pension"],
+                "விதவை ஓய்வூதியம் / உதவித்தொகை": ["ஆதரவற்ற விதவை", "விதவை", "widow", "dwps", "dwp"],
                 "கல்வி உதவித்தொகை": ["கல்வி உதவித்தொகை", "கல்வி உதவி", "scholarship", "கல்லூரி உதவி", "மாணவர் கல்வி"],
                 "குடிநீர் வசதி": ["குடிநீர்", "தண்ணீர்", "நீர் வசதி", "water connection", "drinking water"],
                 "கழிவுநீர் / வடிகால் வசதி": ["கழிவுநீர்", "வடிகால்", "சாக்கடை", "drainage", "storm water", "sewage", "தூர்வார"],
@@ -242,7 +262,7 @@ class AIAnalyzer:
                 "வாரிசு சான்றிதழ்": ["வாரிசு", "இறப்பு", "சான்று", "சான்றிதழ்", "heir"],
                 "பட்டா மாறுதல்": ["பட்டா மாறுதல்", "பட்டா பெயர் மாற்றம்", "உட்பிரிவு", "patta transfer"],
                 "பட்டா / நிலம்": ["நில", "பட்டா", "சர்வே", "land", "patta", "நத்தம்"],
-                "சாலை வசதி": ["சாலை", "road", "பாலம்", "bridge", "தெரு"],
+                "சாலை வசதி": ["சாலைப்பணி", "சாலை பராமரிப்பு", "சாலை சீரமைப்பு", "விபத்து அபாயம்"],
                 "மின்சார வசதி": ["மின்", "electric", "electricity", "eb"],
                 "ஆதார் / பெயர் மாற்றம்": ["ஆதார் திருத்தம்", "ஆதார் பெயர் மாற்றம்", "ஆதார் அட்டை சேர்க்கை"],
                 "வருவாய்த்துறை": ["வருவாய்", "revenue"],
@@ -277,6 +297,12 @@ class AIAnalyzer:
             f_gsub = tax_match["grievance_subtype"]
             f_subdept = tax_match.get("sub_department")
             f_respoff = tax_match.get("responsible_officer")
+        elif any(w in (detected_category + " " + doc_text) for w in ["முதியோர்", "உதவித்தொகை", "உதவித் தொகை", "உதவி தொகை", "நிதி உதவி", "வயது மூப்பு", "வேலைக்கு செல்ல முடியவில்லை"]):
+            dept = "Revenue and Disaster Management (REV)"
+            f_gtype = "Social Security Schemes (SSS)"
+            f_gsub = "Old Age Pension (OAP)"
+            f_subdept = "Social Security Schemes (SSS) / Revenue Administration"
+            f_respoff = "Special Tahsildar (SSS) / Tahsildar"
         elif "குடிநீர்" in (detected_category + " " + doc_text) or "தண்ணீர்" in (detected_category + " " + doc_text) or "water" in doc_text.lower():
             dept = "Municipal Administration and Water Supply (MAWS)"
             f_gtype = "Drinking Water"
@@ -295,7 +321,7 @@ class AIAnalyzer:
             f_gsub = "Storm Water Drains - MAWS"
             f_subdept = "Commissionerate of Municipal Administration (CMA)"
             f_respoff = "Commissioner Municipality, Commissioner Municipal Corporation, Executive Officer - Town Panchayat"
-        elif "விதவை" in (detected_category + " " + doc_text) or "dwps" in doc_text.lower() or "ஓய்வூதியம்" in (detected_category + " " + doc_text):
+        elif "விதவை" in (detected_category + " " + doc_text) or "dwps" in doc_text.lower() or "widow" in doc_text.lower():
             dept = "Revenue and Disaster Management (REV)"
             f_gtype = "Destitute Widow Pension Scheme (DWPS) / Social Security Schemes"
             f_gsub = "Destitute Widow Pension (DWP)"
@@ -309,10 +335,15 @@ class AIAnalyzer:
             f_respoff = "Joint Director of Collegiate Education"
         else:
             dept = "General Administration"
-            f_gtype = detected_category
-            f_gsub = f"{detected_category} கோரிக்கை"
+            f_gtype = "General Grievance"
+            f_gsub = "Public Grievance Redressal"
+            f_subdept = "General Administration / பொது நிர்வாகம்"
+            f_respoff = "துறை அலுவலர்"
 
-        if "குடிநீர்" in (detected_category + " " + doc_text) or "தண்ணீர்" in (detected_category + " " + doc_text) or "water" in doc_text.lower():
+        if any(w in (detected_category + " " + doc_text) for w in ["முதியோர்", "உதவித்தொகை", "உதவித் தொகை", "உதவி தொகை", "நிதி உதவி", "வயது மூப்பு", "வேலைக்கு செல்ல முடியவில்லை"]):
+            summary_ta = f"மனுதாரர் {pet_name or 'மனுதாரர்'}, வயது மூப்பு மற்றும் உடல்நலக்குறைவு காரணமாக வேலைக்குச் செல்ல இயலாத நிலையில் உள்ளதாலும், ஆதரவளிக்க மகன், மகள் எவரும் இல்லாததாலும், வாழ்வாதாரத்திற்கு அரசின் சமூக பாதுகாப்பு திட்டத்தின் கீழ் முதியோர் உதவித்தொகை (Old Age Pension) வழங்கிடக் கோரி மனு அளித்துள்ளார்."
+            summary_en = f"Petitioner {pet_name or 'Applicant'}, unable to work due to advanced age and ill health with no family support, has requested financial assistance / Old Age Pension (OAP) under the government Social Security Schemes."
+        elif "குடிநீர்" in (detected_category + " " + doc_text) or "தண்ணீர்" in (detected_category + " " + doc_text) or "water" in doc_text.lower():
             loc_str = f"{loc} பகுதியில்" if loc else "பகுதியில்"
             summary_ta = f"மனுதாரர் {pet_name or 'மனுதாரர்'}, {loc_str} போதிய குடிநீர் விநியோகம் இல்லாததால், முறையான குடிநீர் இணைப்பு வழங்கி தினசரி தடையின்றி குடிநீர் விநியோகம் செய்யுமாறு உரிய நடவடிக்கை கோரியுள்ளார்."
             summary_en = f"Petitioner {pet_name or 'Applicant'} has requested proper drinking water connection and regular daily water supply in {loc or 'the area'}."
@@ -327,6 +358,10 @@ class AIAnalyzer:
         elif "கல்வி" in detected_category or "scholarship" in doc_text.lower() or "கல்வி உதவி" in doc_text:
             summary_ta = f"மனுதாரர் {pet_name or ''} ஏழை குடும்பத்தைச் சேர்ந்தவர். குடும்ப வறுமை சூழ்நிலையில் கல்லூரி படிப்பைத் தொடர அரசு முதலமைச்சரின் கல்வி உதவித்தொகை (Scholarship) திட்டத்தின் கீழ் நிதி உதவி வழங்குமாறு கோரியுள்ளார்."
             summary_en = f"Petitioner {pet_name or 'Applicant'} from an economically disadvantaged family has requested financial assistance under the Chief Minister's Scholarship Scheme to continue higher education studies."
+        elif any(k in (detected_category + " " + doc_text).lower() for k in ["சாலைப்பணி", "சாலை பணி", "சாலை சீரமைப்பு", "சாலை பராமரிப்பு", "விபத்து அபாயம்"]):
+            loc_str = f"{loc} பகுதியில்" if loc else "பகுதியில்"
+            summary_ta = f"மனுதாரர் {pet_name or 'மனுதாரர்'}, {loc_str} சாலை பணிகளால் ஏற்படும் விபத்து அபாயத்தைத் தடுத்து, தகுந்த எச்சரிக்கைப் பலகைகள் / வேகத்தடைகள் அமைத்து சாலையை விரைந்து சீரமைக்க உரிய நடவடிக்கை கோரியுள்ளார்."
+            summary_en = f"Petitioner {pet_name or 'Applicant'} has requested necessary road safety measures, warning signs/speed breakers, and expeditious completion of road works in {loc or 'the area'} to prevent accidents."
         else:
             parts = []
             if pet_name:
@@ -474,12 +509,14 @@ class AIAnalyzer:
         # Scoping taxonomy candidates from CM Helpline master data
         dept_keyword = None
         for kw in [
+            "உதவித்தொகை", "உதவித் தொகை", "உதவி தொகை", "நிதி உதவி", "நிதியுதவி", "வயது மூப்பு", "முதியோர்", "oap",
+            "ஆதரவற்ற விதவை", "விதவை", "dwps", "widow", "ஓய்வூதியம்",
             "குடிநீர்", "தண்ணீர்", "drinking water", "water connection", "water supply",
             "தெருவிளக்கு", "விளக்கு", "street light", "lighting",
             "கழிவுநீர்", "வடிகால்", "சாக்கடை", "drainage", "storm water", "sewage", "தூர்வார",
-            "ஆதரவற்ற விதவை", "விதவை", "dwps", "widow", "முதியோர்", "oap", "ஓய்வூதியம்",
             "கல்வி", "scholarship", "ஆக்கிரமிப்பு", "encroachment", "பட்டா", "patta",
-            "மின்சாரம்", "ரேஷன்", "வாரிசு", "சாலை",
+            "மின்சாரம்", "ரேஷன்", "வாரிசு",
+            "சாலைப்பணி", "சாலை பராமரிப்பு", "சாலை சீரமைப்பு", "விபத்து அபாயம்",
             "ஆதார் திருத்தம்", "ஆதார் அட்டை", "esevai", "ceg"
         ]:
             if kw in (zone_a + " " + zone_b).lower():
@@ -501,12 +538,16 @@ class AIAnalyzer:
         llm_data: Dict[str, Any] = {}
         raw_response = ""
 
-        # 2a. Check AI Semantic Cache (bypasses LLM in ~30ms if >=0.92 cosine match found)
+        # 2a. Check AI Semantic Cache (bypasses LLM in ~30ms if >=0.92 cosine match found and enabled)
         try:
             from services.semantic_cache import semantic_cache
-            cache_hit = await semantic_cache.lookup(db, prompt)
+            cache_hit = await semantic_cache.lookup(db, prompt, source_id=str(source_id))
             if cache_hit and cache_hit.get("data"):
-                logger.info(f"⚡ [SEMANTIC CACHE HIT] Bypassing LLM: {cache_hit.get('cache_type')} (sim={cache_hit.get('similarity')})")
+                logger.info(
+                    f"⚡ [SEMANTIC CACHE HIT] Bypassing LLM for source {source_id}: "
+                    f"{cache_hit.get('cache_type')} (sim={cache_hit.get('similarity')}, "
+                    f"cache_id={cache_hit.get('cache_id')})"
+                )
                 llm_data = cache_hit["data"]
         except Exception as c_err:
             logger.debug(f"Semantic cache lookup note: {c_err}")
@@ -863,8 +904,27 @@ class AIAnalyzer:
             )
         )
 
+        # Domain routing: Destitute Widow Pension (DWPS) / Social Security Schemes (OAP / Financial Assistance)
+        if any(k in (p_gtype + " " + p_gsub + " " + doc_context).lower() for k in [
+            "dwps", "ஆதரவற்ற விதவை", "விதவை உதவி", "விதவை ஓய்வூதியம்", "விதவை", "destitute widow", "widow pension",
+            "முதியோர்", "oap", "உதவித்தொகை", "உதவித் தொகை", "உதவி தொகை", "நிதி உதவி", "நிதியுதவி",
+            "வயது மூப்பு", "வேலைக்கு செல்ல முடியவில்லை", "மகனோ", "மகளோ உதவி இல்லை", "social security schemes"
+        ]):
+            p_dept = "Revenue and Disaster Management (REV)"
+            if any(w in (p_gtype + " " + p_gsub + " " + doc_context).lower() for w in ["விதவை", "widow", "dwps", "ஆதரவற்ற விதவை"]):
+                p_gtype = "Destitute Widow Pension Scheme (DWPS) / Social Security Schemes"
+                p_gsub = "Destitute Widow Pension (DWP)"
+            elif any(w in (p_gtype + " " + p_gsub + " " + doc_context).lower() for w in ["differently abled", "மாற்றுத்திறனாளி", "ஊனம்", "dap"]):
+                p_gtype = "Social Security Schemes (SSS)"
+                p_gsub = "Differently Abled Pension (DAP)"
+            else:
+                p_gtype = "Social Security Schemes (SSS)"
+                p_gsub = "Old Age Pension (OAP)"
+            p_subdept = "Social Security Schemes (SSS) / Revenue Administration"
+            p_resp_off = "Special Tahsildar (SSS) / Tahsildar"
+
         # Domain routing: Free HSD / Natham Patta / Free House Site Patta
-        if any(k in (p_gtype + " " + p_gsub + " " + doc_context).lower() for k in ["free hsd", "hsd", "house site", "வீட்டு மனை", "natham patta"]):
+        elif any(k in (p_gtype + " " + p_gsub + " " + doc_context).lower() for k in ["free hsd", "hsd", "house site", "வீட்டு மனை", "natham patta"]):
             p_dept = "Revenue and Disaster Management (REV)"
             p_gtype = "Natham Patta /Free House Site Patta"
             p_gsub = "Natham Patta /Free House Site Patta"
@@ -928,14 +988,6 @@ class AIAnalyzer:
                 p_subdept = "Commissionerate of Municipal Administration (CMA)"
                 p_resp_off = "Commissioner Municipal Corporation / Municipality, Erode"
 
-        # Domain routing: Destitute Widow Pension (DWPS) / Social Security Schemes (OAP)
-        elif any(k in (p_gtype + " " + p_gsub + " " + doc_context).lower() for k in ["dwps", "ஆதரவற்ற விதவை", "விதவை உதவி", "விதவை ஓய்வூதியம்", "விதவை", "destitute widow", "widow pension", "முதியோர் ஓய்வூதியம்", "oap"]):
-            p_dept = "Revenue and Disaster Management (REV)"
-            p_gtype = "Destitute Widow Pension Scheme (DWPS) / Social Security Schemes"
-            p_gsub = "Destitute Widow Pension (DWP)"
-            p_subdept = "Social Security Schemes (SSS) / Revenue Administration"
-            p_resp_off = "Special Tahsildar (SSS) / Tahsildar"
-
         # Domain routing: Higher Education Scholarship
         elif any(k in (p_gtype + " " + p_gsub + " " + doc_context).lower() for k in ["scholarship", "கல்வி உதவி", "கல்வி உதவித்தொகை", "கல்லூரி படிப்பு", "பல்கலைக்கழக"]):
             if "higher education" not in p_dept.lower() and "social justice" not in p_dept.lower() and "minorities" not in p_dept.lower():
@@ -989,15 +1041,31 @@ class AIAnalyzer:
 
         # Enforce formal third-person administrative Tamil summary and discard OCR noise
         OCR_JUNK_TOKENS = ["பிளூப்ரீவ்", "ப்ளூப்ரிண்ட்", "வட்டாராசிரியர்", "ராஷ்ட்ர கலா", "தோட்டாரன்", "டி. சி. பட்டணம்", "அடிசூ", "ஷாவ்", "ரயல்"]
+        is_financial_help = any(k in (p_gtype + " " + p_gsub + " " + doc_context).lower() for k in [
+            "உதவித்தொகை", "உதவித் தொகை", "உதவி தொகை", "நிதி உதவி", "நிதியுதவி", 
+            "வயது மூப்பு", "முதியோர்", "வேலைக்கு செல்ல முடியவில்லை", "oap", "social security"
+        ])
         is_drinking_water = any(k in doc_context for k in ["குடிநீர்", "தண்ணீர்", "water supply"])
         is_street_light = any(k in (p_gtype + " " + p_gsub + " " + doc_context).lower() for k in ["தெருவிளக்கு", "street light", "விளக்குகள்", "மின்விளக்கு"])
         is_drainage = any(k in (p_gtype + " " + p_gsub + " " + doc_context).lower() for k in ["கழிவுநீர்", "வடிகால்", "சாக்கடை", "drainage", "storm water", "sewage"])
+        is_road_work = any(k in (p_gtype + " " + p_gsub).lower() for k in ["road", "highway", "சாலை"]) or any(k in doc_context.lower() for k in ["சாலைப்பணி", "சாலை பணி", "சாலை பராமரிப்பு", "சாலை சீரமைப்பு", "விபத்து அபாயம்"])
 
-        if is_drinking_water:
+        if is_financial_help:
+            # Discard garbled LLM repetitions like 'விளையாட்டம்' or header leaks like 'அனுப்புநர்', 'குறைதீர்'
+            if (
+                not summary_ta or 
+                "விளையாட்டம்" in summary_ta or 
+                "அனுப்புநர்" in summary_ta or 
+                "பெறுநர்" in summary_ta or 
+                "குறைதீர் கூட்டம்" in summary_ta or
+                not any(k in summary_ta for k in ["உதவி", "ஓய்வூதியம்", "பராமரிப்பு", "வாழ்வாதார", "வயது மூப்பு"])
+            ):
+                summary_ta = None
+        elif is_drinking_water:
             summary_ta = None
-        if is_street_light and summary_ta and not any(k in summary_ta for k in ["தெருவிளக்கு", "விளக்கு", "மின்விளக்கு"]):
+        elif is_street_light and summary_ta and not any(k in summary_ta for k in ["தெருவிளக்கு", "விளக்கு", "மின்விளக்கு"]):
             summary_ta = None
-        if is_drainage and summary_ta and not any(k in summary_ta for k in ["வடிகால்", "கழிவுநீர்", "சாக்கடை", "drain"]):
+        elif is_drainage and summary_ta and not any(k in summary_ta for k in ["வடிகால்", "கழிவுநீர்", "சாக்கடை", "drain"]):
             summary_ta = None
 
         if not summary_ta or any(junk in summary_ta for junk in OCR_JUNK_TOKENS) or "சந்திரசேகர்" in (summary_ta or ""):
@@ -1013,7 +1081,10 @@ class AIAnalyzer:
             loc_part = re.sub(r'\b([A-Za-z\u0B80-\u0BFF\s]+?)\s+\1\b', r'\1', loc_part).strip()
             loc_str = f"{loc_part} பகுதியில்" if loc_part else "பகுதியில்"
 
-            if is_drinking_water:
+            if is_financial_help:
+                summary_ta = f"மனுதாரர் {p_name or 'மனுதாரர்'}, வயது மூப்பு மற்றும் உடல்நலக்குறைவு காரணமாக வேலைக்குச் செல்ல இயலாத நிலையில் உள்ளதாலும், ஆதரவளிக்க மகன், மகள் எவரும் இல்லாததாலும், வாழ்வாதாரத்திற்கு அரசின் சமூக பாதுகாப்பு திட்டத்தின் கீழ் முதியோர் உதவித்தொகை (Old Age Pension) வழங்கிடக் கோரி மனு அளித்துள்ளார்."
+                summary_en = f"Petitioner {p_name or 'Applicant'}, unable to work due to advanced age and ill health with no family support, has requested financial assistance / Old Age Pension (OAP) under the government Social Security Schemes."
+            elif is_drinking_water:
                 has_water_conn = any(w in doc_context for w in [
                     "குடிநீர் இணைப்பு", "புதிய இணைப்பு", "வீட்டு இணைப்பு", "குழாய் இணைப்பு", 
                     "water connection", "new connection", "household water connection"
@@ -1026,10 +1097,15 @@ class AIAnalyzer:
                 summary_ta = f"மனுதாரர் {p_name or 'மனுதாரர்'}, {p_district or 'ஈரோடு'} மாவட்டம் {p_taluk or 'ஈரோடு'} வட்டம் {loc_str} பழுதடைந்து எரியாமல் உள்ள தெருவிளக்குகளை ஆய்வு செய்து புதிய விளக்குகள் பொருத்தி சீரமைத்து தருமாறு உரிய நடவடிக்கை கோரியுள்ளார்."
             elif is_drainage:
                 summary_ta = f"மனுதாரர் {p_name or 'மனுதாரர்'}, {p_district or 'ஈரோடு'} மாவட்டம் {p_taluk or 'ஈரோடு'} வட்டம் {loc_str} கழிவுநீர் மற்றும் மழைநீர் தேங்கி சுகாதாரக் கேடு ஏற்படுவதால், அடைபட்டுள்ள வடிகால்களைத் தூர்வாரி புதிய வடிகால் வசதி அமைத்துத் தருமாறு உரிய நடவடிக்கை கோரியுள்ளார்."
+            elif is_road_work:
+                summary_ta = f"மனுதாரர் {p_name or 'மனுதாரர்'}, {loc_str} சாலை பணிகளால் ஏற்படும் விபத்து அபாயத்தைத் தடுத்து, தகுந்த எச்சரிக்கைப் பலகைகள் அமைத்து சாலையை விரைந்து சீரமைக்க உரிய நடவடிக்கை கோரியுள்ளார்."
             elif "house site" in (p_gtype + " " + p_gsub).lower() or "free hsd" in (p_gtype + " " + p_gsub).lower() or "natham" in (p_gtype + " " + p_gsub).lower():
                 summary_ta = f"மனுதாரர் {p_name or 'மனுதாரர்'}, {p_district or 'ஈரோடு'} மாவட்டம் {p_village or 'கூரப்பாளையம்'} பகுதியில் இலவச வீட்டு மனைப் பட்டா (Free House Site Patta) வழங்கிடக் கோரி ஈரோடு வட்டார வருவாய் வட்டாட்சியருக்கு மனு அளித்துள்ளார்."
             else:
                 summary_ta = f"மனுதாரர் {p_name or ''}, {p_gtype} தொடர்பாக உரிய நடவடிக்கை எடுத்து தீர்வு காணக் கோரி மனு அளித்துள்ளார்."
+
+        if is_financial_help and ("road" in (summary_en or "").lower() or "accident" in (summary_en or "").lower() or "water" in (summary_en or "").lower() or not summary_en):
+            summary_en = f"Petitioner {p_name or 'Applicant'}, unable to work due to advanced age and ill health with no family support, has requested financial assistance / Old Age Pension (OAP) under the government Social Security Schemes."
 
         if summary_ta:
             summary_ta = summary_ta.replace("\u0908", "\u0B88")
@@ -1246,7 +1322,27 @@ class AIAnalyzer:
 
         # Preserve clean petitioner_name and avoid concatenating English signatory into Tamil name
 
-        # Safeguard field lengths against runaway strings
+        # Safeguard and sanitize taxonomy fields against runaway text / narrative sentences
+        def sanitize_taxonomy_field(val: Any, default_val: Optional[str] = None, max_len: int = 100) -> Optional[str]:
+            if not val or val == "-":
+                return default_val
+            s = str(val).strip()
+            if "\n" in s:
+                s = s.split("\n")[0].strip()
+            narrative_markers = [
+                "கோருதல்", "வேண்டி", "குறித்து", "தொடர்பாக", "பொருள் :", "பொருள்:", 
+                "விண்ணப்பம்", "நடவடிக்கை எடுக்க", "விபத்து அபாயம்", "சாலைப்பணிகளால்", "சாலைப் பணிகளால்"
+            ]
+            if len(s) > 60 or any(m in s for m in narrative_markers) or s.count(" ") > 7:
+                logger.warning(f"Rejecting narrative sentence from taxonomy field: '{s[:60]}...' -> falling back to '{default_val}'")
+                return default_val
+            s = s.strip(" .,-:;")
+            return s[:max_len].strip() if len(s) > max_len else (s if s else default_val)
+
+        p_gtype = sanitize_taxonomy_field(p_gtype, default_val="General Grievance", max_len=100)
+        p_gsub = sanitize_taxonomy_field(p_gsub, default_val="Public Grievance Redressal", max_len=100)
+        p_dept = sanitize_taxonomy_field(p_dept, default_val="General Administration", max_len=100)
+        p_subdept = sanitize_taxonomy_field(p_subdept, default_val=f"{p_dept} / நிர்வாகம்", max_len=100)
         p_name = (p_name or "")[:150].strip() or None
         f_name = (f_name or "")[:150].strip() or None
         p_father = f_name
@@ -1255,14 +1351,25 @@ class AIAnalyzer:
         p_gender = (p_gender or "")[:20].strip() or None
         p_ref_no = (p_ref_no or "")[:100].strip() or None
         p_priority = (p_priority or "MEDIUM")[:20].strip()
-        if p_dept and len(p_dept) > 150:
-            p_dept = p_dept[:150].strip()
-        if p_gtype and len(p_gtype) > 150:
-            p_gtype = p_gtype[:150].strip()
-        if p_gsub and len(p_gsub) > 150:
-            p_gsub = p_gsub[:150].strip()
-        if p_subdept and len(p_subdept) > 150:
-            p_subdept = p_subdept[:150].strip()
+
+        # Temporary safe diagnostic logging for AI analysis mapping
+        logger.info(
+            f"📊 [AI ANALYSIS RESULT] source_id={source_id}\n"
+            f"  • Raw LLM Grievance Type: {llm_data.get('grievance_type') or sel_tax.get('Grievance_Type')}\n"
+            f"  • Raw LLM Subtype: {llm_data.get('grievance_subtype') or sel_tax.get('Grievance_Sub_Type')}\n"
+            f"  • Raw Petition Subject: {verified_entity_dict.get('petition_subject') or existing_entity_dict.get('petition_subject')}\n"
+            f"  • Mapped Dept: {p_dept}\n"
+            f"  • Mapped Grievance Type: {p_gtype}\n"
+            f"  • Mapped Subtype: {p_gsub}\n"
+            f"  • Priority: {p_priority}\n"
+            f"  • Summary (TA): {summary_ta}\n"
+            f"  • Summary (EN): {summary_en}"
+        )
+
+        aligned_action_items = llm_data.get("action_items") or [
+            {"action": f"சம்பந்தப்பட்ட {p_dept} அலுவலர் மனு மீது உரிய பரிசீலனை மேற்கொள்ளுதல்", "department": p_dept, "deadline_hint": "15 நாட்கள்"},
+            {"action": "மனு மீது உரிய தீர்வு காண உத்தரவு பிறப்பித்தல்", "department": p_dept, "deadline_hint": "30 நாட்கள்"}
+        ]
 
         analysis_result = {
             "petitioner_name": p_name,
@@ -1294,7 +1401,7 @@ class AIAnalyzer:
             "due_date": "15 Days from Receipt",
             "description_summary_tamil": summary_ta,
             "description_summary_english": summary_en,
-            "action_items": llm_data.get("action_items") or fallback_analysis["action_items"],
+            "action_items": aligned_action_items,
             "claims": llm_data.get("claims") or fallback_analysis["claims"]
         }
 

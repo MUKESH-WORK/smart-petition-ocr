@@ -24,7 +24,7 @@ export function generateLocalSessionId() {
 }
 
 /**
- * Create a new upload session via backend API (with fallback)
+ * Create a new upload session via backend API
  */
 export async function createUploadSession() {
   const tunnelHeaders = {
@@ -34,18 +34,20 @@ export async function createUploadSession() {
     'ngrok-skip-browser-warning': 'true'
   };
 
+  const clientOrigin = typeof window !== 'undefined' ? window.location.origin : null;
+
   try {
-    // 1. Try FastAPI backend route first
+    // 1. Primary: FastAPI backend route
     const backendRes = await fetch('/api/v1/petitions/mobile-session', {
       method: 'POST',
       headers: tunnelHeaders,
-      body: JSON.stringify({})
+      body: JSON.stringify({ clientOrigin })
     });
     if (backendRes.ok) {
       const data = await backendRes.json();
-      if (data.sessionId) {
+      if (data.sessionId || data.session_id) {
         return {
-          sessionId: data.sessionId,
+          sessionId: data.sessionId || data.session_id,
           networkHost: data.networkHost || null
         };
       }
@@ -55,7 +57,7 @@ export async function createUploadSession() {
   }
 
   try {
-    // 2. Fallback to Vite dev middleware route
+    // 2. Fallback during dev server testing
     const res = await fetch('/api/upload/session', {
       method: 'POST',
       headers: tunnelHeaders
@@ -71,7 +73,7 @@ export async function createUploadSession() {
       }
     }
   } catch (err) {
-    console.warn('Vite session API fallback warning:', err);
+    console.warn('Dev session API fallback notice:', err);
   }
 
   // 3. Fallback if offline
@@ -111,6 +113,7 @@ export async function uploadPetitionImage(sessionId, file, customFileName) {
     ? `${(file.size / (1024 * 1024)).toFixed(1)} MB` 
     : `${Math.max(1, Math.round(file.size / 1024))} KB`;
 
+  // Read dataUrl for local preview sync and fallback
   const dataUrl = await new Promise((resolve) => {
     const reader = new FileReader();
     reader.onload = () => resolve(reader.result);
@@ -130,7 +133,7 @@ export async function uploadPetitionImage(sessionId, file, customFileName) {
     uploadedAt: new Date().toISOString()
   };
 
-  // 1. Broadcast locally (if running in same browser/tab)
+  // 1. Broadcast locally (if running in same browser/tab or connected client)
   try {
     localStorage.setItem(`qr_upload_${sessionId}`, JSON.stringify(payload));
     if (broadcastChannel) {
@@ -140,11 +143,11 @@ export async function uploadPetitionImage(sessionId, file, customFileName) {
       });
     }
   } catch (err) {
-    console.warn('Local broadcast sync warning:', err);
+    console.warn('Local broadcast sync notice:', err);
   }
 
-  // 2. Send to server endpoints (FastAPI backend + Vite server with bypass headers)
   let serverAcknowledged = false;
+  let lastError = null;
 
   const tunnelHeaders = {
     'bypass-tunnel-reminder': 'true',
@@ -152,10 +155,39 @@ export async function uploadPetitionImage(sessionId, file, customFileName) {
     'ngrok-skip-browser-warning': 'true'
   };
 
-  // 2A. Try FastAPI JSON endpoint (clean, universal, high reliability)
-  if (dataUrl) {
+  // 2A. Primary: FastAPI multipart/form-data upload to /api/v1/petitions/mobile-upload
+  try {
+    const formData = new FormData();
+    formData.append('sessionId', sessionId);
+    formData.append('fileName', effectiveFileName);
+    formData.append('file', file, effectiveFileName);
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 35000); // 35s timeout for large uploads
+
+    const fastApiRes = await fetch('/api/v1/petitions/mobile-upload', {
+      method: 'POST',
+      headers: tunnelHeaders,
+      body: formData,
+      signal: controller.signal
+    });
+    clearTimeout(timeoutId);
+
+    if (fastApiRes.ok) {
+      serverAcknowledged = true;
+    } else {
+      const errBody = await fastApiRes.json().catch(() => null);
+      lastError = errBody?.detail || `Upload failed with status ${fastApiRes.status}`;
+    }
+  } catch (err) {
+    console.warn('FastAPI multipart upload notice:', err);
+    lastError = err.message;
+  }
+
+  // 2B. Secondary: FastAPI JSON Base64 upload if multipart was blocked/proxied
+  if (!serverAcknowledged && dataUrl) {
     try {
-      const fastApiRes = await fetch('/api/v1/petitions/mobile-upload', {
+      const fastApiJsonRes = await fetch('/api/v1/petitions/mobile-upload', {
         method: 'POST',
         headers: {
           ...tunnelHeaders,
@@ -170,66 +202,38 @@ export async function uploadPetitionImage(sessionId, file, customFileName) {
         })
       });
 
-      if (fastApiRes.ok) {
+      if (fastApiJsonRes.ok) {
         serverAcknowledged = true;
       }
     } catch (err) {
-      console.warn('FastAPI mobile-upload route check:', err);
+      console.warn('FastAPI JSON fallback notice:', err);
     }
   }
 
-  // 2B. Also forward to Vite middleware via multipart/form-data with timeout
-  try {
-    const formData = new FormData();
-    formData.append('sessionId', sessionId);
-    formData.append('fileName', effectiveFileName);
-    formData.append('petition', file, effectiveFileName);
-
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 25000); // 25s timeout
-
-    const res = await fetch('/api/upload/petition', {
-      method: 'POST',
-      headers: tunnelHeaders,
-      body: formData,
-      signal: controller.signal
-    });
-    clearTimeout(timeoutId);
-
-    if (res.ok) {
-      serverAcknowledged = true;
-    }
-  } catch (err) {
-    console.warn('Vite multipart upload check:', err);
-  }
-
-  // 2C. Fallback to Vite JSON base64 route
-  if (!serverAcknowledged && dataUrl) {
+  // 2C. Fallback to Vite dev middleware if in local development
+  if (!serverAcknowledged) {
     try {
-      const jsonRes = await fetch('/api/upload/petition', {
+      const devFormData = new FormData();
+      devFormData.append('sessionId', sessionId);
+      devFormData.append('fileName', effectiveFileName);
+      devFormData.append('petition', file, effectiveFileName);
+
+      const devRes = await fetch('/api/upload/petition', {
         method: 'POST',
-        headers: {
-          ...tunnelHeaders,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          sessionId,
-          fileName: effectiveFileName,
-          fileType: resolvedFileType,
-          dataUrl
-        })
+        headers: tunnelHeaders,
+        body: devFormData
       });
 
-      if (jsonRes.ok) {
+      if (devRes.ok) {
         serverAcknowledged = true;
       }
-    } catch (jsonErr) {
-      console.error('Vite JSON fallback error:', jsonErr);
+    } catch (devErr) {
+      console.warn('Dev server upload notice:', devErr);
     }
   }
 
   if (!serverAcknowledged) {
-    throw new Error('Could not transfer document to workstation. Please check your network connection and tap Upload again.');
+    throw new Error(lastError || 'Could not transfer document to workstation. Please verify Wi-Fi connection and tap Upload again.');
   }
 
   return { success: true, ...payload };
@@ -260,7 +264,7 @@ export async function checkUploadStatus(sessionId) {
     // Ignore storage errors
   }
 
-  // 2. Poll FastAPI backend route
+  // 2. Poll FastAPI backend route: /api/v1/petitions/mobile-status/{sessionId}
   try {
     const res = await fetch(`/api/v1/petitions/mobile-status/${sessionId}`, {
       headers: tunnelHeaders,
@@ -272,10 +276,19 @@ export async function checkUploadStatus(sessionId) {
         return {
           uploaded: true,
           sessionId,
-          fileName: data.fileName,
-          fileSize: data.fileSize,
-          fileType: data.fileType,
-          dataUrl: data.dataUrl
+          source_id: data.source_id,
+          fileName: data.fileName || data.file_name,
+          fileSize: data.fileSize || data.file_size,
+          fileType: data.fileType || data.file_type,
+          dataUrl: data.dataUrl,
+          status: data.status,
+          page_count: data.page_count,
+          duplicate_detected: data.duplicate_detected,
+          duplicate_source_id: data.duplicate_source_id,
+          duplicate_petitioner_name: data.duplicate_petitioner_name,
+          duplicate_file_name: data.duplicate_file_name,
+          duplicate_summary: data.duplicate_summary,
+          duplicate_created_at: data.duplicate_created_at
         };
       }
     }
@@ -283,7 +296,7 @@ export async function checkUploadStatus(sessionId) {
     // Backend polling retry
   }
 
-  // 3. Poll Vite dev REST API
+  // 3. Poll Vite dev REST API fallback
   try {
     const res = await fetch(`/api/upload/status/${sessionId}`, {
       headers: tunnelHeaders,
@@ -303,7 +316,7 @@ export async function checkUploadStatus(sessionId) {
       }
     }
   } catch {
-    // Network errors during polling are ignored
+    // Polling retry
   }
 
   return { uploaded: false, sessionId };
@@ -330,7 +343,7 @@ export function subscribeToUpload(sessionId, onUploaded) {
   };
 
   const handleBroadcast = (event) => {
-    if (event.data && event.data.type === 'PETITION_UPLOADED' && event.data.sessionId === sessionId) {
+    if (event.data && event.data.type === 'PETITION_UPLOADED' && (event.data.sessionId === sessionId || event.data.session_id === sessionId)) {
       handleSuccess(event.data);
     }
   };
