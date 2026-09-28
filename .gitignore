@@ -106,17 +106,21 @@ gdp_database_bundle*
 
 # ==============================================================================
 # Python & Virtual Environment Artifacts
-# ==============================================================================
 __pycache__/
+**/__pycache__/
 *.py[cod]
+**/*.py[cod]
 *$py.class
 *.so
 .Python
 .venv/
+**/.venv/
 venv/
+**/venv/
 ENV/
+**/ENV/
 env/
-backend/.venv/
+**/env/
 build/
 develop-eggs/
 dist/

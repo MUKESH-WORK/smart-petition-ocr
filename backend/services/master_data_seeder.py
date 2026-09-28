@@ -11,8 +11,10 @@ logger = logging.getLogger(__name__)
 
 def _get_data_file_path(filename: str) -> str:
     backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    root_dir = os.path.dirname(backend_dir)
     candidates = [
         os.path.join(backend_dir, "data", filename),
+        os.path.join(root_dir, "data", filename),
         os.path.join(os.getcwd(), "data", filename),
         os.path.join(os.getcwd(), "backend", "data", filename)
     ]

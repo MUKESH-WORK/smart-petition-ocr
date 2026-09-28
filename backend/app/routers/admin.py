@@ -2494,7 +2494,7 @@ async def download_certified_report(
     Directly compiles and streams official Government of Tamil Nadu audit reports in PDF or Word (.docx) format.
     """
     try:
-        from app.services.report_document_service import generate_report_document
+        from services.report_document_service import generate_report_document
         from fastapi.responses import Response
 
         # Gather data from report-data logic

@@ -4,7 +4,10 @@ import os
 import sys
 import logging
 from datetime import datetime, timezone
-import redis.asyncio as redis
+try:
+    import redis.asyncio as redis
+except ImportError:
+    redis = None
 from sqlalchemy import select
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -12,10 +15,10 @@ parent_dir = os.path.dirname(current_dir)
 if parent_dir not in sys.path:
     sys.path.insert(0, parent_dir)
 
-from app.services.ocr_service import process_document
-from app.services.extraction_service import extract_document
-from app.services.validation_service import validate_document
-from app.services.verification_service import verify_document
+from services.ocr_service import process_document
+from services.extraction_service import extract_document
+from services.validation_service import validate_document
+from services.verification_service import verify_document
 from app.database.connection import AsyncSessionLocal, init_db
 from app.database.models import DocumentRecord
 

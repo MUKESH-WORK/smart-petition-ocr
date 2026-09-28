@@ -101,9 +101,17 @@ class Settings(BaseSettings):
     DEDUP_PHASH_THRESHOLD: int = 4            # Max Hamming distance for image perceptual similarity
 
     if SettingsConfigDict is not None:
-        _env_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env")
+        _backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        _root_dir = os.path.dirname(_backend_dir)
+        _env_candidates = [
+            os.environ.get("ENV_FILE", ""),
+            os.path.join(_root_dir, ".env"),
+            os.path.join(_backend_dir, ".env"),
+            ".env"
+        ]
+        _selected_env = next((p for p in _env_candidates if p and os.path.exists(p)), ".env")
         model_config = SettingsConfigDict(
-            env_file=_env_path if os.path.exists(_env_path) else ".env",
+            env_file=_selected_env,
             env_file_encoding="utf-8",
             extra="ignore"
         )
