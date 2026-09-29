@@ -539,6 +539,25 @@
   word-break: break-word;
 }
 
+.audit-history-open {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 7px;
+  padding: 4px 8px;
+  border: 1px solid #DAC0A3;
+  border-radius: 5px;
+  background: #FEFAF6;
+  color: #102C57;
+  font-size: 0.8rem;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.audit-history-open:hover {
+  background: #F4EDE4;
+}
+
 /* 5. Loading State */
 .audit-loading-card {
   background-color: var(--bg-surface, #FFFFFF);

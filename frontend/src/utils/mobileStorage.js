@@ -24,8 +24,9 @@ function openDb() {
 /**
  * Save draft file & metadata to IndexedDB for camera reload resilience
  */
-export async function saveMobileDraft(sessionId, file, meta, customFileName = '') {
-  if (!sessionId || !file) return;
+export async function saveMobileDraft(sessionId, files, meta, customFileName = '') {
+  const fileList = (Array.isArray(files) ? files : [files]).filter(Boolean);
+  if (!sessionId || fileList.length === 0) return;
   try {
     const db = await openDb();
     return new Promise((resolve, reject) => {
@@ -33,9 +34,15 @@ export async function saveMobileDraft(sessionId, file, meta, customFileName = ''
       const store = tx.objectStore(STORE_NAME);
       const record = {
         sessionId,
-        fileBlob: file,
-        fileName: file.name || meta?.name || 'petition.jpg',
-        fileType: file.type || meta?.type || 'image/jpeg',
+        fileBlobs: fileList.map((file) => ({
+          blob: file,
+          name: file.name || meta?.name || 'petition.jpg',
+          type: file.type || meta?.type || 'image/jpeg'
+        })),
+        // Keep the old fields so a draft saved by an earlier app version still restores.
+        fileBlob: fileList[0],
+        fileName: fileList[0].name || meta?.name || 'petition.jpg',
+        fileType: fileList[0].type || meta?.type || 'image/jpeg',
         meta: meta || {},
         customFileName: customFileName || '',
         updatedAt: Date.now()
@@ -62,12 +69,18 @@ export async function loadMobileDraft(sessionId) {
       const req = store.get(sessionId);
       req.onsuccess = () => {
         const res = req.result;
-        if (!res || !res.fileBlob) return resolve(null);
-        const fileObj = new File([res.fileBlob], res.fileName || 'petition.jpg', {
-          type: res.fileType || res.fileBlob.type || 'image/jpeg'
-        });
+        if (!res || (!res.fileBlob && !res.fileBlobs?.length)) return resolve(null);
+        const fileBlobs = res.fileBlobs?.length ? res.fileBlobs : [{
+          blob: res.fileBlob,
+          name: res.fileName || 'petition.jpg',
+          type: res.fileType || res.fileBlob?.type || 'image/jpeg'
+        }];
+        const files = fileBlobs.map((entry, index) => new File([entry.blob], entry.name || `petition_page_${index + 1}.jpg`, {
+          type: entry.type || entry.blob?.type || 'image/jpeg'
+        }));
         resolve({
-          file: fileObj,
+          file: files[0],
+          files,
           meta: res.meta || {},
           customFileName: res.customFileName || res.fileName || ''
         });
@@ -106,11 +119,6 @@ export async function deleteMobileDraft(sessionId) {
 export async function downscaleMobilePhotoIfHuge(file, maxDimension = 2400, quality = 0.92) {
   if (!file || !file.type || !file.type.startsWith('image/')) {
     return file; // Return PDFs or non-images as-is
-  }
-
-  // If already under 3MB, no need to touch it
-  if (file.size < 3 * 1024 * 1024) {
-    return file;
   }
 
   return new Promise((resolve) => {

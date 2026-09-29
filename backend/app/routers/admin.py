@@ -2307,17 +2307,31 @@ async def get_audit_report_data(
                     })
             except Exception as e:
                 logger.warning(f"Error fetching from grievance_drafts: {e}")
+                await u_db.rollback()
 
             # Legacy petitions table check if grievance_drafts is empty
             if not petitions:
                 try:
-                    p_res = await u_db.execute(text("""
-                        SELECT p.*, o.name as officer_name, o.department as officer_department
-                        FROM petitions p
-                        LEFT JOIN officers o ON p.officer_id = o.officer_id
-                        ORDER BY p.created_at DESC
-                    """))
-                    for r in p_res.mappings().all():
+                    if u_db.get_bind().dialect.name == "sqlite":
+                        table_check = await u_db.execute(text(
+                            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'petitions'"
+                        ))
+                        legacy_petitions_table_exists = table_check.scalar_one_or_none() is not None
+                    else:
+                        legacy_petitions_table_exists = bool(await u_db.scalar(
+                            text("SELECT to_regclass('public.petitions') IS NOT NULL")
+                        ))
+
+                    p_res = None
+                    if legacy_petitions_table_exists:
+                        p_res = await u_db.execute(text("""
+                            SELECT p.*, o.name as officer_name, o.department as officer_department
+                            FROM petitions p
+                            LEFT JOIN officers o ON p.officer_id = o.officer_id
+                            ORDER BY p.created_at DESC
+                        """))
+                    legacy_rows = p_res.mappings().all() if p_res is not None else []
+                    for r in legacy_rows:
                         p = dict(r)
                         petitions.append({
                             "id": str(p.get("id") or ""),
@@ -2349,35 +2363,29 @@ async def get_audit_report_data(
                         })
                 except Exception as pe:
                     logger.warning(f"Error checking petitions table: {pe}")
+                    await u_db.rollback()
 
-            # Audit logs from User DB
+            # Audit records live in the dedicated audit store, not User DB.
             try:
-                try:
-                    a_res = await u_db.execute(text("""
+                async with AuditAsyncSessionLocal() as audit_db:
+                    a_res = await audit_db.execute(text("""
                         SELECT id, timestamp, action, officer_id, source_id, details 
                         FROM audit_log 
                         ORDER BY timestamp DESC LIMIT 300
                     """))
-                except Exception:
-                    a_res = await u_db.execute(text("""
-                        SELECT id, timestamp, action, officer_id, source_id, details 
-                        FROM audit_logs 
-                        ORDER BY timestamp DESC LIMIT 300
-                    """))
-
-                for r in a_res.mappings().all():
-                    ar = dict(r)
-                    audit_entries.append({
-                        "id": str(ar.get("id") or ""),
-                        "timestamp": str(ar.get("timestamp") or ""),
-                        "category": "GDP Assistant",
-                        "action": str(ar.get("action") or "PROCESSED"),
-                        "officer_id": str(ar.get("officer_id") or "SYSTEM"),
-                        "source_id": str(ar.get("source_id") or "—"),
-                        "details": str(ar.get("details") or "Petition processed")
-                    })
+                    for r in a_res.mappings().all():
+                        ar = dict(r)
+                        audit_entries.append({
+                            "id": str(ar.get("id") or ""),
+                            "timestamp": str(ar.get("timestamp") or ""),
+                            "category": "GDP Assistant",
+                            "action": str(ar.get("action") or "PROCESSED"),
+                            "officer_id": str(ar.get("officer_id") or "SYSTEM"),
+                            "source_id": str(ar.get("source_id") or "—"),
+                            "details": str(ar.get("details") or "Petition processed")
+                        })
             except Exception as ae:
-                logger.warning(f"Error gathering user audit logs: {ae}")
+                logger.warning(f"Error gathering audit-store records: {ae}")
 
 
     except Exception as e:

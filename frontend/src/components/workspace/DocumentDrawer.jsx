@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { 
   ChevronLeft, 
   ChevronRight, 
   CheckCircle, 
   Image as ImageIcon 
 } from 'lucide-react';
+import { getMostVisiblePage } from './pageVisibility';
 import './Workspace.css';
 
 export default function DocumentDrawer({ 
@@ -13,8 +14,11 @@ export default function DocumentDrawer({
   petition 
 }) {
   const [currentPage, setCurrentPage] = useState(1);
+  const [usePdfFallback, setUsePdfFallback] = useState(false);
+  const pageRefs = useRef([]);
+  const canvasRef = useRef(null);
+  const scrollFrameRef = useRef(null);
 
-  const totalPages = petition?.totalPages || 1;
   const fileName = petition?.fileName || 'Document';
   const sourceId = petition?.source_id || petition?.sourceId;
   const isPdf = Boolean(
@@ -22,16 +26,59 @@ export default function DocumentDrawer({
     (petition?.fileType && petition.fileType.toLowerCase().includes('pdf')) ||
     (fileName && fileName.toLowerCase().endsWith('.pdf'))
   );
+  const totalPages = isPdf ? Math.max(1, Number(petition?.totalPages) || 1) : 1;
   const effectivePreviewUrl = petition?.previewUrl || (sourceId ? `/api/v1/grievance/${sourceId}/file` : null);
   const hasPreview = Boolean(effectivePreviewUrl);
 
-  const handlePrevPage = () => {
-    setCurrentPage((prev) => Math.max(prev - 1, 1));
+  const updateCurrentPageFromViewport = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || usePdfFallback || !isPdf) return;
+    const rects = pageRefs.current.slice(0, totalPages).map((page) => page?.getBoundingClientRect() || null);
+    const page = getMostVisiblePage(rects, canvas.getBoundingClientRect());
+    setCurrentPage((current) => current === page ? current : page);
+  }, [isPdf, totalPages, usePdfFallback]);
+
+  const scheduleViewportUpdate = useCallback(() => {
+    if (scrollFrameRef.current !== null) cancelAnimationFrame(scrollFrameRef.current);
+    scrollFrameRef.current = requestAnimationFrame(() => {
+      scrollFrameRef.current = null;
+      updateCurrentPageFromViewport();
+    });
+  }, [updateCurrentPageFromViewport]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+    setUsePdfFallback(false);
+    if (canvasRef.current) canvasRef.current.scrollTop = 0;
+  }, [petition?.source_id, petition?.sourceId, petition?.previewUrl, totalPages]);
+
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    scheduleViewportUpdate();
+    window.addEventListener('resize', scheduleViewportUpdate);
+    return () => {
+      window.removeEventListener('resize', scheduleViewportUpdate);
+      if (scrollFrameRef.current !== null) cancelAnimationFrame(scrollFrameRef.current);
+    };
+  }, [isOpen, scheduleViewportUpdate]);
+
+  const goToPage = (requestedPage) => {
+    const page = Math.max(1, Math.min(requestedPage, totalPages));
+    setCurrentPage(page);
+    if (usePdfFallback) return;
+    const canvas = canvasRef.current;
+    const target = pageRefs.current[page - 1];
+    if (!canvas || !target) return;
+    const canvasTop = canvas.getBoundingClientRect().top;
+    const targetTop = target.getBoundingClientRect().top;
+    canvas.scrollTo({
+      top: canvas.scrollTop + targetTop - canvasTop - canvas.clientTop,
+      behavior: 'smooth'
+    });
   };
 
-  const handleNextPage = () => {
-    setCurrentPage((prev) => Math.min(prev + 1, totalPages));
-  };
+  const handlePrevPage = () => goToPage(currentPage - 1);
+  const handleNextPage = () => goToPage(currentPage + 1);
 
   return (
     <aside 
@@ -71,15 +118,43 @@ export default function DocumentDrawer({
           </div>
 
           {/* 2. DOCUMENT CANVAS — Renders the REAL User-Uploaded Document */}
-          <div className="drawer-canvas-container">
+          <div
+            className={`drawer-canvas-container${isPdf && sourceId && !usePdfFallback ? ' multi-page-document' : ''}`}
+            ref={canvasRef}
+            onScroll={scheduleViewportUpdate}
+          >
             <div className="document-sheet-wrapper">
               {hasPreview ? (
                 isPdf ? (
-                  <iframe
-                    src={effectivePreviewUrl}
-                    title={fileName}
-                    className="real-uploaded-document-pdf"
-                  />
+                  sourceId && !usePdfFallback ? (
+                    <div className="petition-page-stack">
+                      {Array.from({ length: totalPages }, (_, index) => {
+                        const pageNumber = index + 1;
+                        return (
+                          <section
+                            key={`${sourceId}-page-${pageNumber}`}
+                            ref={(element) => { pageRefs.current[index] = element; }}
+                            className="petition-page"
+                            aria-label={`Petition page ${pageNumber}`}
+                          >
+                            <img
+                              src={`/api/v1/grievance/${encodeURIComponent(sourceId)}/page/${pageNumber}/image`}
+                              alt={`${fileName} — page ${pageNumber}`}
+                              className="real-uploaded-document-image petition-page-image"
+                              onLoad={scheduleViewportUpdate}
+                              onError={() => setUsePdfFallback(true)}
+                            />
+                          </section>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <iframe
+                      src={`${effectivePreviewUrl}#page=${currentPage}`}
+                      title={fileName}
+                      className="real-uploaded-document-pdf"
+                    />
+                  )
                 ) : (
                   <img
                     src={effectivePreviewUrl}

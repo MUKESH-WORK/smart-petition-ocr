@@ -351,6 +351,41 @@
   background-color: #081730;
 }
 
+.drawer-canvas-container.multi-page-document {
+  display: block;
+  padding: 16px 14px;
+  scroll-behavior: smooth;
+  overscroll-behavior: contain;
+}
+
+.multi-page-document .document-sheet-wrapper,
+.petition-page-stack {
+  display: block;
+  width: 100%;
+}
+
+.petition-page {
+  width: 100%;
+  min-height: 64vh;
+  margin: 0 auto 16px;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  scroll-margin-top: 0;
+}
+
+.petition-page:last-child {
+  margin-bottom: 0;
+}
+
+.petition-page-image {
+  width: 100%;
+  max-width: 100%;
+  max-height: none;
+  height: auto;
+  object-fit: contain;
+}
+
 .document-sheet-wrapper {
   display: flex;
   justify-content: center;

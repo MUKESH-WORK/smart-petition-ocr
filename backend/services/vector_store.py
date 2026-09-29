@@ -3,6 +3,7 @@ import json
 import logging
 import math
 import hashlib
+import os
 from typing import List, Dict, Any, Optional, TYPE_CHECKING
 import numpy as np
 import httpx
@@ -65,8 +66,15 @@ class PGVectorStore:
         self.model_name = model_name
         self._embedder = None
         self._active_backend = "uninitialized"
-        self._ollama_base_url = "http://localhost:11434"
-        self._ollama_model = "nomic-embed-text:latest"
+        self._ollama_base_url = (
+            os.getenv("OLLAMA_BASE_URL")
+            or settings.LLM_API_BASE_URL.rstrip("/").removesuffix("/v1")
+        )
+        # Keep indexing and search on the configured SentenceTransformer model
+        # by default. Ollama embeddings are opt-in because changing embedding
+        # models can make existing vectors incomparable, and the Ollama model
+        # may not be installed on the host.
+        self._ollama_model = os.getenv("OLLAMA_EMBEDDING_MODEL") or None
 
     def warmup(self):
         """Warm up embedding model locally so first user query has zero lag."""
@@ -78,6 +86,8 @@ class PGVectorStore:
 
     def _encode_via_ollama(self, texts: List[str]) -> Optional[List[List[float]]]:
         """Attempt to get embeddings via local Ollama instance."""
+        if not self._ollama_model:
+            return None
         try:
             with httpx.Client(timeout=10.0) as client:
                 resp = client.post(
@@ -124,7 +134,7 @@ class PGVectorStore:
 
         target_dim = getattr(settings, "EMBEDDING_DIM", 384)
 
-        # Tier 1: Try local Ollama embedding engine (nomic-embed-text:latest)
+        # Tier 1: Try Ollama only when an embedding model is explicitly configured.
         ollama_embs = self._encode_via_ollama(texts)
         if ollama_embs is not None:
             # If target_dim is 384 and ollama returned 768, normalize sliced vector to maintain unit norm
@@ -155,14 +165,18 @@ class PGVectorStore:
         if not chunks:
             return
 
-        from models.database import is_sqlite
         texts = [c["text"] for c in chunks]
         embeddings = await self.aencode(texts)
 
         for chunk, emb in zip(chunks, embeddings):
             chunk_id = str(uuid.uuid4())
             emb_list = emb.tolist() if hasattr(emb, "tolist") else list(emb)
-            emb_val = json.dumps(emb_list) if is_sqlite else emb_list
+            # This INSERT uses SQLAlchemy text(), so the SafeVector ORM type
+            # decorator does not serialize the parameter for pgvector. Send
+            # the vector's textual array representation for PostgreSQL (and
+            # JSON text for SQLite) so asyncpg receives the string its codec
+            # expects instead of a Python list.
+            emb_val = json.dumps(emb_list, separators=(",", ":"))
             await db.execute(text("""
                 INSERT INTO document_chunks (id, source_id, page_number, chunk_index, chunk_text, embedding, metadata)
                 VALUES (:id, :source_id, :page_number, :chunk_index, :chunk_text, :embedding, :metadata)

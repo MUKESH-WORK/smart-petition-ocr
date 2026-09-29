@@ -13,7 +13,9 @@ import {
   ShieldCheck,
   Database,
   Layers,
-  UserCheck
+  UserCheck,
+  History as HistoryIcon,
+  ChevronRight
 } from 'lucide-react';
 import './AuditLogs.css';
 
@@ -92,17 +94,11 @@ export default function AuditLogsView({
         }
       }
 
-      const hasPetitionData = Boolean(
-        rec.rawPetition?.petition_number ||
-        rec.rawPetition?.grievance_text ||
-        rec.rawPetition?.applicant_name ||
-        rec.petition_number ||
-        rec.applicant_name ||
-        (rec.rawPetition && (String(rec.rawPetition.id || '').startsWith('PET-') || String(rec.rawPetition.id || '').startsWith('petition-')))
-      );
-
+      const sourceId = rec.source_id || rec.rawPetition?.source_id || rec.rawPetition?.sourceId || 'N/A';
       const isPetitionDoc = Boolean(
-        rec.source_id && rec.source_id !== 'SYS-AUDIT' && rec.source_id !== 'GDP-APP' && rec.source_id !== 'N/A'
+        rec.isClickable !== false &&
+        (rec.source_id || rec.rawPetition?.source_id || rec.rawPetition?.sourceId) &&
+        !['SYS-AUDIT', 'GDP-APP', 'N/A'].includes(String(sourceId).toUpperCase())
       );
 
       return {
@@ -115,10 +111,13 @@ export default function AuditLogsView({
         officer_name: rec.officer_name || rec.officer || rec.officer_id || 'SYSTEM',
         officer_id: rec.officer_id || 'SYSTEM',
         actor: rec.actor || (rec.officer ? `${rec.officer}` : rec.officer_id || 'SYSTEM'),
-        source_id: rec.source_id || rec.id || 'N/A',
+        source_id: sourceId,
+        fileName: rec.fileName || rec.file_name || rec.rawPetition?.fileName || rec.rawPetition?.file_name || '',
+        fileType: rec.fileType || rec.file_type || rec.rawPetition?.fileType || rec.rawPetition?.file_type || '',
+        totalPages: Number(rec.totalPages || rec.page_count || rec.rawPetition?.totalPages || rec.rawPetition?.page_count || 1),
         details: rec.details || rec.detail || rec.summary || rec.fileName || '',
-        rawPetition: hasPetitionData ? (rec.rawPetition || rec) : null,
-        isClickable: isPetitionDoc && (hasPetitionData || Boolean(rec.source_id))
+        rawPetition: isPetitionDoc ? (rec.rawPetition || rec) : null,
+        isClickable: isPetitionDoc
       };
     });
   }, [auditRecords]);
@@ -449,9 +448,7 @@ export default function AuditLogsView({
                         style={{ cursor: log.isClickable ? 'pointer' : 'default' }}
                         title={log.isClickable ? 'Click to inspect petition record' : undefined}
                         onClick={() => {
-                          if (log.isClickable && log.rawPetition && onSelectPetition) {
-                            onSelectPetition(log.rawPetition);
-                          }
+                          if (log.isClickable && onSelectPetition) onSelectPetition(log);
                         }}
                       >
                         {/* 1. Date & Time */}
@@ -477,6 +474,22 @@ export default function AuditLogsView({
                         {/* 4. Details */}
                         <td className="cell-details">
                           <p className="details-text">{log.details}</p>
+                          {log.isClickable && (
+                            <button
+                              type="button"
+                              className="audit-history-open"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                onSelectPetition?.(log);
+                              }}
+                              aria-label={`Open petition history for ${log.fileName || log.source_id}`}
+                              title="Open this petition in the Assistant"
+                            >
+                              <HistoryIcon size={13} />
+                              <span>History</span>
+                              <ChevronRight size={13} />
+                            </button>
+                          )}
                         </td>
                       </tr>
                     );

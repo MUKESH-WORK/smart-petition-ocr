@@ -17,6 +17,7 @@ import { fetchAuditHistory, fetchAdminActivity, fetchPetitionBySourceId, logoutA
 import ErrorBoundary from './components/common/ErrorBoundary';
 import PrivacyPolicyPage from './components/pages/PrivacyPolicyPage';
 import TermsPage from './components/pages/TermsPage';
+import { buildWorkstationUrl, readWorkstationRoute } from './utils/workstationRoute';
 import './styles/index.css';
 
 function getStaticPageRoute() {
@@ -70,6 +71,18 @@ function createProfileFromSession(session) {
 const PROFILE_STORAGE_KEY = 'tn_gdp_officer_profile';
 const SESSION_STORAGE_KEY = 'gdp_user_session';
 const ACTIVE_PETITION_KEY = 'gdp_active_petition';
+
+function getInitialWorkstationModule(isAdmin) {
+  const route = readWorkstationRoute(window.location, isAdmin);
+  const hasExplicitView = new URLSearchParams(window.location.search).has('view');
+  if (!hasExplicitView && !route.sourceId) {
+    try {
+      const savedPetition = JSON.parse(sessionStorage.getItem(ACTIVE_PETITION_KEY) || 'null');
+      if (savedPetition?.source_id || savedPetition?.sourceId) return 'gdp';
+    } catch { /* use the role's default module when session state is unavailable */ }
+  }
+  return route.module;
+}
 
 function getInitialSession() {
   if (typeof window === 'undefined') return null;
@@ -143,6 +156,10 @@ export default function App() {
       sessionStorage.removeItem(SESSION_STORAGE_KEY);
       localStorage.removeItem(SESSION_STORAGE_KEY);
       sessionStorage.removeItem(ACTIVE_PETITION_KEY);
+      for (let index = sessionStorage.length - 1; index >= 0; index -= 1) {
+        const key = sessionStorage.key(index);
+        if (key?.startsWith('gdp_assistant_conversation_')) sessionStorage.removeItem(key);
+      }
       localStorage.removeItem('auth_token');
       localStorage.removeItem('token');
       localStorage.removeItem('officer_id');
@@ -219,7 +236,7 @@ function Workstation({ session, onLogout }) {
   }, []);
 
   // Navigation Modules: 'gdp' | 'audit' | 'settings'
-  const [activeModule, setActiveModule] = useState(isAdmin ? 'dashboard' : 'gdp');
+  const [activeModule, setActiveModule] = useState(() => getInitialWorkstationModule(isAdmin));
 
   // Current active petition (Single source of truth for uploaded document)
   const [activePetition, setActivePetition] = useState(() => {
@@ -254,6 +271,19 @@ function Workstation({ session, onLogout }) {
   // Sidebar collapsed state
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => isAdmin && window.matchMedia('(max-width: 640px)').matches);
 
+  const writeWorkstationRoute = useCallback((module, sourceId = null, replace = false) => {
+    const url = buildWorkstationUrl(window.location.href, module, sourceId);
+    const state = { module, petitionSourceId: module === 'gdp' ? sourceId : null };
+    if (replace) window.history.replaceState(state, '', url);
+    else window.history.pushState(state, '', url);
+  }, []);
+
+  const handleNavigateModule = (module) => {
+    setActiveModule(module);
+    writeWorkstationRoute(module, module === 'gdp' ? (activePetition?.source_id || activePetition?.sourceId) : null);
+    if (isAdmin && window.matchMedia('(max-width: 640px)').matches) setIsSidebarCollapsed(true);
+  };
+
   useEffect(() => {
     if (!isAdmin) return;
     const mobile = window.matchMedia('(max-width: 640px)');
@@ -285,13 +315,13 @@ function Workstation({ session, onLogout }) {
   // Toast notifications state
   const [toasts, setToasts] = useState([]);
 
-  const showToast = (message) => {
+  const showToast = useCallback((message) => {
     const id = Date.now();
     setToasts((prev) => [...prev, { id, message }]);
     setTimeout(() => {
       setToasts((prev) => prev.filter((t) => t.id !== id));
     }, 3000);
-  };
+  }, []);
 
   const handleRefreshAudit = useCallback(async (officerId = null) => {
     try {
@@ -332,11 +362,15 @@ function Workstation({ session, onLogout }) {
       }
     } catch (e) {}
     setActiveModule('gdp');
+    writeWorkstationRoute('gdp', petition?.source_id || petition?.sourceId || null, true);
     setViewState('processing');
-  }, []);
+  }, [writeWorkstationRoute]);
 
   // Processing Completed handler — stable reference required by ProcessingOverlay useEffect
   const handleProcessingComplete = useCallback((analyzedPetition) => {
+    if (analyzedPetition) {
+      writeWorkstationRoute('gdp', analyzedPetition.source_id || analyzedPetition.sourceId || null, true);
+    }
     setActivePetition((prev) => {
       const finalPetition = analyzedPetition || prev;
       if (finalPetition) {
@@ -351,7 +385,7 @@ function Workstation({ session, onLogout }) {
           categoryLabel: 'GDP Assistant',
           officer: currentOfficerName,
           officer_id: session?.officerId || session?.id || 'OFFICER',
-          source_id: finalPetition.source_id || finalPetition.id || 'SESSION-001',
+          source_id: finalPetition.source_id || finalPetition.sourceId || null,
           details: `Processed: ${finalPetition.fileName || 'Petition'} (${finalPetition.portalDetails?.grievanceType || 'Grievance Analysis Complete'})`,
           rawPetition: finalPetition
         };
@@ -362,7 +396,7 @@ function Workstation({ session, onLogout }) {
     });
     setViewState('workspace');
     setIsDrawerOpen(false);
-  }, [officerProfile, session]);
+  }, [officerProfile, session, showToast, writeWorkstationRoute]);
 
   // Log user-submitted prompts in GDP Assistant to Audit Trail
   const handleLogUserMessage = (promptText, petition) => {
@@ -376,7 +410,7 @@ function Workstation({ session, onLogout }) {
       categoryLabel: 'GDP Assistant',
       officer: currentOfficerName,
       officer_id: session?.officerId || session?.id || 'OFFICER',
-      source_id: petition?.id || petition?.fileName || 'SESSION-001',
+      source_id: petition?.source_id || petition?.sourceId || null,
       details: `Assistant Query: "${cleanSnippet}"`,
       rawPetition: petition
     };
@@ -391,32 +425,87 @@ function Workstation({ session, onLogout }) {
     try { sessionStorage.removeItem(ACTIVE_PETITION_KEY); } catch (e) {}
     setActivePetition(null);
     setActiveModule('gdp');
+    writeWorkstationRoute('gdp', null, true);
     setViewState('landing');
     setIsDrawerOpen(false);
   };
 
   // Selecting an audit record from the Audit Logs page
   const handleSelectAuditRecord = async (record) => {
-    if (record) {
-      if (record.source_id && (!record.rawPetition || !record.rawPetition.portalDetails)) {
-        showToast('Loading petition details...');
-        const fullDoc = await fetchPetitionBySourceId(record.source_id);
-        if (fullDoc) {
-          setActivePetition(fullDoc);
-          setActiveModule('gdp');
-          setViewState('workspace');
-          setIsDrawerOpen(false);
-          showToast(`Loaded petition #${fullDoc.id}`);
-          return;
-        }
-      }
-      setActivePetition(record.rawPetition || record);
-      setActiveModule('gdp');
-      setViewState('workspace');
-      setIsDrawerOpen(false);
-      showToast(`Loaded petition #${record.id}`);
+    if (!record) return;
+    const sourceId = record.source_id || record.rawPetition?.source_id || record.rawPetition?.sourceId;
+    if (!sourceId) {
+      showToast('This audit entry does not include a petition source ID.');
+      return;
     }
+
+    showToast('Loading petition history...');
+    const fullDoc = await fetchPetitionBySourceId(sourceId, record);
+    if (!fullDoc) {
+      showToast('This petition or its conversation is no longer available.');
+      return;
+    }
+
+    setActivePetition(fullDoc);
+    try { sessionStorage.setItem(ACTIVE_PETITION_KEY, JSON.stringify(fullDoc)); } catch (e) {}
+    setActiveModule('gdp');
+    setViewState('workspace');
+    setIsDrawerOpen(false);
+    writeWorkstationRoute('gdp', sourceId);
+    showToast(`Loaded petition #${fullDoc.id}`);
   };
+
+  const applyWorkstationRoute = useCallback(async () => {
+    const route = readWorkstationRoute(window.location, isAdmin);
+    const routeParams = new URLSearchParams(window.location.search);
+    let module = route.module;
+    let sourceId = route.sourceId;
+    let cachedPetition = null;
+    try {
+      cachedPetition = JSON.parse(sessionStorage.getItem(ACTIVE_PETITION_KEY) || 'null');
+    } catch { /* reload from the URL when cached state is malformed */ }
+
+    // Older links and the initial bare-root URL may lack route parameters.
+    // Restore the saved Assistant petition, then canonicalize the URL.
+    if (!sourceId && cachedPetition?.source_id) {
+      if (!routeParams.has('view') || module === 'gdp') {
+        module = 'gdp';
+        sourceId = cachedPetition.source_id;
+      }
+    } else if (!sourceId && cachedPetition?.sourceId && (!routeParams.has('view') || module === 'gdp')) {
+      module = 'gdp';
+      sourceId = cachedPetition.sourceId;
+    }
+
+    setActiveModule(module);
+    if (!sourceId) {
+      if (module === 'gdp') setViewState(cachedPetition ? 'workspace' : 'landing');
+      return;
+    }
+
+    // Always refresh the petition on initial load and browser history
+    // navigation; sessionStorage is only a route/cache hint, not fresh data.
+    const petition = await fetchPetitionBySourceId(sourceId, cachedPetition || {});
+    if (!petition) {
+      setViewState('landing');
+      showToast('This petition or its conversation is no longer available.');
+      writeWorkstationRoute('gdp', null, true);
+      return;
+    }
+
+    setActivePetition(petition);
+    try { sessionStorage.setItem(ACTIVE_PETITION_KEY, JSON.stringify(petition)); } catch (e) {}
+    writeWorkstationRoute('gdp', sourceId, true);
+    setViewState('workspace');
+    setIsDrawerOpen(false);
+  }, [isAdmin, showToast, writeWorkstationRoute]);
+
+  useEffect(() => {
+    const handleWorkstationPopState = () => { void applyWorkstationRoute(); };
+    window.addEventListener('popstate', handleWorkstationPopState);
+    void applyWorkstationRoute();
+    return () => window.removeEventListener('popstate', handleWorkstationPopState);
+  }, [applyWorkstationRoute]);
 
   // Handle user logout action from top-right officer profile menu
   const handleLogout = () => {
@@ -445,7 +534,7 @@ function Workstation({ session, onLogout }) {
         onLogoClick={handleNewPetition}
         currentLanguage={currentLanguage}
         onLanguageChange={setCurrentLanguage}
-        onNavigateToProfile={() => setActiveModule('profile')}
+        onNavigateToProfile={() => handleNavigateModule('profile')}
         onLogout={handleLogout}
       />
 
@@ -456,10 +545,7 @@ function Workstation({ session, onLogout }) {
         <Sidebar
           isAdmin={isAdmin}
           activeModule={activeModule}
-          onSelectModule={(mod) => {
-            setActiveModule(mod);
-            if (isAdmin && window.matchMedia('(max-width: 640px)').matches) setIsSidebarCollapsed(true);
-          }}
+              onSelectModule={handleNavigateModule}
           isCollapsed={isSidebarCollapsed}
           onToggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
           currentLanguage={currentLanguage}
@@ -470,7 +556,7 @@ function Workstation({ session, onLogout }) {
           {isAdmin && (
             <AdminWorkspace
               activeModule={activeModule}
-              onNavigate={setActiveModule}
+              onNavigate={handleNavigateModule}
               onActivityChange={setAdminActivity}
               currentLanguage={currentLanguage}
             />
@@ -510,6 +596,7 @@ function Workstation({ session, onLogout }) {
                     <section className="left-ai-panel" aria-label="AI Document Assistant">
                       <ErrorBoundary onReset={() => setViewState('landing')}>
                         <SummaryChatView
+                          key={activePetition.source_id || activePetition.sourceId || activePetition.id}
                           petition={activePetition}
                           onLogUserMessage={handleLogUserMessage}
                         />
@@ -558,7 +645,7 @@ function Workstation({ session, onLogout }) {
               currentPetitionId={activePetition?.id}
               onSelectPetition={handleSelectAuditRecord}
               onNavigateToGDP={() => {
-                setActiveModule('gdp');
+                handleNavigateModule('gdp');
                 if (!activePetition) setViewState('landing');
               }}
             />

@@ -5,6 +5,7 @@ import json
 import uuid
 import logging
 import datetime
+import tempfile
 from datetime import datetime, timezone
 from typing import List, Optional
 from fastapi import APIRouter, Depends, UploadFile, File, Form, Header, HTTPException, Request, BackgroundTasks
@@ -33,6 +34,7 @@ from core.llm_client import llm_client
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/grievance", tags=["Grievance Processing"])
+_page_image_render_locks: dict[str, asyncio.Lock] = {}
 
 ALLOWED_EXTENSIONS = {"pdf", "png", "jpg", "jpeg", "tiff", "tif", "bmp", "webp", "docx"}
 
@@ -337,6 +339,12 @@ async def resolve_duplicate(
                 old_chunks = old_chunks_res.mappings().all()
 
                 for chunk in old_chunks:
+                    chunk_embedding = chunk["embedding"]
+                    if chunk_embedding is not None and not isinstance(chunk_embedding, str):
+                        # Raw text() statements bypass SafeVector's ORM bind
+                        # adapter; asyncpg's pgvector codec expects its string
+                        # representation, not a Python list.
+                        chunk_embedding = json.dumps(chunk_embedding, separators=(",", ":"))
                     await db.execute(text("""
                         INSERT INTO document_chunks (
                             id, source_id, chunk_index, page_number,
@@ -352,7 +360,7 @@ async def resolve_duplicate(
                         "chunk_index": chunk["chunk_index"],
                         "page_number": chunk["page_number"],
                         "chunk_text": chunk["chunk_text"],
-                        "embedding": chunk["embedding"],
+                        "embedding": chunk_embedding,
                         "metadata": json.dumps(chunk.get("metadata")) if chunk.get("metadata") is not None else None,
                     })
 
@@ -613,13 +621,56 @@ async def get_ocr_results(source_id: str, db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/{source_id}/page/{page_num}/image")
-async def get_page_image(source_id: str, page_num: int):
+async def get_page_image(source_id: str, page_num: int, db: AsyncSession = Depends(get_db)):
     """
     Serve extracted page image from static media cache
     """
+    if page_num < 1:
+        raise HTTPException(status_code=404, detail=f"Page {page_num} image not found")
+
     img_path = file_store.get_page_image_path(source_id, page_num)
     if not os.path.exists(img_path):
-        raise HTTPException(status_code=404, detail=f"Page {page_num} image not found")
+        render_lock = _page_image_render_locks.setdefault(source_id, asyncio.Lock())
+        async with render_lock:
+            # Page previews are a cache. Recreate them from the saved source
+            # file after a cache cleanup or an older deployment's container
+            # replacement so the viewer can still show historical petitions.
+            if not os.path.exists(img_path):
+                file_path = file_store.get_file_path(source_id)
+                temporary_source_path = None
+                if file_path:
+                    file_type = os.path.splitext(file_path)[1].lstrip(".").lower()
+                else:
+                    source_res = await db.execute(text(
+                        "SELECT file_name, file_type, file_data FROM sources WHERE source_id = :source_id"
+                    ), {"source_id": source_id})
+                    source_row = source_res.mappings().one_or_none()
+                    if not source_row or not source_row.get("file_data"):
+                        raise HTTPException(status_code=404, detail="Original petition file is no longer available")
+                    source_file_name = str(source_row.get("file_name") or "")
+                    file_type = str(source_row.get("file_type") or os.path.splitext(source_file_name)[1]).lower().lstrip(".")
+                    suffix = os.path.splitext(source_file_name)[1] or f".{file_type}"
+                    try:
+                        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as temp_source:
+                            temp_source.write(bytes(source_row["file_data"]))
+                            temporary_source_path = temp_source.name
+                        file_path = temporary_source_path
+                    except Exception as exc:
+                        logger.warning("Could not materialize stored petition %s for preview: %s", source_id, exc)
+                        raise HTTPException(status_code=500, detail="Could not prepare petition page preview") from exc
+                try:
+                    await file_store.convert_document_to_images(source_id, file_path, file_type)
+                except Exception as exc:
+                    logger.warning("Could not regenerate page previews for %s: %s", source_id, exc)
+                    raise HTTPException(status_code=500, detail="Could not render petition page previews") from exc
+                finally:
+                    if temporary_source_path:
+                        try:
+                            os.unlink(temporary_source_path)
+                        except OSError:
+                            pass
+                if not os.path.exists(img_path):
+                    raise HTTPException(status_code=404, detail=f"Page {page_num} image not found")
     return FileResponse(img_path, media_type="image/png")
 
 

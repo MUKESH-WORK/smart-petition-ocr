@@ -11,7 +11,9 @@ import {
   Smartphone,
   ChevronRight,
   Info,
-  Edit3
+  Edit3,
+  Plus,
+  Trash2
 } from 'lucide-react';
 import { uploadPetitionImage } from '../../services/uploadSessionService';
 import { 
@@ -46,6 +48,7 @@ export default function MobileCapturePage({ sessionId: propSessionId }) {
   const [sessionId] = useState(() => getSessionIdFromLocation(propSessionId));
   const [selectedFile, setSelectedFile] = useState(null);
   const [previewUrl, setPreviewUrl] = useState(null);
+  const [scanPages, setScanPages] = useState([]);
   const [customFileName, setCustomFileName] = useState('');
   const [isUploading, setIsUploading] = useState(false);
   const [uploadSuccess, setUploadSuccess] = useState(false);
@@ -55,6 +58,20 @@ export default function MobileCapturePage({ sessionId: propSessionId }) {
   const cameraInputRef = useRef(null);
   const docInputRef = useRef(null);
   const galleryInputRef = useRef(null);
+  const previewUrlsRef = useRef(new Set());
+
+  const createPreviewUrl = (file) => {
+    const url = URL.createObjectURL(file);
+    previewUrlsRef.current.add(url);
+    return url;
+  };
+
+  const revokePreviewUrl = (url) => {
+    if (url && previewUrlsRef.current.has(url)) {
+      URL.revokeObjectURL(url);
+      previewUrlsRef.current.delete(url);
+    }
+  };
 
   // Restore draft from IndexedDB if mobile browser reloads or unloads after opening camera
   useEffect(() => {
@@ -64,11 +81,19 @@ export default function MobileCapturePage({ sessionId: propSessionId }) {
     loadMobileDraft(sessionId)
       .then((draft) => {
         if (!isMounted || !draft || !draft.file) return;
-        const objectUrl = URL.createObjectURL(draft.file);
-        setSelectedFile(draft.file);
-        setPreviewUrl(objectUrl);
+        const files = draft.files || [draft.file];
+        const isPdf = files.length === 1 && (files[0].type === 'application/pdf' || files[0].name?.toLowerCase().endsWith('.pdf'));
+        if (isPdf) {
+          setSelectedFile(files[0]);
+          setPreviewUrl(null);
+        } else {
+          const restoredPages = files.map((file) => ({ file, previewUrl: createPreviewUrl(file) }));
+          setScanPages(restoredPages);
+          setSelectedFile(null);
+          setPreviewUrl(null);
+        }
         setCustomFileName(draft.customFileName || draft.meta?.name || '');
-        setFileDetails(draft.meta);
+        setFileDetails({ ...draft.meta, isPdf, pageCount: files.length });
       })
       .catch((err) => {
         console.warn('Draft restoration notice:', err);
@@ -79,24 +104,76 @@ export default function MobileCapturePage({ sessionId: propSessionId }) {
     };
   }, [sessionId]);
 
-  // Clean up object URLs on unmount or file change
+  // Release all generated previews when leaving the capture page.
   useEffect(() => {
     return () => {
-      if (previewUrl && previewUrl.startsWith('blob:')) {
-        URL.revokeObjectURL(previewUrl);
-      }
+      previewUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
+      previewUrlsRef.current.clear();
     };
-  }, [previewUrl]);
+  }, []);
+
+  const persistScanDraft = (pages, meta, fileName) => {
+    if (sessionId) {
+      saveMobileDraft(sessionId, pages.map((page) => page.file), meta, fileName).catch((err) => {
+        console.warn('IndexedDB auto-save warning:', err);
+      });
+    }
+  };
+
+  const prepareImageFile = async (rawFile) => {
+    const isImage = Boolean(
+      (rawFile.type && rawFile.type.startsWith('image/')) ||
+      (rawFile.name && rawFile.name.match(/\.(jpg|jpeg|png|webp|heic|bmp|tiff|tif|svg)$/i))
+    );
+    if (!isImage) throw new Error('Please capture or select image pages, or upload an existing PDF.');
+
+    try {
+      return await downscaleMobilePhotoIfHuge(rawFile, 2400, 0.92);
+    } catch (scaleErr) {
+      console.warn('Downscaling fallback to original file:', scaleErr);
+      return rawFile;
+    }
+  };
+
+  const appendImagePages = async (rawFiles) => {
+    const files = Array.from(rawFiles || []).filter(Boolean);
+    if (!files.length) return;
+    try {
+      const newPages = [];
+      for (const rawFile of files) {
+        const file = await prepareImageFile(rawFile);
+        newPages.push({ file, previewUrl: createPreviewUrl(file) });
+      }
+
+      revokePreviewUrl(previewUrl);
+      const nextPages = [...scanPages, ...newPages];
+      setScanPages(nextPages);
+      setSelectedFile(null);
+      setPreviewUrl(null);
+      setErrorMessage('');
+      const totalSize = nextPages.reduce((sum, page) => sum + page.file.size, 0);
+      const sizeFormatted = totalSize > 1024 * 1024
+        ? `${(totalSize / (1024 * 1024)).toFixed(1)} MB`
+        : `${Math.max(1, Math.round(totalSize / 1024))} KB`;
+      const initialName = customFileName.trim() || `petition_${new Date().toISOString().slice(0, 10)}.pdf`;
+      const meta = { name: initialName, size: sizeFormatted, type: 'application/pdf', isPdf: false, pageCount: nextPages.length };
+      setCustomFileName(initialName);
+      setFileDetails(meta);
+      persistScanDraft(nextPages, meta, initialName);
+    } catch (err) {
+      setErrorMessage(err.message || 'Could not prepare the scanned pages. Please choose JPG or PNG images.');
+    }
+  };
 
   const handleFileChange = async (e) => {
-    const rawFile = e.target.files?.[0];
-    if (!rawFile) return;
+    const rawFiles = Array.from(e.target.files || []);
+    if (!rawFiles.length) return;
+    const rawFile = rawFiles[0];
 
     const isPdf = Boolean(
       (rawFile.type && rawFile.type === 'application/pdf') ||
       (rawFile.name && rawFile.name.toLowerCase().endsWith('.pdf'))
     );
-
     const isImage = Boolean(
       (rawFile.type && rawFile.type.startsWith('image/')) ||
       (rawFile.name && rawFile.name.match(/\.(jpg|jpeg|png|webp|heic|bmp|tiff|tif|svg)$/i))
@@ -108,24 +185,21 @@ export default function MobileCapturePage({ sessionId: propSessionId }) {
     }
 
     setErrorMessage('');
-
-    // Safely downscale huge camera photos (e.g. 48MP) to 2400px at high JPEG quality
-    // This maintains crisp resolution for Tamil text while preventing mobile memory crashes
-    let processedFile = rawFile;
-    if (isImage) {
-      try {
-        processedFile = await downscaleMobilePhotoIfHuge(rawFile, 2400, 0.92);
-      } catch (scaleErr) {
-        console.warn('Downscaling fallback to original file:', scaleErr);
-        processedFile = rawFile;
-      }
+    if (!isPdf) {
+      await appendImagePages(rawFiles);
+      e.target.value = '';
+      return;
     }
+
+    const processedFile = rawFile;
 
     if (previewUrl && previewUrl.startsWith('blob:')) {
-      URL.revokeObjectURL(previewUrl);
+      revokePreviewUrl(previewUrl);
     }
+    scanPages.forEach((page) => revokePreviewUrl(page.previewUrl));
+    setScanPages([]);
 
-    const objectUrl = URL.createObjectURL(processedFile);
+    const objectUrl = createPreviewUrl(processedFile);
     setSelectedFile(processedFile);
     setPreviewUrl(objectUrl);
 
@@ -152,20 +226,56 @@ export default function MobileCapturePage({ sessionId: propSessionId }) {
     setCustomFileName(initialName);
     setFileDetails(meta);
 
-    // Persist draft to IndexedDB for robust camera reload resilience
-    if (sessionId) {
-      saveMobileDraft(sessionId, processedFile, meta, initialName).catch((err) => {
-        console.warn('IndexedDB auto-save warning:', err);
-      });
+    persistScanDraft([{ file: processedFile }], meta, initialName);
+    e.target.value = '';
+  };
+
+  const handleCameraCapture = (e) => {
+    void appendImagePages(e.target.files);
+    e.target.value = '';
+  };
+
+  const handleGallerySelection = async (e) => {
+    const files = Array.from(e.target.files || []);
+    const pdfFile = files.find((file) => file.type === 'application/pdf' || file.name?.toLowerCase().endsWith('.pdf'));
+    if (pdfFile) {
+      if (files.length > 1) {
+        setErrorMessage('Choose one PDF, or select image pages together. Do not mix PDFs and images in one selection.');
+        e.target.value = '';
+        return;
+      }
+      await handleFileChange({ target: { files: [pdfFile], value: e.target.value } });
+      e.target.value = '';
+      return;
     }
+    await appendImagePages(files);
+    e.target.value = '';
+  };
+
+  const handleRemoveScanPage = (index) => {
+    const removed = scanPages[index];
+    revokePreviewUrl(removed?.previewUrl);
+    const nextPages = scanPages.filter((_, pageIndex) => pageIndex !== index);
+    setScanPages(nextPages);
+    if (nextPages.length === 0) {
+      setFileDetails(null);
+      setCustomFileName('');
+      if (sessionId) deleteMobileDraft(sessionId).catch(() => {});
+      return;
+    }
+    const totalSize = nextPages.reduce((sum, page) => sum + page.file.size, 0);
+    const sizeFormatted = totalSize > 1024 * 1024 ? `${(totalSize / (1024 * 1024)).toFixed(1)} MB` : `${Math.max(1, Math.round(totalSize / 1024))} KB`;
+    const meta = { name: customFileName, size: sizeFormatted, type: 'application/pdf', isPdf: false, pageCount: nextPages.length };
+    setFileDetails(meta);
+    persistScanDraft(nextPages, meta, customFileName);
   };
 
   const handleRetake = () => {
-    if (previewUrl && previewUrl.startsWith('blob:')) {
-      URL.revokeObjectURL(previewUrl);
-    }
+    revokePreviewUrl(previewUrl);
     setSelectedFile(null);
     setPreviewUrl(null);
+    scanPages.forEach((page) => revokePreviewUrl(page.previewUrl));
+    setScanPages([]);
     setFileDetails(null);
     setCustomFileName('');
     setErrorMessage('');
@@ -180,7 +290,7 @@ export default function MobileCapturePage({ sessionId: propSessionId }) {
   };
 
   const handleUpload = async () => {
-    if (!selectedFile || !sessionId) {
+    if ((!selectedFile && scanPages.length === 0) || !sessionId) {
       setErrorMessage('Missing file or session ID.');
       return;
     }
@@ -188,24 +298,36 @@ export default function MobileCapturePage({ sessionId: propSessionId }) {
     setIsUploading(true);
     setErrorMessage('');
 
-    const isPdf = Boolean(
-      (selectedFile.type && selectedFile.type === 'application/pdf') ||
-      (selectedFile.name && selectedFile.name.toLowerCase().endsWith('.pdf'))
-    );
-
-    let finalFileName = customFileName.trim() || (isPdf ? 'petition.pdf' : 'petition.jpg');
-    if (isPdf) {
-      if (!finalFileName.toLowerCase().endsWith('.pdf')) {
-        finalFileName += '.pdf';
-      }
-    } else {
-      if (!finalFileName.match(/\.(jpg|jpeg|png|webp|bmp|tiff|tif|heic|svg)$/i)) {
-        finalFileName += '.jpg';
+    let fileToUpload = selectedFile;
+    const isMultiPageScan = scanPages.length > 1;
+    if (scanPages.length > 0) {
+      if (isMultiPageScan) {
+        setIsUploading(true);
+        try {
+          const baseName = (customFileName.trim() || `petition_${new Date().toISOString().slice(0, 10)}`).replace(/\.(pdf|jpg|jpeg|png|webp|bmp|tiff|tif)$/i, '');
+          const { createScannedPdf } = await import('../../utils/mobileScan');
+          fileToUpload = await createScannedPdf(scanPages.map((page) => page.file), `${baseName}.pdf`);
+        } catch (pdfErr) {
+          setIsUploading(false);
+          setErrorMessage(pdfErr.message || 'Could not combine the scanned pages into a PDF.');
+          return;
+        }
+      } else {
+        fileToUpload = scanPages[0].file;
       }
     }
 
+    const isPdf = Boolean(
+      (fileToUpload.type && fileToUpload.type === 'application/pdf') ||
+      (fileToUpload.name && fileToUpload.name.toLowerCase().endsWith('.pdf'))
+    );
+
+    const defaultFileExt = isPdf ? '.pdf' : (fileToUpload.name.match(/\.[0-9a-z]+$/i)?.[0] || '.jpg');
+    const fileBaseName = (customFileName.trim() || 'petition').replace(/\.[0-9a-z]+$/i, '');
+    const finalFileName = `${fileBaseName}${defaultFileExt}`;
+
     try {
-      await uploadPetitionImage(sessionId, selectedFile, finalFileName);
+      await uploadPetitionImage(sessionId, fileToUpload, finalFileName);
       setFileDetails(prev => ({ ...prev, name: finalFileName }));
       
       // Clean up temporary draft from IndexedDB upon successful upload
@@ -287,7 +409,7 @@ export default function MobileCapturePage({ sessionId: propSessionId }) {
               </div>
             </div>
           </div>
-        ) : previewUrl ? (
+        ) : (previewUrl || scanPages.length > 0) ? (
           /* =========================================================
               STATE 2: PHOTO PREVIEW & EDITABLE FILENAME
              ========================================================= */
@@ -309,6 +431,24 @@ export default function MobileCapturePage({ sessionId: propSessionId }) {
                     <span className="preview-pdf-filename font-mono">{fileDetails?.name || 'document.pdf'}</span>
                     <span className="preview-pdf-hint">Multi-page or single-page PDF document ready for upload</span>
                   </div>
+                </div>
+              ) : scanPages.length > 0 ? (
+                <div className="mobile-scan-pages-grid" aria-label={`${scanPages.length} captured petition pages`}>
+                  {scanPages.map((page, index) => (
+                    <div className="mobile-scan-page-tile" key={`${page.file.name}-${index}`}>
+                      <img src={page.previewUrl} alt={`Scanned petition page ${index + 1}`} />
+                      <span className="mobile-scan-page-number">Page {index + 1}</span>
+                      <button
+                        type="button"
+                        className="mobile-scan-page-remove"
+                        onClick={() => handleRemoveScanPage(index)}
+                        disabled={isUploading}
+                        aria-label={`Remove page ${index + 1}`}
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    </div>
+                  ))}
                 </div>
               ) : (
                 <img 
@@ -346,6 +486,21 @@ export default function MobileCapturePage({ sessionId: propSessionId }) {
               <div className="mobile-error-banner">
                 <AlertCircle size={16} />
                 <span>{errorMessage}</span>
+              </div>
+            )}
+
+            {scanPages.length > 0 && (
+              <div className="mobile-add-page-row">
+                <span>{scanPages.length} page{scanPages.length === 1 ? '' : 's'} selected</span>
+                <button
+                  type="button"
+                  className="mobile-btn-secondary mobile-add-page-btn"
+                  onClick={() => cameraInputRef.current?.click()}
+                  disabled={isUploading}
+                >
+                  <Plus size={17} />
+                  <span>Add Page</span>
+                </button>
               </div>
             )}
 
@@ -403,9 +558,9 @@ export default function MobileCapturePage({ sessionId: propSessionId }) {
                 <div className="viewfinder-icon-pulse">
                   <Camera size={38} className="viewfinder-cam-icon" />
                 </div>
-                <div className="viewfinder-prompt-title">Place Petition in Frame</div>
+                <div className="viewfinder-prompt-title">Capture Every Petition Page</div>
                 <p className="viewfinder-prompt-sub">
-                  Align document borders within frame, or select a PDF / image file directly.
+                  Capture one page, then tap Add Page for the next. You can also select several images or upload a PDF.
                 </p>
               </div>
             </div>
@@ -458,7 +613,7 @@ export default function MobileCapturePage({ sessionId: propSessionId }) {
             <input 
               type="file" 
               ref={cameraInputRef}
-              onChange={handleFileChange}
+              onChange={handleCameraCapture}
               accept="image/*"
               capture="environment"
               style={{ display: 'none' }}
@@ -477,9 +632,10 @@ export default function MobileCapturePage({ sessionId: propSessionId }) {
             <input 
               type="file" 
               ref={galleryInputRef}
-              onChange={handleFileChange}
               accept="image/*,application/pdf,.pdf,.jpg,.jpeg,.png,.webp,.bmp,.tiff,.tif,.heic"
+              multiple
               style={{ display: 'none' }}
+              onChange={handleGallerySelection}
               aria-label="Choose petition photo or document from gallery"
             />
 

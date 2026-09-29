@@ -30,10 +30,26 @@ import {
 import { askDocumentAssistant, translateText } from '../../services/apiService';
 import './Workspace.css';
 
+function getConversationStorageKey(petition) {
+  const petitionId = petition?.source_id || petition?.sourceId || petition?.id;
+  return petitionId ? `gdp_assistant_conversation_${petitionId}` : null;
+}
+
+function loadConversation(storageKey) {
+  if (!storageKey) return [];
+  try {
+    const saved = JSON.parse(sessionStorage.getItem(storageKey) || '[]');
+    return Array.isArray(saved) ? saved : [];
+  } catch {
+    return [];
+  }
+}
+
 export default function SummaryChatView({ petition, onLogUserMessage }) {
+  const conversationStorageKey = getConversationStorageKey(petition);
   // Tab states: 'details' (default: extracted portal form) | 'chat' | 'ocr'
   const [activeTab, setActiveTab] = useState('details');
-  const [conversation, setConversation] = useState([]);
+  const [conversation, setConversation] = useState(() => loadConversation(conversationStorageKey));
   const [inputValue, setInputValue] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [summaryLang, setSummaryLang] = useState('ta'); // 'ta' | 'en'
@@ -42,10 +58,23 @@ export default function SummaryChatView({ petition, onLogUserMessage }) {
   const [isTranslatingSummary, setIsTranslatingSummary] = useState(false);
 
   // Track prompts that have been clicked/asked in this session
-  const [usedPrompts, setUsedPrompts] = useState(new Set());
+  const [usedPrompts, setUsedPrompts] = useState(() => new Set(
+    loadConversation(conversationStorageKey)
+      .filter((message) => message.sender === 'officer')
+      .map((message) => String(message.text || '').toLowerCase().trim())
+  ));
 
   const conversationScrollRef = useRef(null);
   const textareaRef = useRef(null);
+
+  useEffect(() => {
+    if (!conversationStorageKey) return;
+    try {
+      sessionStorage.setItem(conversationStorageKey, JSON.stringify(conversation));
+    } catch (err) {
+      console.warn('Could not save this Assistant conversation in the current browser session:', err);
+    }
+  }, [conversation, conversationStorageKey]);
 
   // Extract structured portal details safely
   const details = petition ? (petition.portalDetails || extractPetitionDetails(petition) || {}) : {};

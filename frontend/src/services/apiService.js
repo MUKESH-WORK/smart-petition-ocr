@@ -1,5 +1,5 @@
 // API Service connecting the Frontend to FastAPI Backend
-import { getSmartAssistantReply } from '../data/mockPetitions';
+import { getSmartAssistantReply } from '../data/mockPetitions.js';
 
 const API_BASE = '/api/v1';
 
@@ -726,6 +726,9 @@ export async function fetchAuditHistory(officerId = null) {
             officer_role: act.officer_role || '',
             actor: act.actor || act.officer_name || act.officer_id || 'SYSTEM',
             source_id: act.source_id || actId,
+            fileName: act.fileName || act.file_name || '',
+            fileType: act.fileType || act.file_type || '',
+            totalPages: Number(act.totalPages || act.page_count || 1),
             details: act.detail || act.details || 'Administrative action recorded',
             rawPetition: act.rawPetition || null,
             isClickable: isPetitionRecord
@@ -765,6 +768,9 @@ export async function fetchAuditHistory(officerId = null) {
             officer_role: item.officer_designation || 'Revenue Officer',
             actor: item.officer_name ? `${item.officer_name} (${item.officer_designation || 'Officer'})` : (item.officer_id || 'DRO Officer'),
             source_id: item.source_id || rowId,
+            fileName: item.file_name || item.fileName || '',
+            fileType: item.file_type || item.fileType || '',
+            totalPages: Number(item.totalPages || item.page_count || 1),
             details: item.grievance_type
               ? `${item.petitioner_name || 'Petition'}: ${item.grievance_type} (${item.department || 'General'})`
               : (item.file_name || 'Petition document processed'),
@@ -806,14 +812,16 @@ export async function fetchAdminActivity(limit = 50, officerId = null) {
 /**
  * Fetch full petition details for an existing historical petition
  */
-export async function fetchPetitionBySourceId(sourceId) {
+export async function fetchPetitionBySourceId(sourceId, fallback = {}) {
   if (!sourceId) return null;
 
   try {
-    const [draftRes, analysisRes, ocrRes] = await Promise.allSettled([
-      fetch(`${API_BASE}/grievance/${sourceId}/draft`),
-      fetch(`${API_BASE}/grievance/${sourceId}/analysis`),
-      fetch(`${API_BASE}/grievance/${sourceId}/ocr`)
+    const headers = authHeaders();
+    const [draftRes, analysisRes, ocrRes, statusRes] = await Promise.allSettled([
+      fetch(`${API_BASE}/grievance/${encodeURIComponent(sourceId)}/draft`, { headers }),
+      fetch(`${API_BASE}/grievance/${encodeURIComponent(sourceId)}/analysis`, { headers }),
+      fetch(`${API_BASE}/grievance/${encodeURIComponent(sourceId)}/ocr`, { headers }),
+      fetch(`${API_BASE}/grievance/${encodeURIComponent(sourceId)}/status`, { headers })
     ]);
 
     let draftData = {};
@@ -826,26 +834,38 @@ export async function fetchPetitionBySourceId(sourceId) {
       analysisData = await analysisRes.value.json();
     }
 
+    let ocrData = {};
     let fullOcrText = '';
     if (ocrRes.status === 'fulfilled' && ocrRes.value.ok) {
-      const ocrData = await ocrRes.value.json();
+      ocrData = await ocrRes.value.json();
       if (ocrData.pages && ocrData.pages.length > 0) {
         fullOcrText = ocrData.pages.map(p => p.full_text || '').join('\n\n');
       }
     }
+
+    let statusData = {};
+    if (statusRes.status === 'fulfilled' && statusRes.value.ok) {
+      statusData = await statusRes.value.json();
+    }
+
+    const foundAnyPetitionData = [draftRes, analysisRes, ocrRes, statusRes]
+      .some((result) => result.status === 'fulfilled' && result.value.ok);
+    if (!foundAnyPetitionData) return null;
 
     const portalDetails = mapDraftToPortalDetails(draftData, analysisData);
 
     return {
       id: draftData.dro_grievance_id || `PET-${sourceId.slice(0, 8).toUpperCase()}`,
       source_id: sourceId,
-      fileName: draftData.file_name || `Petition_${sourceId.slice(0, 8)}.pdf`,
+      fileName: fallback.fileName || draftData.file_name || statusData.file_name || `Petition_${sourceId.slice(0, 8)}.pdf`,
       fileSize: '1.5 MB',
-      fileType: 'PDF Document (Scanned)',
-      isPdf: true,
+      fileType: fallback.fileType || 'PDF Document (Scanned)',
+      isPdf: fallback.isPdf ?? (fallback.fileType
+        ? String(fallback.fileType).toLowerCase().includes('pdf')
+        : (fallback.fileName ? String(fallback.fileName).toLowerCase().endsWith('.pdf') : true)),
       previewUrl: `${API_BASE}/grievance/${sourceId}/file`,
       uploadedAt: draftData.created_at ? new Date(draftData.created_at).toLocaleString() : 'Recent',
-      totalPages: 1,
+      totalPages: Number(draftData.page_count || statusData.page_count || fallback.totalPages || ocrData.pages?.length || 1),
       language: 'Tamil',
       confidenceScore: 95,
       status: 'Analysis Complete',

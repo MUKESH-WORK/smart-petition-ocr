@@ -113,13 +113,14 @@ export async function uploadPetitionImage(sessionId, file, customFileName) {
     ? `${(file.size / (1024 * 1024)).toFixed(1)} MB` 
     : `${Math.max(1, Math.round(file.size / 1024))} KB`;
 
-  // Read dataUrl for local preview sync and fallback
-  const dataUrl = await new Promise((resolve) => {
+  // Keep large multi-page PDFs on the multipart path; base64 would inflate them
+  // in memory and can exceed browser localStorage quotas.
+  const dataUrl = file.size <= 2 * 1024 * 1024 ? await new Promise((resolve) => {
     const reader = new FileReader();
     reader.onload = () => resolve(reader.result);
     reader.onerror = () => resolve(null);
     reader.readAsDataURL(file);
-  });
+  }) : null;
 
   const resolvedFileType = file.type || (isPdf ? 'application/pdf' : 'image/jpeg');
 
@@ -156,6 +157,7 @@ export async function uploadPetitionImage(sessionId, file, customFileName) {
   };
 
   // 2A. Primary: FastAPI multipart/form-data upload to /api/v1/petitions/mobile-upload
+  let uploadTimeoutId;
   try {
     const formData = new FormData();
     formData.append('sessionId', sessionId);
@@ -163,7 +165,7 @@ export async function uploadPetitionImage(sessionId, file, customFileName) {
     formData.append('file', file, effectiveFileName);
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 35000); // 35s timeout for large uploads
+    uploadTimeoutId = setTimeout(() => controller.abort(), 120000); // Allow large multi-page scans over Wi-Fi/tunnels.
 
     const fastApiRes = await fetch('/api/v1/petitions/mobile-upload', {
       method: 'POST',
@@ -171,7 +173,8 @@ export async function uploadPetitionImage(sessionId, file, customFileName) {
       body: formData,
       signal: controller.signal
     });
-    clearTimeout(timeoutId);
+    clearTimeout(uploadTimeoutId);
+    uploadTimeoutId = null;
 
     if (fastApiRes.ok) {
       serverAcknowledged = true;
@@ -180,6 +183,7 @@ export async function uploadPetitionImage(sessionId, file, customFileName) {
       lastError = errBody?.detail || `Upload failed with status ${fastApiRes.status}`;
     }
   } catch (err) {
+    if (uploadTimeoutId) clearTimeout(uploadTimeoutId);
     console.warn('FastAPI multipart upload notice:', err);
     lastError = err.message;
   }
