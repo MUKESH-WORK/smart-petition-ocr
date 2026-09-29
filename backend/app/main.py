@@ -57,24 +57,35 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"Schema initialization warning: {e}")
 
-    # 2. Warm up background services & master data asynchronously so server binds instantly (<1s)
+    # 2. Seed and load official taxonomy before serving requests. The matcher reads
+    #    the Admin DB populated from government_taxonomy.pdf, never a JSON snapshot.
+    try:
+        from services.master_data_seeder import seed_master_data_if_needed
+        from services.taxonomy_matcher import taxonomy_matcher
+
+        await seed_master_data_if_needed()
+        taxonomy_count = await taxonomy_matcher.load_taxonomy()
+        if taxonomy_count == 0:
+            logger.warning("No PDF-seeded taxonomy rows found; taxonomy matching is unavailable.")
+    except Exception as e:
+        logger.warning(f"Non-blocking master-data initialization notice: {e}")
+
+    # 3. Warm up background services asynchronously.
     from services.vector_store import vector_store
     from core.llm_client import llm_client
 
     async def _async_warmup():
         try:
-            from services.master_data_seeder import seed_master_data_if_needed
-            await seed_master_data_if_needed()
             await asyncio.to_thread(vector_store.warmup)
             await llm_client._verify_or_discover_model()
             await llm_client.keep_alive_ping()
-            logger.info("AI models, embedder, and master data initialized and warmed in VRAM.")
+            logger.info("AI models and embedder initialized and warmed in VRAM.")
         except Exception as e:
             logger.warning(f"Non-blocking model warmup notice: {e}")
 
     asyncio.create_task(_async_warmup())
 
-    # 3. Always-Warm LLM Background Heartbeat Daemon
+    # 4. Always-Warm LLM Background Heartbeat Daemon
     async def _keep_alive_daemon():
         interval = getattr(settings, "LLM_KEEP_ALIVE_INTERVAL", 120)
         while True:
@@ -88,7 +99,7 @@ async def lifespan(app: FastAPI):
 
     keep_alive_task = asyncio.create_task(_keep_alive_daemon())
 
-    # 4. Start concurrent worker pool (Postgres SKIP LOCKED queue)
+    # 5. Start concurrent worker pool (Postgres SKIP LOCKED queue)
     worker_task = asyncio.create_task(job_queue.run_worker_pool())
     
     yield

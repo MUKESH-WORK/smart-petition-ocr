@@ -47,6 +47,7 @@ backend/uploads/
 backend/data/*
 !backend/data/*.json
 !backend/data/README.md
+!backend/data/government_taxonomy.pdf
 
 # Environment files & Secrets
 .env

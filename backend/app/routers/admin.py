@@ -1435,7 +1435,7 @@ async def create_taxonomy_mapping(
     # Refresh matching engine cache
     try:
         from services.taxonomy_matcher import taxonomy_matcher
-        taxonomy_matcher.load_taxonomy()
+        await taxonomy_matcher.load_taxonomy()
     except Exception as e:
         logger.debug(f"Taxonomy matcher cache refresh: {e}")
 
@@ -1529,7 +1529,7 @@ async def update_taxonomy_mapping(
     # Refresh matching engine cache
     try:
         from services.taxonomy_matcher import taxonomy_matcher
-        taxonomy_matcher.load_taxonomy()
+        await taxonomy_matcher.load_taxonomy()
     except Exception as e:
         logger.debug(f"Taxonomy matcher cache refresh: {e}")
 
@@ -1581,7 +1581,7 @@ async def delete_taxonomy_mapping(
     # Refresh matching engine cache
     try:
         from services.taxonomy_matcher import taxonomy_matcher
-        taxonomy_matcher.load_taxonomy()
+        await taxonomy_matcher.load_taxonomy()
     except Exception as e:
         logger.debug(f"Taxonomy matcher cache refresh: {e}")
 

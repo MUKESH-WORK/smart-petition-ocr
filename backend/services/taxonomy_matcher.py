@@ -173,14 +173,13 @@ CANONICAL_PREDEFINED_TAXONOMY: List[Dict[str, str]] = [
 
 class CMHelplineTaxonomyValidator:
     """
-    Connects directly to backend/data/cm_helpline_taxonomy.json.
+    Loads official CM Helpline mappings from cm_taxonomy_mappings, which is
+    populated from backend/data/government_taxonomy.pdf.
     Derives all official departments, grievance types, sub-types, sub-departments,
-    and responsible officers dynamically from the JSON file alone.
-    Zero hardcoded lists or keyword dictionaries.
+    and responsible officers dynamically from those database rows.
     """
 
-    def __init__(self, json_path: Optional[str] = None):
-        self.taxonomy_path = self._resolve_taxonomy_path(json_path)
+    def __init__(self):
         self.taxonomy: List[Dict[str, str]] = []
         self.departments: List[str] = []
         self.department_acronyms: Dict[str, str] = {}
@@ -188,7 +187,6 @@ class CMHelplineTaxonomyValidator:
         self.subtypes_map: Dict[str, Dict[str, str]] = {}
         self.types_map: Dict[str, List[str]] = {}
         self.concept_map = self._load_tamil_concept_map()
-        self.load_taxonomy()
 
     @staticmethod
     def _load_tamil_concept_map() -> Dict[str, List[str]]:
@@ -228,84 +226,37 @@ class CMHelplineTaxonomyValidator:
             "சாதி": ["community certificate"]
         }
 
-    @staticmethod
-    def _resolve_taxonomy_path(json_path: Optional[str] = None) -> str:
-        """Resolves cm_helpline_taxonomy.json dynamically using absolute and relative paths."""
-        if json_path and os.path.exists(json_path):
-            return json_path
+    async def load_taxonomy(self) -> int:
+        """Load only PDF-seeded records from the configured Admin database."""
+        from sqlalchemy import text
+        from models.database import AdminAsyncSessionLocal
 
-        env_path = os.environ.get("TAXONOMY_JSON_PATH")
-        if env_path and os.path.exists(env_path):
-            return env_path
+        async with AdminAsyncSessionLocal() as db:
+            result = await db.execute(text("""
+                SELECT department, department_code, sub_department, grievance_type,
+                       grievance_sub_type, responsible_officer
+                FROM cm_taxonomy_mappings
+                ORDER BY id
+            """))
+            records = [
+                {
+                    "department": row["department"] or "",
+                    "department_code": row["department_code"] or "",
+                    "sub_department": row["sub_department"] or "",
+                    "grievance_type": row["grievance_type"] or "",
+                    "grievance_sub_type": row["grievance_sub_type"] or "",
+                    "responsible_officer": row["responsible_officer"] or "",
+                }
+                for row in result.mappings().all()
+            ]
 
-        candidates = [
-            os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "cm_helpline_taxonomy.json"),
-            os.path.join(os.getcwd(), "backend", "data", "cm_helpline_taxonomy.json"),
-            os.path.join(os.getcwd(), "data", "cm_helpline_taxonomy.json"),
-        ]
+        self._set_taxonomy(records)
+        logger.info("Loaded %s PDF-seeded taxonomy records from Admin DB.", len(records))
+        return len(records)
 
-        for cand in candidates:
-            if os.path.exists(cand):
-                return cand
-
-        # Fallback to relative path
-        return os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "cm_helpline_taxonomy.json")
-
-    def load_taxonomy(self) -> None:
-        """
-        Dynamically loads and parses all records directly from cm_taxonomy_mappings in the database.
-        Falls back to authoritative predefined CM Helpline taxonomy records if DB / file is empty.
-        Extracts departments, acronyms, grievance types, and sub-types entirely from authoritative data.
-        """
-        db_candidates = [
-            os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "temp_cache", "dro_admin.db"),
-            os.path.join(os.getcwd(), "temp_cache", "dro_admin.db"),
-            os.path.join(os.getcwd(), "backend", "temp_cache", "dro_admin.db")
-        ]
-        db_records = []
-        for cand in db_candidates:
-            if os.path.exists(cand):
-                try:
-                    import sqlite3
-                    con = sqlite3.connect(cand)
-                    cur = con.cursor()
-                    cur.execute("SELECT department, department_code, sub_department, grievance_type, grievance_sub_type, responsible_officer FROM cm_taxonomy_mappings")
-                    rows = cur.fetchall()
-                    con.close()
-                    if rows:
-                        for r in rows:
-                            db_records.append({
-                                "department": r[0] or "",
-                                "department_code": r[1] or "",
-                                "sub_department": r[2] or "",
-                                "grievance_type": r[3] or "",
-                                "grievance_sub_type": r[4] or "",
-                                "responsible_officer": r[5] or ""
-                            })
-                        logger.info(f"Loaded {len(db_records)} authoritative taxonomy records directly from SQLite {cand}")
-                        break
-                except Exception as e:
-                    logger.warning(f"Failed reading taxonomy from SQLite {cand}: {e}")
-
-        if db_records:
-            self.taxonomy = db_records
-        elif os.path.exists(self.taxonomy_path):
-            try:
-                with open(self.taxonomy_path, "r", encoding="utf-8") as f:
-                    self.taxonomy = json.load(f)
-            except Exception as e:
-                logger.error(f"Error loading taxonomy: {e}")
-                self.taxonomy = CANONICAL_PREDEFINED_TAXONOMY
-        else:
-            self.taxonomy = CANONICAL_PREDEFINED_TAXONOMY
-            # Save to JSON path for future persistence
-            try:
-                os.makedirs(os.path.dirname(self.taxonomy_path), exist_ok=True)
-                with open(self.taxonomy_path, "w", encoding="utf-8") as f:
-                    json.dump(CANONICAL_PREDEFINED_TAXONOMY, f, ensure_ascii=False, indent=2)
-            except Exception as e:
-                logger.debug(f"Taxonomy cache file write notice: {e}")
-
+    def _set_taxonomy(self, records: List[Dict[str, str]]) -> None:
+        """Build lookup indexes from the database taxonomy rows."""
+        self.taxonomy = records
         try:
             # Reset containers
             dept_set: Set[str] = set()
@@ -425,13 +376,13 @@ class CMHelplineTaxonomyValidator:
         return {}
 
     def get_official_departments(self) -> List[str]:
-        """Returns the complete list of departments derived directly from cm_helpline_taxonomy.json."""
+        """Returns departments present in the PDF-seeded Admin DB taxonomy."""
         return list(self.departments)
 
     def normalize_department(self, dept_input: Optional[str]) -> Optional[str]:
         """
         Dynamically matches and normalizes any user/LLM input against the official
-        departments extracted from cm_helpline_taxonomy.json.
+        departments present in the PDF-seeded Admin DB taxonomy.
         """
         if not dept_input:
             return "General Administration"
@@ -485,12 +436,12 @@ class CMHelplineTaxonomyValidator:
         return "General Administration"
 
     def get_types_for_department(self, department: str) -> List[str]:
-        """Returns all grievance types for a department from the JSON dataset."""
+        """Returns grievance types present for a DB taxonomy department."""
         norm_dept = self.normalize_department(department)
         return sorted(self.types_map.get(norm_dept, []))
 
     def get_subtypes_for_department(self, department: str) -> List[str]:
-        """Returns all grievance sub-types for a department from the JSON dataset."""
+        """Returns grievance sub-types present for a DB taxonomy department."""
         norm_dept = self.normalize_department(department)
         entries = self.dept_entries.get(norm_dept, [])
         subtypes = {e.get("grievance_sub_type", "").strip() for e in entries if e.get("grievance_sub_type")}
@@ -509,7 +460,7 @@ class CMHelplineTaxonomyValidator:
     ) -> Dict[str, Any]:
         """
         Dynamically aligns LLM grievance classification with the official CM Helpline taxonomy:
-        1. Normalizes department using departments loaded from JSON.
+        1. Normalizes department using departments loaded from the PDF-seeded DB rows.
         2. Matches exact or high-confidence sub-types from the loaded taxonomy records.
         3. Fills official sub_department and responsible_officer.
         4. Gracefully passes through if novel.
