@@ -19,6 +19,9 @@ def get_redis_client() -> redis.Redis:
             port=REDIS_PORT,
             decode_responses=True,
             socket_connect_timeout=5,
+            socket_timeout=10,
+            socket_keepalive=True,
+            health_check_interval=30,
             retry_on_timeout=True
         )
     return _client

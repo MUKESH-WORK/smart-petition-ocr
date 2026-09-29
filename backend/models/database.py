@@ -465,7 +465,7 @@ async def init_db_schema():
                     sub_department VARCHAR(200),
                     grievance_type VARCHAR(255) NOT NULL,
                     grievance_sub_type VARCHAR(255) NOT NULL,
-                    responsible_officer VARCHAR(255),
+                    responsible_officer TEXT,
                     search_text TEXT,
                     embedding JSON
                 );
@@ -567,7 +567,7 @@ async def init_db_schema():
                     sub_department VARCHAR(255),
                     grievance_type VARCHAR(255) NOT NULL,
                     grievance_sub_type VARCHAR(255) NOT NULL,
-                    responsible_officer VARCHAR(255),
+                    responsible_officer TEXT,
                     search_text TEXT,
                     embedding JSONB
                 );
@@ -587,6 +587,7 @@ async def init_db_schema():
                 "ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS password_hash VARCHAR(255);",
                 "ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS department VARCHAR(100);",
                 "ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS role VARCHAR(50);",
+                "ALTER TABLE cm_taxonomy_mappings ALTER COLUMN responsible_officer TYPE TEXT;",
             ]:
                 try:
                     await conn.execute(text(col_stmt))

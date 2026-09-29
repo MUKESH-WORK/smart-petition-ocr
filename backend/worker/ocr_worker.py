@@ -33,6 +33,35 @@ REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
 QUEUE_NAME = os.getenv("REDIS_QUEUE_NAME", "ocr_jobs")
 
 
+def _new_redis_client():
+    return redis.Redis(
+        host=REDIS_HOST,
+        port=REDIS_PORT,
+        decode_responses=True,
+        socket_connect_timeout=5,
+        socket_timeout=10,
+        socket_keepalive=True,
+        health_check_interval=30,
+        retry_on_timeout=True,
+    )
+
+
+async def _connect_redis():
+    while True:
+        client = _new_redis_client()
+        try:
+            await client.ping()
+            logger.info("Connected to Redis successfully.")
+            return client
+        except Exception as e:
+            logger.warning(f"Redis not ready ({e}). Retrying in 3 seconds...")
+            try:
+                await client.aclose()
+            except Exception:
+                pass
+            await asyncio.sleep(3)
+
+
 async def update_status(
     document_id: str,
     status: str,
@@ -77,20 +106,7 @@ async def main():
 
     await init_db()
 
-    client = None
-    while client is None:
-        try:
-            client = redis.Redis(
-                host=REDIS_HOST,
-                port=REDIS_PORT,
-                decode_responses=True
-            )
-            await client.ping()
-            logger.info("Connected to Redis successfully.")
-        except Exception as e:
-            logger.warning(f"Redis not ready ({e}). Retrying in 3 seconds...")
-            await asyncio.sleep(3)
-
+    client = await _connect_redis()
     logger.info("OCR Worker started and listening for jobs...")
 
     while True:
@@ -156,8 +172,17 @@ async def main():
             logger.info("OCR Worker shutting down...")
             break
         except Exception as loop_error:
-            logger.error(f"Worker queue polling error: {loop_error}")
-            await asyncio.sleep(2)
+            logger.warning(f"Redis queue poll failed; reconnecting: {loop_error}")
+            try:
+                await client.aclose()
+            except Exception:
+                pass
+            client = await _connect_redis()
+
+    try:
+        await client.aclose()
+    except Exception:
+        pass
 
 
 if __name__ == "__main__":

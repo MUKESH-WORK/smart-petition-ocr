@@ -24,6 +24,58 @@ def _get_data_file_path(filename: str) -> str:
     return os.path.join(backend_dir, "data", filename)
 
 
+def _extract_taxonomy_rows_from_pdf(pdf_path: str) -> List[Dict[str, Any]]:
+    import fitz
+
+    doc = fitz.open(pdf_path)
+    rows: List[Dict[str, Any]] = []
+    current_dept = ""
+    current_code = ""
+    try:
+        for page in doc:
+            tables = page.find_tables()
+            if not tables or not tables.tables:
+                continue
+            for table in tables.tables:
+                for row in table.extract():
+                    if not row or len(row) < 5:
+                        continue
+                    dept_cell = (row[0] or "").strip()
+                    gtype_cell = (row[1] or "").strip()
+                    gsub_cell = (row[2] or "").strip()
+                    sdept_cell = (row[3] or "").strip()
+                    resp_cell = (row[4] or "").strip()
+
+                    if "Grievance Type" in gtype_cell or "Sub-Type" in gsub_cell:
+                        continue
+                    if dept_cell:
+                        current_dept = dept_cell
+                        if "(" in current_dept and ")" in current_dept:
+                            current_code = current_dept[current_dept.rfind("(") + 1:current_dept.rfind(")")].strip()
+                        else:
+                            current_code = ""
+                    if not gtype_cell or not gsub_cell:
+                        continue
+
+                    search_tax = (
+                        f"Department: {current_dept} | Code: {current_code} | "
+                        f"Grievance Type: {gtype_cell} | Sub-Type: {gsub_cell} | "
+                        f"Sub-Department: {sdept_cell} | Responsible Officer: {resp_cell}"
+                    )
+                    rows.append({
+                        "department": current_dept,
+                        "department_code": current_code,
+                        "sub_department": sdept_cell,
+                        "grievance_type": gtype_cell,
+                        "grievance_sub_type": gsub_cell,
+                        "responsible_officer": resp_cell,
+                        "search_text": search_tax,
+                    })
+    finally:
+        doc.close()
+    return rows
+
+
 
 AUTHORITATIVE_HIERARCHY_DATA = [
     {
@@ -531,25 +583,50 @@ async def seed_master_data_if_needed():
         except Exception as e:
             logger.warning(f"Intake channels seeding notice: {e}")
 
-        # Check if already seeded and has sub_departments
+        pdf_path = _get_data_file_path("government_taxonomy.pdf")
+        pdf_rows: List[Dict[str, Any]] = []
+        if os.path.isfile(pdf_path):
+            try:
+                pdf_rows = _extract_taxonomy_rows_from_pdf(pdf_path)
+            except Exception as e:
+                logger.warning(f"Could not inspect PDF taxonomy during seed pre-check: {e}")
+
+        # Check whether the location data is present and the full PDF taxonomy is seeded.
+        loc_count = 0
+        tax_count = 0
         try:
             loc_count = (await db.execute(text("SELECT COUNT(*) FROM master_locations WHERE embedding IS NOT NULL AND sub_departments IS NOT NULL"))).scalar_one()
             tax_count = (await db.execute(text("SELECT COUNT(*) FROM cm_taxonomy_mappings WHERE embedding IS NOT NULL"))).scalar_one()
-            if loc_count >= 33 and tax_count > 50:
+            if loc_count >= 33 and tax_count > 50 and (not pdf_rows or tax_count >= len(pdf_rows)):
                 logger.info(f"Master data already seeded in Admin DB ({loc_count} locations, {tax_count} taxonomies).")
                 return
-            elif loc_count < 33:
+            if loc_count >= 33 and pdf_rows and tax_count < len(pdf_rows):
+                logger.warning(
+                    "PDF taxonomy is incomplete (%s of %s rows); clearing partial rows for a clean reseed.",
+                    tax_count,
+                    len(pdf_rows),
+                )
+                await db.execute(text("DELETE FROM cm_taxonomy_mappings"))
+                await db.commit()
+                tax_count = 0
+            if loc_count < 33:
                 logger.info(f"Seeding authoritative hierarchy into master_locations (current with sub_departments: {loc_count})...")
                 await seed_authoritative_hierarchy(db)
         except Exception as e:
             logger.warning(f"Master data pre-check notice: {e}")
-            await seed_authoritative_hierarchy(db)
+            try:
+                await db.rollback()
+            except Exception:
+                pass
+            # The counts are required to decide whether location/taxonomy rows
+            # need seeding. Do not continue with unknown counts after a DB error.
+            return
 
         logger.info("[SEEP-INIT] Seeding Master Locations and Taxonomy Mappings into Admin DB...")
 
         # 1. Seed Master Locations from hierarchy JSON
         hierarchy_file = _get_data_file_path("erode_administrative_hierarchy.json")
-        if os.path.isfile(hierarchy_file):
+        if os.path.isfile(hierarchy_file) and loc_count < 33:
             try:
                 with open(hierarchy_file, "r", encoding="utf-8") as f:
                     hierarchy = json.load(f)
@@ -694,59 +771,9 @@ async def seed_master_data_if_needed():
         # 2. Seed CM Helpline Taxonomy Mappings (Authoritative Government PDF)
         tax_count = await db.execute(text("SELECT COUNT(*) FROM cm_taxonomy_mappings"))
         if (tax_count.scalar() or 0) == 0:
-            pdf_path = _get_data_file_path("government_taxonomy.pdf")
-            if os.path.isfile(pdf_path):
+            if pdf_rows:
                 try:
-                    import fitz  # PyMuPDF
-                    doc = fitz.open(pdf_path)
-                    all_rows = []
-                    current_dept = ""
-                    current_code = ""
-
-                    for page_idx in range(len(doc)):
-                        page = doc[page_idx]
-                        tables = page.find_tables()
-                        if not tables or not tables.tables:
-                            continue
-                        for t in tables.tables:
-                            extracted = t.extract()
-                            for row in extracted:
-                                if not row or len(row) < 5:
-                                    continue
-                                dept_cell = (row[0] or "").strip()
-                                gtype_cell = (row[1] or "").strip()
-                                gsub_cell = (row[2] or "").strip()
-                                sdept_cell = (row[3] or "").strip()
-                                resp_cell = (row[4] or "").strip()
-
-                                if "Grievance Type" in gtype_cell or "Sub-Type" in gsub_cell:
-                                    continue
-                                if dept_cell:
-                                    current_dept = dept_cell
-                                    if "(" in current_dept and ")" in current_dept:
-                                        current_code = current_dept[current_dept.rfind("(")+1:current_dept.rfind(")")].strip()
-                                    else:
-                                        current_code = ""
-
-                                if not gtype_cell or not gsub_cell:
-                                    continue
-
-                                search_tax = (
-                                    f"Department: {current_dept} | Code: {current_code} | "
-                                    f"Grievance Type: {gtype_cell} | Sub-Type: {gsub_cell} | "
-                                    f"Sub-Department: {sdept_cell} | Responsible Officer: {resp_cell}"
-                                )
-                                all_rows.append({
-                                    "department": current_dept,
-                                    "department_code": current_code,
-                                    "sub_department": sdept_cell,
-                                    "grievance_type": gtype_cell,
-                                    "grievance_sub_type": gsub_cell,
-                                    "responsible_officer": resp_cell,
-                                    "search_text": search_tax
-                                })
-
-                    doc.close()
+                    all_rows = pdf_rows
                     if all_rows:
                         logger.info(f"Encoding {len(all_rows)} authoritative taxonomy records from PDF...")
                         batch_size = 128
@@ -775,6 +802,16 @@ async def seed_master_data_if_needed():
                         await db.rollback()
                     except Exception:
                         pass
+                    # Never leave a partial table that the startup fast path would mistake as complete.
+                    try:
+                        await db.execute(text("DELETE FROM cm_taxonomy_mappings"))
+                        await db.commit()
+                    except Exception as cleanup_error:
+                        logger.error(f"Could not clear partial PDF taxonomy rows: {cleanup_error}")
+                        try:
+                            await db.rollback()
+                        except Exception:
+                            pass
 
 def _hash_default_password(raw: str) -> str:
     salt = "DRO_SECURE_SALT_2026"
