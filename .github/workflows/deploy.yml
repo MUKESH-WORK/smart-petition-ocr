@@ -35,6 +35,9 @@ jobs:
           pip install pytest httpx fastapi pydantic pydantic-settings sqlalchemy aiosqlite python-dotenv pyjwt requests uvicorn
 
       - name: Run Backend Unit Tests
+        env:
+          UPLOAD_DIR: ${{ runner.temp }}/gdp-assistant/uploads
+          STATIC_MEDIA_DIR: ${{ runner.temp }}/gdp-assistant/static-media
         run: |
           cd backend
           pytest -v tests/
