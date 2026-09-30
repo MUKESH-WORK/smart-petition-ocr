@@ -461,6 +461,8 @@ if (Test-Path $stModelConfig) {
             if ($venvCreate.ExitCode -ne 0 -or -not (Test-Path $venvPython)) {
                 throw "Virtual environment creation failed with exit code $($venvCreate.ExitCode)"
             }
+            # Ensure pip is present
+            & $venvPython -m ensurepip --default-pip 2>&1 | Out-Null
             Log-Ok "Python virtual environment ready: $venvPython"
         } catch {
             Log-Err "Failed to create Python virtual environment: $_"
@@ -479,6 +481,13 @@ if (Test-Path $stModelConfig) {
     if ($stCheck -notmatch "ok") {
         Log-Info "Installing host-side sentence-transformers and torch..."
         try {
+            # Check and bootstrap pip if missing in existing venv
+            $pipCheck = & $venvPython -m pip --version 2>&1 | Out-String
+            if ($pipCheck -match "No module named pip") {
+                Log-Info "Bootstrapping pip in virtual environment..."
+                & $venvPython -m ensurepip --default-pip 2>&1 | Out-Null
+            }
+
             $pipProc = Start-Process $venvPython -ArgumentList "-m pip install sentence-transformers torch" -NoNewWindow -PassThru -Wait
             if ($pipProc.ExitCode -ne 0) {
                 throw "pip install exited with code $($pipProc.ExitCode)"
