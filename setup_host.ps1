@@ -22,7 +22,7 @@ function Log-Info {
 
 function Log-Ok {
     param([string]$Msg)
-    Write-Host "[OK] $Msg" -ForegroundColor Greengit
+    Write-Host "[OK] $Msg" -ForegroundColor Green
 }
 
 function Log-Warn {
