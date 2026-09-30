@@ -2,7 +2,7 @@ import asyncio
 import json
 import uuid
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 from typing import Dict, Any, List, Optional, TYPE_CHECKING
 
@@ -38,7 +38,7 @@ logger = logging.getLogger(__name__)
 
 
 def datetime_suffix_short() -> str:
-    return datetime.utcnow().strftime("%d%b%y").upper()
+    return datetime.now(timezone.utc).strftime("%d%b%y").upper()
 
 
 class AIAnalyzer:
@@ -450,7 +450,7 @@ class AIAnalyzer:
             WHERE source_id = :source_id
             ORDER BY source_page ASC, confidence DESC
         """), {"source_id": source_id})
-        existing_entities = [dict(e) for e in ent_result.mappings().all()]
+        existing_entities: List[Dict[str, Any]] = [dict(e) for e in ent_result.mappings().all()]
         existing_entity_dict = {e["entity_type"]: e["entity_value"] for e in existing_entities}
 
         # Stage-C verified deterministic entities (read-only context for LLM)
@@ -541,7 +541,7 @@ class AIAnalyzer:
         # 2a. Check AI Semantic Cache (bypasses LLM in ~30ms if >=0.92 cosine match found and enabled)
         try:
             from services.semantic_cache import semantic_cache
-            cache_hit = await semantic_cache.lookup(db, prompt, source_id=str(source_id))
+            cache_hit = await semantic_cache.lookup(db, prompt, source_id=source_id)
             if cache_hit and cache_hit.get("data"):
                 logger.info(
                     f"⚡ [SEMANTIC CACHE HIT] Bypassing LLM for source {source_id}: "
@@ -902,7 +902,7 @@ class AIAnalyzer:
                 clean_field(llm_data.get("department")) or
                 fallback_analysis["department"]
             )
-        )
+        ) or "General Administration"
 
         # Domain routing: Destitute Widow Pension (DWPS) / Social Security Schemes (OAP / Financial Assistance)
         if any(k in (p_gtype + " " + p_gsub + " " + doc_context).lower() for k in [
@@ -990,7 +990,7 @@ class AIAnalyzer:
 
         # Domain routing: Higher Education Scholarship
         elif any(k in (p_gtype + " " + p_gsub + " " + doc_context).lower() for k in ["scholarship", "கல்வி உதவி", "கல்வி உதவித்தொகை", "கல்லூரி படிப்பு", "பல்கலைக்கழக"]):
-            if "higher education" not in p_dept.lower() and "social justice" not in p_dept.lower() and "minorities" not in p_dept.lower():
+            if "higher education" not in (p_dept or "").lower() and "social justice" not in (p_dept or "").lower() and "minorities" not in (p_dept or "").lower():
                 p_dept = "Higher Education Department (HIGHEDU)"
             p_gtype = "Scholarship - High Edu"
             p_gsub = "Scholarship - High Edu"
@@ -1003,7 +1003,7 @@ class AIAnalyzer:
             any(k in (p_gtype + " " + p_gsub).lower() for k in ["aadhar", "aadhaar", "tactv", "esevai", "ceg", "information technology"]) or
             any(k in doc_context.lower() for k in ["ஆதார் திருத்தம்", "ஆதார் அட்டை பெயர் மாற்றம்", "ஆதார் பதிவு", "ஆதார் சேர்க்கை", "இ-சேவை மையம்", "esevai center", "aadhaar enrolment", "aadhaar correction"])
         ):
-            if "information technology" not in p_dept.lower():
+            if "information technology" not in (p_dept or "").lower():
                 p_dept = "Information Technology Department (IT)"
                 p_gtype = "Application Related Complaints - CeG"
                 p_gsub = "eSevai - Complaint related to Aadhaar Enrolment"
@@ -1024,7 +1024,7 @@ class AIAnalyzer:
         p_priority = clean_field(llm_data.get("priority")) or "MEDIUM"
 
         # Format Reference ID
-        dept_code = "REV" if "revenue" in p_dept.lower() else ("IT" if "information technology" in p_dept.lower() else ("RDPR" if "rural development" in p_dept.lower() else ("MAWS" if "municipal" in p_dept.lower() else "GAD")))
+        dept_code = "REV" if "revenue" in (p_dept or "").lower() else ("IT" if "information technology" in (p_dept or "").lower() else ("RDPR" if "rural development" in (p_dept or "").lower() else ("MAWS" if "municipal" in (p_dept or "").lower() else "GAD")))
         subdept_code = "DRO" if dept_code == "REV" else ("TACTV" if dept_code == "IT" else ("BDO" if dept_code == "RDPR" else ("CMA" if dept_code == "MAWS" else "CELL")))
         date_code = gdp_meta.get("date_code", "24AUG26")
         if raw_ref_digits:
@@ -1314,16 +1314,16 @@ class AIAnalyzer:
         p_rev_div = sanitize_short_field(p_rev_div, 100)
 
         if not p_resp_off or p_resp_off == "வட்டாட்சியர்":
-            if "revenue" in p_dept.lower() or "வருவாய்" in p_dept:
+            if "revenue" in (p_dept or "").lower() or ("வருவாய்" in (p_dept or "")):
                 p_resp_off = f"வட்டாட்சியர், {p_taluk}" if p_taluk else "வட்டாட்சியர்"
             else:
-                p_resp_off = tax_match.get("responsible_officer") if (tax_match and tax_match.get("responsible_officer")) else "துறை அலுவலர்"
+                p_resp_off = clean_field(sel_tax.get("Responsible_officer")) or clean_field(sel_tax.get("responsible_officer")) or "துறை அலுவலர்"
         p_resp_off = sanitize_short_field(p_resp_off, 150)
 
         # Preserve clean petitioner_name and avoid concatenating English signatory into Tamil name
 
         # Safeguard and sanitize taxonomy fields against runaway text / narrative sentences
-        def sanitize_taxonomy_field(val: Any, default_val: Optional[str] = None, max_len: int = 100) -> Optional[str]:
+        def sanitize_taxonomy_field(val: Any, default_val: Optional[str] = None, max_len: int = 120) -> Optional[str]:
             if not val or val == "-":
                 return default_val
             s = str(val).strip()
@@ -1333,7 +1333,7 @@ class AIAnalyzer:
                 "கோருதல்", "வேண்டி", "குறித்து", "தொடர்பாக", "பொருள் :", "பொருள்:", 
                 "விண்ணப்பம்", "நடவடிக்கை எடுக்க", "விபத்து அபாயம்", "சாலைப்பணிகளால்", "சாலைப் பணிகளால்"
             ]
-            if len(s) > 60 or any(m in s for m in narrative_markers) or s.count(" ") > 7:
+            if len(s) > max_len or any(m in s for m in narrative_markers):
                 logger.warning(f"Rejecting narrative sentence from taxonomy field: '{s[:60]}...' -> falling back to '{default_val}'")
                 return default_val
             s = s.strip(" .,-:;")

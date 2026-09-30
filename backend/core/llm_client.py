@@ -143,6 +143,7 @@ class LLMClient:
         self.max_tokens = max_tokens
         self._llama_cpp_instance = None
         self._async_client: Optional[httpx.AsyncClient] = None
+        self._async_client_loop: Optional[asyncio.AbstractEventLoop] = None
         self._sync_client: Optional[httpx.Client] = None
         self._semaphore: Optional[asyncio.Semaphore] = None
         self._model_verified: bool = False
@@ -162,7 +163,7 @@ class LLMClient:
                 ollama_base = self._get_ollama_base()
                 client = await self._get_async_client()
                 active_model = await self._verify_or_discover_model()
-                payload = {
+                payload: Dict[str, Any] = {
                     "model": active_model,
                     "keep_alive": -1,
                     "prompt": ""
@@ -190,8 +191,7 @@ class LLMClient:
         current_loop = asyncio.get_running_loop()
         client = self._async_client
         if client is not None:
-            client_loop = getattr(client, "_loop", None)
-            if client.is_closed or (client_loop is not None and (client_loop.is_closed() or client_loop != current_loop)):
+            if client.is_closed or (self._async_client_loop is not None and (self._async_client_loop.is_closed() or self._async_client_loop != current_loop)):
                 try:
                     await client.aclose()
                 except Exception:
@@ -203,42 +203,55 @@ class LLMClient:
                 timeout=getattr(settings, "LLM_FULL_TIMEOUT", 300.0),
                 limits=httpx.Limits(max_keepalive_connections=5, max_connections=10)
             )
-            self._async_client._loop = current_loop
+            self._async_client_loop = current_loop
         return self._async_client
 
     async def _verify_or_discover_model(self) -> str:
-        """Checks if configured model is available in Ollama; auto-selects best available model if not."""
+        """Checks if configured model is available in Ollama; auto-selects best available model and working host."""
         if self._model_verified:
             return self.model
 
         if self.provider == "ollama":
-            ollama_base = self._get_ollama_base()
-            try:
-                client = await self._get_async_client()
-                resp = await client.get(f"{ollama_base}/api/tags", timeout=3.0)
-                if resp.status_code == 200:
-                    data = resp.json()
-                    available_models = [m.get("name", "") for m in data.get("models", [])]
+            current_base = self._get_ollama_base()
+            candidates = [current_base, "http://127.0.0.1:11434", "http://localhost:11434", "http://host.docker.internal:11434"]
+            seen_bases = set()
+            unique_candidates = []
+            for c in candidates:
+                if c and c not in seen_bases:
+                    seen_bases.add(c)
+                    unique_candidates.append(c)
 
-                    if any(self.model == m or m.startswith(self.model) for m in available_models):
-                        self._model_verified = True
-                        return self.model
+            client = await self._get_async_client()
+            for base in unique_candidates:
+                try:
+                    resp = await client.get(f"{base}/api/tags", timeout=2.5)
+                    if resp.status_code == 200:
+                        if base != current_base:
+                            logger.info(f"Ollama base URL auto-switched from '{current_base}' to '{base}'")
+                            self.base_url = f"{base}/v1"
+                        
+                        data = resp.json()
+                        available_models = [m.get("name", "") for m in data.get("models", [])]
 
-                    for candidate in ["qwen2.5:3b-instruct", "qwen2.5:3b", "qwen", "mistral", "phi4", "llama"]:
-                        for m in available_models:
-                            if candidate in m.lower():
-                                logger.info(f"Ollama auto-switching from '{self.model}' to '{m}'")
-                                self.model = m
-                                self._model_verified = True
-                                return self.model
+                        if any(self.model == m or m.startswith(self.model) for m in available_models):
+                            self._model_verified = True
+                            return self.model
 
-                    if available_models:
-                        self.model = available_models[0]
-                        self._model_verified = True
-                        logger.info(f"Using first available Ollama model: '{self.model}'")
-                        return self.model
-            except Exception as e:
-                logger.debug(f"Could not query Ollama /api/tags: {e}")
+                        for candidate in ["qwen2.5:3b-instruct", "qwen2.5:3b", "qwen", "mistral", "phi4", "llama"]:
+                            for m in available_models:
+                                if candidate in m.lower():
+                                    logger.info(f"Ollama auto-switching from '{self.model}' to '{m}'")
+                                    self.model = m
+                                    self._model_verified = True
+                                    return self.model
+
+                        if available_models:
+                            self.model = available_models[0]
+                            self._model_verified = True
+                            logger.info(f"Using first available Ollama model: '{self.model}'")
+                            return self.model
+                except Exception as e:
+                    logger.debug(f"Could not query Ollama at {base}/api/tags: {e}")
 
         self._model_verified = True
         return self.model
@@ -316,7 +329,7 @@ class LLMClient:
         active_model = await self._verify_or_discover_model()
 
         endpoint = f"{self.base_url}/chat/completions"
-        payload = {
+        payload: Dict[str, Any] = {
             "model": active_model,
             "messages": [
                 {"role": "system", "content": sys_p},
@@ -363,7 +376,7 @@ class LLMClient:
         active_model = await self._verify_or_discover_model()
 
         endpoint = f"{self.base_url}/chat/completions"
-        payload = {
+        payload: Dict[str, Any] = {
             "model": active_model,
             "messages": [
                 {"role": "system", "content": sys_p},

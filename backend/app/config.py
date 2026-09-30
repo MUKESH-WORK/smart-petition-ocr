@@ -35,13 +35,13 @@ class Settings(BaseSettings):
     
     # LLM Engine (ollama, llama_cpp, openai_compat)
     LLM_PROVIDER: str = "ollama"
-    LLM_API_BASE_URL: str = "http://host.docker.internal:11434/v1"
-    LLM_MODEL_NAME: str = "qwen2.5:3b-instruct"
+    LLM_API_BASE_URL: str = os.environ.get("LLM_API_BASE_URL", "http://127.0.0.1:11434/v1")
+    LLM_MODEL_NAME: str = os.environ.get("LLM_MODEL_NAME", "qwen2.5:3b-instruct")
     LLM_TEMPERATURE: float = 0.1
     LLM_MAX_TOKENS: int = 1024
     
     # DRO External Portal Bridge
-    DRO_PORTAL_BASE_URL: str = "http://host.docker.internal:9000"
+    DRO_PORTAL_BASE_URL: str = os.environ.get("DRO_PORTAL_BASE_URL", "http://127.0.0.1:9000")
     
     # File Storage
     UPLOAD_DIR: str = "/app/storage/uploads"
