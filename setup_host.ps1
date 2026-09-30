@@ -2,7 +2,8 @@
 # GDP Assistant - Fresh Server Host and Ollama Bootstrap Script (Windows)
 # ==============================================================================
 # Automates host pre-flight verification, Ollama installation, daemon startup,
-# AI model downloading (qwen2.5:3b-instruct), environment setup, and Docker Compose deployment.
+# AI model downloading (qwen2.5:3b-instruct), Redis installation,
+# Sentence Transformer model caching, environment setup, and Docker Compose deployment.
 #
 # Usage:
 #   powershell -ExecutionPolicy Bypass -File .\setup_host.ps1
@@ -54,7 +55,7 @@ Write-Host ""
 # ------------------------------------------------------------------------------
 # STEP 1: Verify Docker and Docker Compose
 # ------------------------------------------------------------------------------
-Log-Info "Step 1/8: Verifying Docker and Docker Compose availability..."
+Log-Info "Step 1/10: Verifying Docker and Docker Compose availability..."
 
 if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
     Log-Err "Docker is not installed or not available in PATH."
@@ -96,7 +97,7 @@ try {
 # ------------------------------------------------------------------------------
 # STEP 2: Check / Install Ollama on Host
 # ------------------------------------------------------------------------------
-Log-Info "Step 2/8: Checking host Ollama installation..."
+Log-Info "Step 2/10: Checking host Ollama installation..."
 Update-SessionPath
 
 $ollamaCmd = Get-Command ollama -ErrorAction SilentlyContinue
@@ -147,7 +148,7 @@ if ($ollamaCmd) {
 # ------------------------------------------------------------------------------
 # STEP 3: Check / Start Ollama Server Daemon
 # ------------------------------------------------------------------------------
-Log-Info "Step 3/8: Verifying host Ollama server daemon (http://127.0.0.1:11434)..."
+Log-Info "Step 3/10: Verifying host Ollama server daemon (http://127.0.0.1:11434)..."
 
 function Test-OllamaHealth {
     try {
@@ -199,7 +200,7 @@ if ($isOllamaRunning) {
 # ------------------------------------------------------------------------------
 # STEP 4: Check / Pull Required Ollama Model (qwen2.5:3b-instruct)
 # ------------------------------------------------------------------------------
-Log-Info "Step 4/8: Checking required LLM model (qwen2.5:3b-instruct)..."
+Log-Info "Step 4/10: Checking required LLM model (qwen2.5:3b-instruct)..."
 $targetModel = "qwen2.5:3b-instruct"
 
 $hasModel = $false
@@ -241,10 +242,199 @@ if ($hasModel) {
 }
 
 # ------------------------------------------------------------------------------
-# STEP 5: Environment File Configuration (.env)
+# STEP 5: Check / Install Redis on Host
 # ------------------------------------------------------------------------------
-Log-Info "Step 5/8: Validating environment configuration (.env)..."
+Log-Info "Step 5/10: Checking Redis availability on host..."
+
+$redisCmd = Get-Command redis-server -ErrorAction SilentlyContinue
+$redisCliCmd = Get-Command redis-cli -ErrorAction SilentlyContinue
+
+if ($redisCmd) {
+    try {
+        $redisVer = (redis-server --version 2>&1 | Out-String).Trim()
+        Log-Ok "Redis is already installed on host: $redisVer"
+    } catch {
+        Log-Ok "Redis server binary found at: $($redisCmd.Source)"
+    }
+} else {
+    Log-Info "Redis is not installed on the host. Attempting installation via winget..."
+
+    if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
+        Log-Warn "winget is not available. Trying Chocolatey..."
+
+        if (Get-Command choco -ErrorAction SilentlyContinue) {
+            try {
+                Log-Info "Running: choco install redis-64 -y"
+                $chocoProc = Start-Process choco -ArgumentList "install redis-64 -y" -NoNewWindow -PassThru -Wait
+                Update-SessionPath
+                $redisCmd = Get-Command redis-server -ErrorAction SilentlyContinue
+                if ($redisCmd) {
+                    Log-Ok "Redis installed successfully via Chocolatey."
+                } else {
+                    throw "Redis not found after Chocolatey install."
+                }
+            } catch {
+                Log-Warn "Chocolatey Redis installation failed: $_"
+            }
+        }
+    } else {
+        try {
+            Log-Info "Running: winget install Redis.Redis --accept-source-agreements --accept-package-agreements --silent"
+            $redisInstall = Start-Process winget -ArgumentList "install Redis.Redis --accept-source-agreements --accept-package-agreements --silent" -NoNewWindow -PassThru -Wait
+
+            Update-SessionPath
+            Start-Sleep -Seconds 3
+
+            $redisCmd = Get-Command redis-server -ErrorAction SilentlyContinue
+            if ($redisCmd) {
+                Log-Ok "Redis installed successfully via winget."
+            } else {
+                # Check common install paths
+                $commonRedisPaths = @(
+                    "C:\Program Files\Redis",
+                    "$env:LOCALAPPDATA\Redis",
+                    "$env:ProgramFiles\Redis"
+                )
+                foreach ($rp in $commonRedisPaths) {
+                    if (Test-Path (Join-Path $rp "redis-server.exe")) {
+                        $env:Path = "$rp;$env:Path"
+                        Log-Info "Added Redis to PATH from: $rp"
+                        break
+                    }
+                }
+                $redisCmd = Get-Command redis-server -ErrorAction SilentlyContinue
+            }
+        } catch {
+            Log-Warn "winget Redis installation encountered an issue: $_"
+        }
+    }
+
+    # Final fallback: Docker-based Redis is bundled inside the all-in-one container
+    if (-not $redisCmd) {
+        Log-Warn "Could not install Redis as a standalone host service."
+        Log-Info "Redis is already bundled INSIDE the GDP Assistant Docker container (via supervisord)."
+        Log-Info "Host Redis is only needed for local development without Docker."
+        Log-Ok "Proceeding with container-bundled Redis (no host install required for Docker deployment)."
+    }
+}
+
+# Verify Redis connectivity if installed on host
+if ($redisCmd) {
+    $redisCliCmd = Get-Command redis-cli -ErrorAction SilentlyContinue
+    if ($redisCliCmd) {
+        try {
+            $redisPing = (redis-cli ping 2>&1 | Out-String).Trim()
+            if ($redisPing -eq "PONG") {
+                Log-Ok "Host Redis server is running and responding to PING."
+            } else {
+                Log-Info "Host Redis server is installed but not currently running (will be started inside Docker container)."
+            }
+        } catch {
+            Log-Info "Host Redis server is installed but not currently running."
+        }
+    }
+}
+
+# ------------------------------------------------------------------------------
+# STEP 6: Pre-download Sentence Transformer Model for Docker Image
+# ------------------------------------------------------------------------------
+Log-Info "Step 6/10: Pre-downloading Sentence Transformer model for offline Docker builds..."
+
 $rootDir = $PSScriptRoot
+$modelDir = Join-Path $rootDir "models"
+$stModelDir = Join-Path $modelDir "all-MiniLM-L6-v2"
+$stModelConfig = Join-Path $stModelDir "config.json"
+
+if (Test-Path $stModelConfig) {
+    Log-Ok "Sentence Transformer model 'all-MiniLM-L6-v2' is already saved in '$modelDir'."
+} else {
+    Log-Info "Saving Sentence Transformer model 'all-MiniLM-L6-v2' to '$modelDir' for Docker image baking..."
+
+    # Create model directory
+    if (-not (Test-Path $modelDir)) {
+        New-Item -ItemType Directory -Path $modelDir -Force | Out-Null
+    }
+
+    # Locate a usable Python interpreter with sentence-transformers
+    $pythonExe = $null
+
+    # Check 1: Project venv
+    $venvPython = Join-Path $rootDir ".venv\Scripts\python.exe"
+    if (Test-Path $venvPython) {
+        $pythonExe = $venvPython
+    }
+
+    # Check 2: System Python
+    if (-not $pythonExe) {
+        $sysPython = Get-Command python -ErrorAction SilentlyContinue
+        if ($sysPython) {
+            $pythonExe = $sysPython.Source
+        }
+    }
+
+    if (-not $pythonExe) {
+        Log-Err "No Python interpreter found. Cannot pre-download Sentence Transformer model."
+        Log-Err "Install Python 3.11+ and sentence-transformers, then rerun this script."
+        exit 1
+    }
+
+    Log-Info "Using Python interpreter: $pythonExe"
+
+    # Ensure sentence-transformers is installed
+    $stCheck = & $pythonExe -c "import sentence_transformers; print('ok')" 2>&1 | Out-String
+    if ($stCheck -notmatch "ok") {
+        Log-Info "Installing sentence-transformers package..."
+        & $pythonExe -m pip install --quiet sentence-transformers 2>&1 | Out-Null
+    }
+
+    # Download and save the model locally
+    $saveScript = @"
+import os, sys
+os.environ['HF_HOME'] = os.environ.get('HF_HOME', os.path.expanduser('~/.cache/huggingface'))
+from sentence_transformers import SentenceTransformer
+model = SentenceTransformer('all-MiniLM-L6-v2')
+save_path = sys.argv[1]
+model.save(save_path)
+print(f'Model saved to {save_path}')
+"@
+
+    $tempScript = Join-Path $env:TEMP "save_st_model.py"
+    Set-Content -Path $tempScript -Value $saveScript -Encoding UTF8
+
+    try {
+        $saveProc = Start-Process $pythonExe -ArgumentList "`"$tempScript`" `"$stModelDir`"" -NoNewWindow -PassThru -Wait
+        if ($saveProc.ExitCode -ne 0) {
+            throw "Model save script exited with code $($saveProc.ExitCode)"
+        }
+
+        if (Test-Path $stModelConfig) {
+            Log-Ok "Sentence Transformer model saved successfully to '$stModelDir'."
+            Log-Info "This model will be COPY'd into the Docker image at build time (no runtime download needed)."
+        } else {
+            throw "Model config.json not found after save operation."
+        }
+    } catch {
+        Log-Err "Failed to save Sentence Transformer model: $_"
+        Log-Warn "The Docker image will download the model at first container startup instead."
+        Log-Warn "To fix: pip install sentence-transformers, then rerun this script."
+    } finally {
+        Remove-Item $tempScript -ErrorAction SilentlyContinue
+    }
+}
+
+# Ensure models directory is in .dockerignore exclusion list (NOT ignored)
+$dockerignoreFile = Join-Path $rootDir ".dockerignore"
+if (Test-Path $dockerignoreFile) {
+    $diContent = Get-Content $dockerignoreFile -Raw
+    if ($diContent -match "models/") {
+        Log-Warn "'.dockerignore' may be excluding the 'models/' directory. Verify it is NOT ignored."
+    }
+}
+
+# ------------------------------------------------------------------------------
+# STEP 7: Environment File Configuration (.env)
+# ------------------------------------------------------------------------------
+Log-Info "Step 7/10: Validating environment configuration (.env)..."
 $envFile = Join-Path $rootDir ".env"
 $envExampleFile = Join-Path $rootDir ".env.example"
 
@@ -262,9 +452,9 @@ if (-not (Test-Path $envFile)) {
 }
 
 # ------------------------------------------------------------------------------
-# STEP 6: Validate Docker Compose Configuration
+# STEP 8: Validate Docker Compose Configuration
 # ------------------------------------------------------------------------------
-Log-Info "Step 6/8: Validating Docker Compose configuration..."
+Log-Info "Step 8/10: Validating Docker Compose configuration..."
 
 try {
     $null = docker compose config 2>&1
@@ -278,9 +468,9 @@ try {
 }
 
 # ------------------------------------------------------------------------------
-# STEP 7: Build and Start GDP Assistant Containers
+# STEP 9: Build and Start GDP Assistant Containers
 # ------------------------------------------------------------------------------
-Log-Info "Step 7/8: Building and starting GDP Assistant Docker services..."
+Log-Info "Step 9/10: Building and starting GDP Assistant Docker services..."
 Log-Info "Executing: docker compose up -d --build..."
 
 try {
@@ -295,9 +485,9 @@ try {
 }
 
 # ------------------------------------------------------------------------------
-# STEP 8: Verify Application Health and Connectivity
+# STEP 10: Verify Application Health and Connectivity
 # ------------------------------------------------------------------------------
-Log-Info "Step 8/8: Verifying application readiness and container health..."
+Log-Info "Step 10/10: Verifying application readiness and container health..."
 $healthUrl = "http://localhost/health"
 $maxHealthWaitSec = 120
 $healthWaited = 0
