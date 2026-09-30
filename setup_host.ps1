@@ -22,7 +22,7 @@ function Log-Info {
 
 function Log-Ok {
     param([string]$Msg)
-    Write-Host "[OK] $Msg" -ForegroundColor Green
+    Write-Host "[OK] $Msg" -ForegroundColor Greengit
 }
 
 function Log-Warn {
@@ -482,10 +482,10 @@ if (Test-Path $stModelConfig) {
         Log-Info "Installing host-side sentence-transformers and torch..."
         try {
             # Check and bootstrap pip if missing in existing venv
-            $pipCheck = & $venvPython -m pip --version 2>&1 | Out-String
-            if ($pipCheck -match "No module named pip") {
+            $venvPip = Join-Path (Split-Path $venvPython) "pip.exe"
+            if (-not (Test-Path $venvPip)) {
                 Log-Info "Bootstrapping pip in virtual environment..."
-                & $venvPython -m ensurepip --default-pip 2>&1 | Out-Null
+                & $venvPython -m ensurepip --default-pip
             }
 
             $pipProc = Start-Process $venvPython -ArgumentList "-m pip install sentence-transformers torch" -NoNewWindow -PassThru -Wait
