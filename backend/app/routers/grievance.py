@@ -1200,5 +1200,197 @@ async def list_official_departments():
     Returns the complete list of official government departments
     derived directly from the CM Helpline Grievance Taxonomy.
     """
-    from backend.services.taxonomy_matcher import taxonomy_matcher
+    from services.taxonomy_matcher import taxonomy_matcher
     return taxonomy_matcher.get_official_departments()
+
+
+# ------------------------------------------------------------------------------
+# Mobile QR Petition Capture & LAN Network Session Management
+# ------------------------------------------------------------------------------
+_mobile_upload_sessions: dict[str, dict] = {}
+
+
+def _get_lan_hosts(request: Request):
+    import socket
+    local_ips = []
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        if ip and ip != "127.0.0.1":
+            local_ips.append(ip)
+    except Exception:
+        pass
+
+    try:
+        hostname = socket.gethostname()
+        _, _, addresses = socket.gethostbyname_ex(hostname)
+        for addr in addresses:
+            if addr not in local_ips and not addr.startswith("127."):
+                local_ips.append(addr)
+    except Exception:
+        pass
+
+    client_host = request.headers.get("x-forwarded-host") or request.headers.get("host") or ""
+    port_str = ""
+    if ":" in client_host:
+        port_str = f":{client_host.split(':')[1]}"
+    elif request.url.port and request.url.port not in (80, 443):
+        port_str = f":{request.url.port}"
+
+    scheme = request.headers.get("x-forwarded-proto") or request.url.scheme or "http"
+
+    available_hosts = []
+    for ip in local_ips:
+        available_hosts.append({
+            "name": f"Wi-Fi / LAN IP ({ip})",
+            "ip": ip,
+            "url": f"{scheme}://{ip}{port_str}"
+        })
+
+    primary_url = available_hosts[0]["url"] if available_hosts else None
+    return primary_url, available_hosts
+
+
+@router.get("/network-info")
+async def get_network_info(request: Request):
+    """Returns local LAN IP addresses of the host machine for QR mobile upload."""
+    primary_url, available_hosts = _get_lan_hosts(request)
+    return {
+        "primaryUrl": primary_url,
+        "availableHosts": available_hosts
+    }
+
+
+@router.post("/mobile-session")
+async def create_mobile_session(request: Request):
+    """Generates a mobile QR petition upload session with automatic LAN IP routing."""
+    import secrets
+    session_id = secrets.token_hex(4)  # 8 hex chars
+    primary_url, available_hosts = _get_lan_hosts(request)
+
+    _mobile_upload_sessions[session_id] = {
+        "sessionId": session_id,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "uploaded": False,
+        "data": None
+    }
+
+    return {
+        "sessionId": session_id,
+        "session_id": session_id,
+        "networkHost": primary_url,
+        "availableHosts": available_hosts
+    }
+
+
+@router.get("/mobile-status/{session_id}")
+async def get_mobile_session_status(session_id: str):
+    """Polls upload status for a mobile petition capture session."""
+    session = _mobile_upload_sessions.get(session_id)
+    if not session:
+        return {"uploaded": False, "sessionId": session_id}
+
+    if session.get("uploaded") and session.get("data"):
+        return {
+            "uploaded": True,
+            "sessionId": session_id,
+            **session["data"]
+        }
+
+    return {"uploaded": False, "sessionId": session_id}
+
+
+@router.post("/mobile-upload")
+async def upload_mobile_petition(
+    request: Request,
+    sessionId: Optional[str] = Form(None),
+    fileName: Optional[str] = Form(None),
+    file: Optional[UploadFile] = File(None),
+    db: AsyncSession = Depends(get_db)
+):
+    """Handles mobile camera petition image/PDF upload over LAN Wi-Fi."""
+    # Handle JSON payload fallback if proxy serialized as JSON
+    session_id_val = sessionId
+    file_name_val = fileName
+    file_bytes = None
+    file_type_val = "image/jpeg"
+
+    if not file:
+        try:
+            json_body = await request.json()
+            session_id_val = json_body.get("sessionId") or session_id_val
+            file_name_val = json_body.get("fileName") or file_name_val
+            file_type_val = json_body.get("fileType") or file_type_val
+            data_url = json_body.get("dataUrl")
+            if data_url and "," in data_url:
+                import base64
+                header, base64_str = data_url.split(",", 1)
+                file_bytes = base64.b64decode(base64_str)
+        except Exception:
+            pass
+    else:
+        file_bytes = await file.read()
+        file_type_val = file.content_type or file_type_val
+
+    if not session_id_val:
+        raise HTTPException(status_code=400, detail="Missing sessionId in mobile upload payload")
+
+    if not file_bytes:
+        raise HTTPException(status_code=400, detail="No petition file content received")
+
+    ext = "pdf" if (file_type_val == "application/pdf" or (file_name_val and file_name_val.endswith(".pdf"))) else "jpg"
+    final_filename = file_name_val or f"mobile_petition_{session_id_val}.{ext}"
+
+    # Save to file store and register source
+    new_source_id = str(uuid.uuid4())
+    file_path, file_hash, file_size = await file_store.save_uploaded_file(new_source_id, final_filename, file_bytes)
+
+    # Ensure mobile_qr officer exists to satisfy foreign key
+    try:
+        await db.execute(text("""
+            INSERT INTO officers (officer_id, name, name_tamil, email, designation, department, status)
+            VALUES ('mobile_qr', 'Mobile QR Upload', 'மொபைல் QR பதிவேற்றம்', 'mobile@tn.gov.in', 'Mobile Upload', 'வருவாய்த்துறை', 'Active')
+            ON CONFLICT (officer_id) DO NOTHING
+        """))
+        await db.flush()
+    except Exception as e:
+        logger.debug(f"Officer record validation notice: {e}")
+
+    file_data_db = file_bytes if getattr(settings, "STORE_FILE_BYTEA", False) else None
+    await db.execute(text("""
+        INSERT INTO sources (source_id, officer_id, file_name, file_type, file_size_bytes, file_hash, page_count, status, file_data, created_at, updated_at)
+        VALUES (:source_id, 'mobile_qr', :file_name, :file_type, :file_size, :file_hash, 0, 'uploaded', :file_data, NOW(), NOW())
+    """), {
+        "source_id": new_source_id,
+        "file_name": final_filename,
+        "file_type": ext,
+        "file_size": file_size,
+        "file_hash": file_hash,
+        "file_data": file_data_db
+    })
+    await db.commit()
+
+    # Queue background processing
+    await job_queue.enqueue(db, "ocr", new_source_id, {"file_path": file_path, "file_type": ext})
+
+    payload = {
+        "sessionId": session_id_val,
+        "source_id": new_source_id,
+        "fileName": final_filename,
+        "fileSize": f"{round(len(file_bytes)/1024, 1)} KB",
+        "fileType": file_type_val,
+        "status": "processing",
+        "page_count": 1
+    }
+
+    _mobile_upload_sessions[session_id_val] = {
+        "sessionId": session_id_val,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "uploaded": True,
+        "data": payload
+    }
+
+    return {"success": True, "message": "Mobile petition received and queued", "sessionId": session_id_val}
+

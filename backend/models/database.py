@@ -25,12 +25,12 @@ def _build_postgres_url(custom_url: Optional[str] = None) -> str:
     """Builds or validates the async PostgreSQL connection URL."""
     if custom_url and ("postgres" in custom_url or "asyncpg" in custom_url):
         return custom_url
-    if settings.DATABASE_URL and ("postgres" in settings.DATABASE_URL or "asyncpg" in settings.DATABASE_URL):
+    if getattr(settings, "DATABASE_URL", "") and ("postgres" in settings.DATABASE_URL or "asyncpg" in settings.DATABASE_URL):
         return settings.DATABASE_URL
     user = getattr(settings, "POSTGRES_USER", "dro_user") or "dro_user"
     pwd = getattr(settings, "POSTGRES_PASSWORD", "dro_password_2026") or "dro_password_2026"
     host = getattr(settings, "POSTGRES_HOST", "localhost") or "localhost"
-    port = getattr(settings, "POSTGRES_PORT", 5433) or 5433
+    port = getattr(settings, "POSTGRES_PORT", 5432) or 5432
     db_name = getattr(settings, "POSTGRES_DB", "dro_grievance_db") or "dro_grievance_db"
     return f"postgresql+asyncpg://{user}:{pwd}@{host}:{port}/{db_name}"
 

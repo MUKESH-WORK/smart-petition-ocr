@@ -29,7 +29,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     HF_HOME=/app/model_cache \
     SENTENCE_TRANSFORMERS_HOME=/app/model_cache \
     PIP_NO_CACHE_DIR=1 \
-    PYTHONPATH=/app
+    PYTHONPATH=/app:/app/backend
 
 WORKDIR /app
 
@@ -66,8 +66,9 @@ RUN rm -f /etc/nginx/sites-enabled/default /etc/nginx/sites-available/default
 COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
 COPY docker/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 
-# 5. Copy backend source code (single clean copy matching runtime imports)
+# 5. Copy backend source code and create universal backend module alias
 COPY backend /app
+RUN ln -s /app /app/backend
 
 EXPOSE 80
 

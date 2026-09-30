@@ -11,6 +11,8 @@
   color: var(--text-primary);
   font-family: var(--font-main, 'Bookman Old Style', 'URW Bookman', 'Bookman', serif);
   box-sizing: border-box;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 /* Top App Bar */
@@ -90,8 +92,8 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  padding: 20px 16px;
+  justify-content: flex-start;
+  padding: 16px 14px 40px 14px;
   max-width: 460px;
   width: 100%;
   margin: 0 auto;
@@ -103,7 +105,7 @@
   background: #FFFFFF;
   border: 1px solid var(--border-medium);
   border-radius: 20px;
-  padding: 24px 20px;
+  padding: 20px 16px;
   box-shadow: 0 10px 25px rgba(16, 44, 87, 0.12);
   display: flex;
   flex-direction: column;
@@ -434,22 +436,56 @@
   cursor: pointer;
 }
 
-.mobile-add-page-row {
+.mobile-add-page-box {
   width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  background: #F8FAFC;
+  border: 1px solid #CBD5E1;
+  border-radius: 12px;
+  box-sizing: border-box;
+}
+
+.mobile-add-page-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  margin: 0 0 14px;
-  color: #475569;
-  font-size: 0.82rem;
+  width: 100%;
+  color: #1E293B;
+  font-size: 0.8rem;
   font-weight: 700;
 }
 
-.mobile-add-page-btn {
-  width: auto;
-  padding: 9px 12px;
-  flex: 0 0 auto;
+.mobile-add-page-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  width: 100%;
+}
+
+.mobile-add-action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 12px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #102C57;
+  background: #FFFFFF;
+  border: 1.5px solid #DAC0A3;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 160ms ease;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.mobile-add-action-btn:active {
+  background: #F5EDE2;
+  transform: scale(0.98);
 }
 
 /* PDF Preview Frame Styles */

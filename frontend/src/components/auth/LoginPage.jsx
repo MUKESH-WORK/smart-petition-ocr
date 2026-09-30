@@ -236,11 +236,10 @@ export default function LoginPage({ onLogin }) {
               <ArrowRight size={18} aria-hidden="true" />
             </button>
 
-            <div className="flex items-center justify-between mt-4 pt-3 border-t border-slate-100 text-xs text-slate-500" style={{ display: 'flex', justifyContent: 'space-between', marginTop: '12px', paddingTop: '10px', borderTop: '1px solid #e2e8f0', fontSize: '0.75rem', color: '#64748b' }}>
+            <div className="login-legal-links">
               <button
                 type="button"
                 onClick={() => setLegalModalTab('privacy')}
-                style={{ background: 'none', border: 'none', color: '#2563eb', cursor: 'pointer', padding: 0, fontSize: '0.75rem', textDecoration: 'none' }}
               >
                 Privacy Policy
               </button>
@@ -248,7 +247,6 @@ export default function LoginPage({ onLogin }) {
               <button
                 type="button"
                 onClick={() => setLegalModalTab('terms')}
-                style={{ background: 'none', border: 'none', color: '#2563eb', cursor: 'pointer', padding: 0, fontSize: '0.75rem', textDecoration: 'none' }}
               >
                 Terms of Operation
               </button>

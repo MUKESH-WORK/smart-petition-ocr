@@ -530,7 +530,7 @@ async def list_admin_users(
     rows = res.mappings().all()
 
     if not rows:
-        from backend.scripts.seed_db import seed_official_accounts
+        from scripts.seed_db import seed_official_accounts
         res = await db.execute(text("""
             SELECT id, name, name_tamil, mobile, email, department, role, is_admin, status, last_login, created_at 
             FROM admin_users 
@@ -993,7 +993,7 @@ async def get_administrative_hierarchy(db: AsyncSession = Depends(get_admin_db))
 
     # If empty or not yet enriched with sub_departments, seed authoritative records into Admin DB
     if not rows or not any(r.get("sub_departments") for r in rows):
-        from backend.services.master_data_seeder import seed_authoritative_hierarchy
+        from services.master_data_seeder import seed_authoritative_hierarchy
         await seed_authoritative_hierarchy(db)
         res = await db.execute(text("""
             SELECT DISTINCT 
@@ -1124,7 +1124,7 @@ async def update_or_create_taluk(
     Creates or updates a Taluk's firkas, sub-departments, local body classification, and villages in the database.
     Generates 384-dimensional vector embeddings for AI RAG from live data.
     """
-    from backend.services.vector_store import vector_store
+    from services.vector_store import vector_store
 
     sub_depts_str = ", ".join(req.sub_departments) if req.sub_departments else ""
     firkas = req.firkas if req.firkas else [req.taluk]
@@ -1549,7 +1549,7 @@ async def create_taxonomy_mapping(
         f"Sub-Type: {gsub} | Sub-Department: {sdept} | Responsible Officer: {resp}"
     )
 
-    from backend.services.vector_store import vector_store
+    from services.vector_store import vector_store
     emb_list = await vector_store.aencode([search_tax])
     emb_val = json.dumps(emb_list[0] if isinstance(emb_list[0], list) else (emb_list[0].tolist() if hasattr(emb_list[0], "tolist") else list(emb_list[0])), separators=(",", ":"))
 
@@ -1591,7 +1591,7 @@ async def create_taxonomy_mapping(
 
     # Refresh matching engine cache
     try:
-        from backend.services.taxonomy_matcher import taxonomy_matcher
+        from services.taxonomy_matcher import taxonomy_matcher
         await taxonomy_matcher.load_taxonomy()
     except Exception as e:
         logger.debug(f"Taxonomy matcher cache refresh: {e}")
@@ -1646,7 +1646,7 @@ async def update_taxonomy_mapping(
         f"Sub-Type: {gsub} | Sub-Department: {sdept} | Responsible Officer: {resp}"
     )
 
-    from backend.services.vector_store import vector_store
+    from services.vector_store import vector_store
     emb_list = await vector_store.aencode([search_tax])
     emb_val = json.dumps(emb_list[0] if isinstance(emb_list[0], list) else (emb_list[0].tolist() if hasattr(emb_list[0], "tolist") else list(emb_list[0])), separators=(",", ":"))
 
@@ -1685,7 +1685,7 @@ async def update_taxonomy_mapping(
 
     # Refresh matching engine cache
     try:
-        from backend.services.taxonomy_matcher import taxonomy_matcher
+        from services.taxonomy_matcher import taxonomy_matcher
         await taxonomy_matcher.load_taxonomy()
     except Exception as e:
         logger.debug(f"Taxonomy matcher cache refresh: {e}")
@@ -1737,7 +1737,7 @@ async def delete_taxonomy_mapping(
 
     # Refresh matching engine cache
     try:
-        from backend.services.taxonomy_matcher import taxonomy_matcher
+        from services.taxonomy_matcher import taxonomy_matcher
         await taxonomy_matcher.load_taxonomy()
     except Exception as e:
         logger.debug(f"Taxonomy matcher cache refresh: {e}")
@@ -2657,7 +2657,7 @@ async def download_certified_report(
     Directly compiles and streams official Government of Tamil Nadu audit reports in PDF or Word (.docx) format.
     """
     try:
-        from backend.services.report_document_service import generate_report_document
+        from services.report_document_service import generate_report_document
         from fastapi.responses import Response
 
         # Gather data from report-data logic

@@ -327,6 +327,8 @@
   align-items: center;
   text-align: center;
   gap: var(--space-sections, 10px);
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .qr-modal-code-box {

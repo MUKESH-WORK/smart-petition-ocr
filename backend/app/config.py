@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     POSTGRES_USER: str = "dro_user"
     POSTGRES_PASSWORD: str = os.environ.get("POSTGRES_PASSWORD", "dro_password_2026")
     POSTGRES_HOST: str = os.environ.get("POSTGRES_HOST", "localhost")
-    POSTGRES_PORT: int = int(os.environ.get("POSTGRES_PORT", 5433))
+    POSTGRES_PORT: int = int(os.environ.get("POSTGRES_PORT", 5432))
     POSTGRES_DB: str = os.environ.get("POSTGRES_DB", "dro_grievance_db")
     
     DATABASE_URL: str = ""
@@ -32,6 +32,7 @@ class Settings(BaseSettings):
     # NLP & Embeddings
     EMBEDDING_MODEL_NAME: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
     EMBEDDING_DIM: int = 384
+    HF_TOKEN: Optional[str] = os.environ.get("HF_TOKEN")
     
     # LLM Engine (ollama, llama_cpp, openai_compat)
     LLM_PROVIDER: str = "ollama"

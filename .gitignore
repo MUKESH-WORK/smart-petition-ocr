@@ -62,6 +62,7 @@ backend/.env
 # ==============================================================================
 # ML / AI Models, Weights, Tensors & Model Caches (>100MB Git Limit Blockers)
 # ==============================================================================
+models/
 models_cache/
 **/models_cache/
 backend/models_cache/

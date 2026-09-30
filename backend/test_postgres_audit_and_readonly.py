@@ -23,8 +23,10 @@ from models.database import (
     is_sqlite,
     is_admin_sqlite
 )
+import pytest
 from app.dependencies import log_audit_event
 
+@pytest.mark.asyncio
 async def test_postgres_architecture():
     print("=" * 75)
     print("🏛️ POSTGRESQL 16 ENTERPRISE ARCHITECTURE, AUDIT & READ-ONLY VERIFICATION")

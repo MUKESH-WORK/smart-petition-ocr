@@ -34,9 +34,7 @@ greenlet==3.5.6
 redis>=5.0.0
 
 # --- OCR, Computer Vision & Document Processing ---
-paddleocr==3.7.0
-paddlepaddle==3.3.1
-paddlex==3.7.2
+
 opencv-python-headless>=4.8.0,<4.11.0
 pillow>=10.2.0,<12.0.0
 pymupdf==1.28.2
@@ -83,6 +81,8 @@ PyYAML==6.0.2
 rich==13.9.4
 tenacity==9.1.4
 tqdm==4.70.1
+reportlab>=4.0.0
+python-docx>=1.1.0
 typer==0.27.2
 
 # --- Testing ---

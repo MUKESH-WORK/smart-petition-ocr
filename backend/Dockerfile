@@ -39,7 +39,8 @@ RUN pip install --no-cache-dir --extra-index-url https://download.pytorch.org/wh
 # 3. Copy application codebase into image
 COPY . /app
 
-# 4. Set Python paths so both app and worker packages are discoverable
+# 4. Set Python paths and create backend symlink alias for universal import resolution
+RUN ln -s /app /app/backend 2>/dev/null || true
 ENV PYTHONPATH=/app/backend:/app
 
 EXPOSE 8000

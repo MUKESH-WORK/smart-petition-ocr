@@ -44,6 +44,56 @@ function Update-SessionPath {
     if ((Test-Path $localOllama) -and ($env:Path -notlike "*$localOllama*")) {
         $env:Path = "$localOllama;$env:Path"
     }
+
+    $py311Local = Join-Path $env:LOCALAPPDATA "Programs\Python\Python311"
+    if ((Test-Path $py311Local) -and ($env:Path -notlike "*$py311Local*")) {
+        $env:Path = "$py311Local;$py311Local\Scripts;$env:Path"
+    }
+
+    $py311Prog = "C:\Program Files\Python311"
+    if ((Test-Path $py311Prog) -and ($env:Path -notlike "*$py311Prog*")) {
+        $env:Path = "$py311Prog;$py311Prog\Scripts;$env:Path"
+    }
+}
+
+function Find-Python311 {
+    # 1. Check py launcher for 3.11
+    if (Get-Command py -ErrorAction SilentlyContinue) {
+        try {
+            $ver = (py -3.11 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>&1 | Out-String).Trim()
+            if ($ver -eq "3.11") {
+                $exe = (py -3.11 -c "import sys; print(sys.executable)" 2>&1 | Out-String).Trim()
+                if (Test-Path $exe) { return $exe }
+            }
+        } catch {}
+    }
+
+    # 2. Check standard installation directories
+    $commonPaths = @(
+        "C:\Python311\python.exe",
+        "$env:LOCALAPPDATA\Programs\Python\Python311\python.exe",
+        "$env:ProgramFiles\Python311\python.exe",
+        "${env:ProgramFiles(x86)}\Python311\python.exe"
+    )
+    foreach ($cp in $commonPaths) {
+        if (Test-Path $cp) {
+            try {
+                $ver = (& $cp -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>&1 | Out-String).Trim()
+                if ($ver -eq "3.11") { return $cp }
+            } catch {}
+        }
+    }
+
+    # 3. Check system python in PATH if version is 3.11
+    $sysPy = Get-Command python -ErrorAction SilentlyContinue
+    if ($sysPy) {
+        try {
+            $ver = (& $sysPy.Source -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>&1 | Out-String).Trim()
+            if ($ver -eq "3.11") { return $sysPy.Source }
+        } catch {}
+    }
+
+    return $null
 }
 
 Write-Host ""
@@ -338,71 +388,158 @@ if ($redisCmd) {
 # ------------------------------------------------------------------------------
 # STEP 6: Pre-download Sentence Transformer Model for Docker Image
 # ------------------------------------------------------------------------------
-Log-Info "Step 6/10: Pre-downloading Sentence Transformer model for offline Docker builds..."
+Log-Info "Step 6/10: Preparing Sentence Transformer model for offline Docker builds..."
 
 $rootDir = $PSScriptRoot
 $modelDir = Join-Path $rootDir "models"
-$stModelDir = Join-Path $modelDir "all-MiniLM-L6-v2"
+$stModelDir = Join-Path $modelDir "paraphrase-multilingual-MiniLM-L12-v2"
 $stModelConfig = Join-Path $stModelDir "config.json"
 
 if (Test-Path $stModelConfig) {
-    Log-Ok "Sentence Transformer model 'all-MiniLM-L6-v2' is already saved in '$modelDir'."
+    Log-Ok "Sentence Transformer model 'paraphrase-multilingual-MiniLM-L12-v2' is already saved in '$modelDir'."
 } else {
-    Log-Info "Saving Sentence Transformer model 'all-MiniLM-L6-v2' to '$modelDir' for Docker image baking..."
+    # 1. Locate or install Python 3.11
+    Log-Info "Checking for Python 3.11..."
+    $py311Exe = Find-Python311
 
-    # Create model directory
+    if (-not $py311Exe) {
+        Log-Warn "Python 3.11 is not installed."
+        Log-Info "Attempting automated installation using winget..."
+
+        if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
+            Log-Err "Python 3.11 could not be installed automatically."
+            Log-Err "winget is unavailable or installation failed."
+            Log-Err "Please install Python 3.11 and rerun setup_host.ps1."
+            exit 1
+        }
+
+        try {
+            Log-Info "Running: winget install Python.Python.3.11 --accept-source-agreements --accept-package-agreements --silent"
+            $pyInstall = Start-Process winget -ArgumentList "install Python.Python.3.11 --accept-source-agreements --accept-package-agreements --silent" -NoNewWindow -PassThru -Wait
+            
+            Update-SessionPath
+            Start-Sleep -Seconds 3
+
+            $py311Exe = Find-Python311
+            if (-not $py311Exe) {
+                throw "Python 3.11 executable not found after winget installation."
+            }
+            Log-Ok "Python 3.11 installed successfully."
+        } catch {
+            Log-Err "Python 3.11 could not be installed automatically."
+            Log-Err "winget is unavailable or installation failed: $_"
+            Log-Err "Please install Python 3.11 and rerun setup_host.ps1."
+            exit 1
+        }
+    } else {
+        Log-Ok "Python 3.11 found: $py311Exe"
+    }
+
+    # 2. Setup Dedicated Virtual Environment (.venv)
+    $venvDir = Join-Path $rootDir ".venv"
+    $venvPython = Join-Path $venvDir "Scripts\python.exe"
+
+    $isVenvValid = $false
+    if (Test-Path $venvPython) {
+        try {
+            $vVer = (& $venvPython -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>&1 | Out-String).Trim()
+            if ($vVer -eq "3.11") {
+                $isVenvValid = $true
+            }
+        } catch {}
+    }
+
+    if (-not $isVenvValid) {
+        if (Test-Path $venvDir) {
+            Log-Warn "Existing virtual environment at '$venvDir' is not Python 3.11. Recreating..."
+            Remove-Item -Recurse -Force $venvDir -ErrorAction SilentlyContinue
+        }
+
+        Log-Info "Creating dedicated Python virtual environment..."
+        try {
+            $venvCreate = Start-Process $py311Exe -ArgumentList "-m venv `"$venvDir`"" -NoNewWindow -PassThru -Wait
+            if ($venvCreate.ExitCode -ne 0 -or -not (Test-Path $venvPython)) {
+                throw "Virtual environment creation failed with exit code $($venvCreate.ExitCode)"
+            }
+            Log-Ok "Python virtual environment ready: $venvPython"
+        } catch {
+            Log-Err "Failed to create Python virtual environment: $_"
+            exit 1
+        }
+    } else {
+        Log-Ok "Python virtual environment ready: $venvPython"
+    }
+
+    # 3. Install host-side dependencies (sentence-transformers, torch)
+    $stCheck = $null
+    try {
+        $stCheck = & $venvPython -c "import sentence_transformers, torch; print('ok')" 2>&1 | Out-String
+    } catch {}
+
+    if ($stCheck -notmatch "ok") {
+        Log-Info "Installing host-side sentence-transformers and torch..."
+        try {
+            $pipProc = Start-Process $venvPython -ArgumentList "-m pip install sentence-transformers torch" -NoNewWindow -PassThru -Wait
+            if ($pipProc.ExitCode -ne 0) {
+                throw "pip install exited with code $($pipProc.ExitCode)"
+            }
+
+            # Verify import after installation
+            $stVerify = & $venvPython -c "import sentence_transformers, torch; print('ok')" 2>&1 | Out-String
+            if ($stVerify -notmatch "ok") {
+                throw "Import verification failed after pip installation: $stVerify"
+            }
+            Log-Ok "Host-side Python dependencies verified."
+        } catch {
+            Log-Err "Failed to install host-side Python dependencies (sentence-transformers, torch): $_"
+            exit 1
+        }
+    } else {
+        Log-Ok "Host-side Python dependencies verified."
+    }
+
+    # 4. Download and save Sentence Transformer model
+    Log-Info "Downloading paraphrase-multilingual-MiniLM-L12-v2..."
     if (-not (Test-Path $modelDir)) {
         New-Item -ItemType Directory -Path $modelDir -Force | Out-Null
     }
 
-    # Locate a usable Python interpreter with sentence-transformers
-    $pythonExe = $null
-
-    # Check 1: Project venv
-    $venvPython = Join-Path $rootDir ".venv\Scripts\python.exe"
-    if (Test-Path $venvPython) {
-        $pythonExe = $venvPython
-    }
-
-    # Check 2: System Python
-    if (-not $pythonExe) {
-        $sysPython = Get-Command python -ErrorAction SilentlyContinue
-        if ($sysPython) {
-            $pythonExe = $sysPython.Source
-        }
-    }
-
-    if (-not $pythonExe) {
-        Log-Err "No Python interpreter found. Cannot pre-download Sentence Transformer model."
-        Log-Err "Install Python 3.11+ and sentence-transformers, then rerun this script."
-        exit 1
-    }
-
-    Log-Info "Using Python interpreter: $pythonExe"
-
-    # Ensure sentence-transformers is installed
-    $stCheck = & $pythonExe -c "import sentence_transformers; print('ok')" 2>&1 | Out-String
-    if ($stCheck -notmatch "ok") {
-        Log-Info "Installing sentence-transformers package..."
-        & $pythonExe -m pip install --quiet sentence-transformers 2>&1 | Out-Null
-    }
-
-    # Download and save the model locally
     $saveScript = @"
-import os, sys
+import os, sys, re
+os.environ['HF_HUB_DISABLE_SYMLINKS_WARNING'] = '1'
 os.environ['HF_HOME'] = os.environ.get('HF_HOME', os.path.expanduser('~/.cache/huggingface'))
+
+# Read HF_TOKEN from environment or .env file if available
+hf_token = os.environ.get('HF_TOKEN') or os.environ.get('HUGGING_FACE_HUB_TOKEN')
+if not hf_token and os.path.exists('.env'):
+    try:
+        with open('.env', 'r', encoding='utf-8') as f:
+            for line in f:
+                match = re.match(r'^\s*HF_TOKEN\s*=\s*["\']?([^"\'#\s]+)', line)
+                if match:
+                    hf_token = match.group(1).strip()
+                    break
+    except Exception:
+        pass
+
+if hf_token:
+    os.environ['HF_TOKEN'] = hf_token
+    os.environ['HUGGING_FACE_HUB_TOKEN'] = hf_token
+    print('Using authenticated Hugging Face API token.')
+
 from sentence_transformers import SentenceTransformer
-model = SentenceTransformer('all-MiniLM-L6-v2')
+kwargs = {'token': hf_token} if hf_token else {}
+model = SentenceTransformer('sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2', **kwargs)
 save_path = sys.argv[1]
 model.save(save_path)
-print(f'Model saved to {save_path}')
+print(f'Model saved successfully to {save_path}')
 "@
 
     $tempScript = Join-Path $env:TEMP "save_st_model.py"
     Set-Content -Path $tempScript -Value $saveScript -Encoding UTF8
 
     try {
-        $saveProc = Start-Process $pythonExe -ArgumentList "`"$tempScript`" `"$stModelDir`"" -NoNewWindow -PassThru -Wait
+        $saveProc = Start-Process $venvPython -ArgumentList "`"$tempScript`" `"$stModelDir`"" -NoNewWindow -PassThru -Wait
         if ($saveProc.ExitCode -ne 0) {
             throw "Model save script exited with code $($saveProc.ExitCode)"
         }
@@ -415,8 +552,7 @@ print(f'Model saved to {save_path}')
         }
     } catch {
         Log-Err "Failed to save Sentence Transformer model: $_"
-        Log-Warn "The Docker image will download the model at first container startup instead."
-        Log-Warn "To fix: pip install sentence-transformers, then rerun this script."
+        exit 1
     } finally {
         Remove-Item $tempScript -ErrorAction SilentlyContinue
     }
@@ -489,11 +625,11 @@ try {
 # ------------------------------------------------------------------------------
 Log-Info "Step 10/10: Verifying application readiness and container health..."
 $healthUrl = "http://localhost/health"
-$maxHealthWaitSec = 120
+$maxHealthWaitSec = 300
 $healthWaited = 0
 $isHealthy = $false
 
-Log-Info "Polling $healthUrl for application readiness (timeout 120s)..."
+Log-Info "Polling $healthUrl for application readiness (timeout 300s)..."
 while ($healthWaited -lt $maxHealthWaitSec) {
     Start-Sleep -Seconds 3
     $healthWaited += 3

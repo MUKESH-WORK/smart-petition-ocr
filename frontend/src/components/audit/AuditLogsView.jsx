@@ -13,9 +13,7 @@ import {
   ShieldCheck,
   Database,
   Layers,
-  UserCheck,
-  History as HistoryIcon,
-  ChevronRight
+  UserCheck
 } from 'lucide-react';
 import './AuditLogs.css';
 
@@ -474,22 +472,6 @@ export default function AuditLogsView({
                         {/* 4. Details */}
                         <td className="cell-details">
                           <p className="details-text">{log.details}</p>
-                          {log.isClickable && (
-                            <button
-                              type="button"
-                              className="audit-history-open"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                onSelectPetition?.(log);
-                              }}
-                              aria-label={`Open petition history for ${log.fileName || log.source_id}`}
-                              title="Open this petition in the Assistant"
-                            >
-                              <HistoryIcon size={13} />
-                              <span>History</span>
-                              <ChevronRight size={13} />
-                            </button>
-                          )}
                         </td>
                       </tr>
                     );

@@ -301,54 +301,73 @@ export default function MobileQrModal({ isOpen, onClose, onDocumentUploaded }) {
                 Scan this QR code with your phone camera or open the direct link below.
               </p>
 
-              {/* Direct Link Badge */}
+              {/* Direct Link Badge with Edit / Manual Override */}
               {captureUrl && (
                 <div style={{
+                  width: '100%',
+                  boxSizing: 'border-box',
+                  background: '#F8FAFC',
+                  borderRadius: '8px',
+                  padding: '8px 10px',
+                  margin: '6px 0 12px',
+                  border: '1px solid #CBD5E1',
                   display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  background: '#F1F5F9',
-                  borderRadius: '6px',
-                  padding: '6px 10px',
-                  margin: '4px 0 10px',
-                  fontSize: '0.75rem',
-                  border: '1px solid #E2E8F0'
+                  flexDirection: 'column',
+                  gap: '6px'
                 }}>
-                  <span style={{ 
-                    overflow: 'hidden', 
-                    textOverflow: 'ellipsis', 
-                    whiteSpace: 'nowrap', 
-                    fontFamily: 'monospace',
-                    color: '#334155'
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: '6px',
+                    width: '100%',
+                    boxSizing: 'border-box'
                   }}>
-                    {captureUrl}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      navigator.clipboard?.writeText(captureUrl);
-                      setCopied(true);
-                      setTimeout(() => setCopied(false), 2000);
-                    }}
-                    style={{
-                      background: '#FFFFFF',
-                      border: '1px solid #CBD5E1',
-                      borderRadius: '4px',
-                      padding: '3px 7px',
-                      color: '#2563EB',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '4px',
-                      fontSize: '0.72rem',
-                      fontWeight: 500,
-                      marginLeft: '8px',
-                      flexShrink: 0
-                    }}
-                  >
-                    {copied ? <Check size={12} color="#16A34A" /> : <Copy size={12} />}
-                    <span>{copied ? 'Copied' : 'Copy'}</span>
-                  </button>
+                    <span 
+                      title={captureUrl}
+                      style={{ 
+                        overflow: 'hidden', 
+                        textOverflow: 'ellipsis', 
+                        whiteSpace: 'nowrap', 
+                        fontFamily: 'monospace',
+                        color: '#1E293B',
+                        fontSize: '0.75rem',
+                        fontWeight: 600,
+                        minWidth: 0,
+                        flex: 1
+                      }}
+                    >
+                      {captureUrl}
+                    </span>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard?.writeText(captureUrl);
+                          setCopied(true);
+                          setTimeout(() => setCopied(false), 2000);
+                        }}
+                        title="Copy direct capture link"
+                        style={{
+                          background: '#FFFFFF',
+                          border: '1px solid #CBD5E1',
+                          borderRadius: '5px',
+                          padding: '4px 8px',
+                          color: copied ? '#16A34A' : '#2563EB',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          fontSize: '0.72rem',
+                          fontWeight: 600
+                        }}
+                      >
+                        {copied ? <Check size={13} color="#16A34A" /> : <Copy size={13} />}
+                        <span>{copied ? 'Copied' : 'Copy'}</span>
+                      </button>
+                    </div>
+                  </div>
                 </div>
               )}
 

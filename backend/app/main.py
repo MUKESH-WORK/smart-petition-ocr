@@ -40,9 +40,9 @@ from fastapi.responses import FileResponse
 from sqlalchemy import text
 
 from app.config import settings
-from app.routers import grievance, search, admin, translate, petitions
+from app.routers import grievance, search, admin, translate
 from models.database import engine, AsyncSessionLocal, init_db_schema, is_sqlite
-from backend.services.job_queue import job_queue
+from services.job_queue import job_queue
 
 # Configure logging
 logging.basicConfig(
@@ -66,7 +66,7 @@ async def lifespan(app: FastAPI):
     #    the Admin DB populated from government_taxonomy.pdf, never a JSON snapshot.
     try:
         from scripts.seed_db import seed_master_data_if_needed
-        from backend.services.taxonomy_matcher import taxonomy_matcher
+        from services.taxonomy_matcher import taxonomy_matcher
 
         await seed_master_data_if_needed()
         taxonomy_count = await taxonomy_matcher.load_taxonomy()
@@ -76,7 +76,7 @@ async def lifespan(app: FastAPI):
         logger.warning(f"Non-blocking master-data initialization notice: {e}")
 
     # 3. Warm up background services asynchronously.
-    from backend.services.vector_store import vector_store
+    from services.vector_store import vector_store
     from core.llm_client import llm_client
 
     async def _async_warmup():
@@ -225,7 +225,6 @@ app.mount("/static/media", StaticFiles(directory=settings.STATIC_MEDIA_DIR), nam
 
 # Mount API Routers
 app.include_router(grievance.router, prefix=settings.API_V1_STR)
-app.include_router(petitions.router, prefix=settings.API_V1_STR)
 app.include_router(search.router, prefix=settings.API_V1_STR)
 app.include_router(admin.router, prefix=settings.API_V1_STR)
 app.include_router(translate.router, prefix=settings.API_V1_STR)

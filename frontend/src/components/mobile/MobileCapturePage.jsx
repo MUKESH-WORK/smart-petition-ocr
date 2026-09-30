@@ -135,10 +135,31 @@ export default function MobileCapturePage({ sessionId: propSessionId }) {
     }
   };
 
+  const handleAddPageCamera = () => {
+    if (cameraInputRef.current) {
+      cameraInputRef.current.value = '';
+      cameraInputRef.current.click();
+    }
+  };
+
+  const handleAddPageGallery = () => {
+    if (galleryInputRef.current) {
+      galleryInputRef.current.value = '';
+      galleryInputRef.current.click();
+    }
+  };
+
   const appendImagePages = async (rawFiles) => {
     const files = Array.from(rawFiles || []).filter(Boolean);
     if (!files.length) return;
     try {
+      let existingPages = [...scanPages];
+      // If we have a single image in selectedFile but scanPages is empty, migrate it
+      if (existingPages.length === 0 && selectedFile && !fileDetails?.isPdf) {
+        const singlePreview = previewUrl || createPreviewUrl(selectedFile);
+        existingPages = [{ file: selectedFile, previewUrl: singlePreview }];
+      }
+
       const newPages = [];
       for (const rawFile of files) {
         const file = await prepareImageFile(rawFile);
@@ -146,7 +167,7 @@ export default function MobileCapturePage({ sessionId: propSessionId }) {
       }
 
       revokePreviewUrl(previewUrl);
-      const nextPages = [...scanPages, ...newPages];
+      const nextPages = [...existingPages, ...newPages];
       setScanPages(nextPages);
       setSelectedFile(null);
       setPreviewUrl(null);
@@ -347,6 +368,43 @@ export default function MobileCapturePage({ sessionId: propSessionId }) {
   return (
     <div className="mobile-capture-root">
       
+      {/* Hidden HTML5 Native File Inputs (Always mounted for all states) */}
+      <input 
+        id="mobile-camera-input"
+        type="file" 
+        ref={cameraInputRef}
+        onChange={handleCameraCapture}
+        onClick={(e) => { e.target.value = ''; }}
+        accept="image/*"
+        capture="environment"
+        multiple
+        style={{ opacity: 0, position: 'absolute', width: '1px', height: '1px', zIndex: -1, pointerEvents: 'none' }}
+        aria-label="Capture petition with camera"
+      />
+
+      <input 
+        id="mobile-pdf-input"
+        type="file" 
+        ref={docInputRef}
+        onChange={handleFileChange}
+        onClick={(e) => { e.target.value = ''; }}
+        accept="application/pdf,.pdf"
+        style={{ opacity: 0, position: 'absolute', width: '1px', height: '1px', zIndex: -1, pointerEvents: 'none' }}
+        aria-label="Upload PDF petition document"
+      />
+
+      <input 
+        id="mobile-gallery-input"
+        type="file" 
+        ref={galleryInputRef}
+        accept="image/*,application/pdf,.pdf,.jpg,.jpeg,.png,.webp,.bmp,.tiff,.tif,.heic"
+        multiple
+        style={{ opacity: 0, position: 'absolute', width: '1px', height: '1px', zIndex: -1, pointerEvents: 'none' }}
+        onChange={handleGallerySelection}
+        onClick={(e) => { e.target.value = ''; }}
+        aria-label="Choose petition photo or document from gallery"
+      />
+
       {/* Mobile Top Header */}
       <header className="mobile-top-bar">
         <div className="mobile-brand-group">
@@ -489,18 +547,38 @@ export default function MobileCapturePage({ sessionId: propSessionId }) {
               </div>
             )}
 
-            {scanPages.length > 0 && (
-              <div className="mobile-add-page-row">
-                <span>{scanPages.length} page{scanPages.length === 1 ? '' : 's'} selected</span>
-                <button
-                  type="button"
-                  className="mobile-btn-secondary mobile-add-page-btn"
-                  onClick={() => cameraInputRef.current?.click()}
-                  disabled={isUploading}
-                >
-                  <Plus size={17} />
-                  <span>Add Page</span>
-                </button>
+            {!fileDetails?.isPdf && (
+              <div className="mobile-add-page-box">
+                <div className="mobile-add-page-header">
+                  <span>
+                    {scanPages.length > 0 
+                      ? `${scanPages.length} page${scanPages.length === 1 ? '' : 's'} scanned`
+                      : '1 page captured'}
+                  </span>
+                  <span style={{ fontSize: '0.74rem', color: '#64748B', fontWeight: 500 }}>
+                    Add another page:
+                  </span>
+                </div>
+                <div className="mobile-add-page-actions">
+                  <label
+                    htmlFor="mobile-camera-input"
+                    className="mobile-btn-secondary mobile-add-action-btn"
+                    style={{ cursor: isUploading ? 'not-allowed' : 'pointer' }}
+                    title="Take next page photo with camera"
+                  >
+                    <Camera size={16} />
+                    <span>+ Camera</span>
+                  </label>
+                  <label
+                    htmlFor="mobile-gallery-input"
+                    className="mobile-btn-secondary mobile-add-action-btn"
+                    style={{ cursor: isUploading ? 'not-allowed' : 'pointer' }}
+                    title="Choose next page from photo gallery"
+                  >
+                    <ImageIcon size={16} />
+                    <span>+ Gallery</span>
+                  </label>
+                </div>
               </div>
             )}
 
@@ -577,67 +655,37 @@ export default function MobileCapturePage({ sessionId: propSessionId }) {
             <div className="capture-buttons-stack">
               
               {/* Primary: Take Photo with Rear Camera */}
-              <button 
-                type="button" 
+              <label 
+                htmlFor="mobile-camera-input" 
                 className="mobile-btn-primary"
-                onClick={() => cameraInputRef.current?.click()}
+                style={{ cursor: 'pointer' }}
               >
                 <Camera size={20} className="btn-icon" />
-                <span className="btn-text">Capture Photo</span>
+                <span className="btn-text">Capture Photo (Camera)</span>
                 <ChevronRight size={18} className="btn-chevron" />
-              </button>
-
-              {/* Upload PDF Document */}
-              <button 
-                type="button" 
-                className="mobile-btn-secondary mobile-btn-pdf"
-                onClick={() => docInputRef.current?.click()}
-              >
-                <FileText size={18} className="btn-icon pdf-btn-icon" />
-                <span className="btn-text">Upload PDF Document</span>
-              </button>
+              </label>
 
               {/* Secondary: Choose from Photo Gallery */}
-              <button 
-                type="button" 
+              <label 
+                htmlFor="mobile-gallery-input" 
                 className="mobile-btn-secondary"
-                onClick={() => galleryInputRef.current?.click()}
+                style={{ cursor: 'pointer' }}
               >
                 <ImageIcon size={18} className="btn-icon" />
                 <span className="btn-text">Choose from Gallery (Images)</span>
-              </button>
+              </label>
+
+              {/* Upload PDF Document */}
+              <label 
+                htmlFor="mobile-pdf-input" 
+                className="mobile-btn-secondary mobile-btn-pdf"
+                style={{ cursor: 'pointer' }}
+              >
+                <FileText size={18} className="btn-icon pdf-btn-icon" />
+                <span className="btn-text">Upload PDF Document</span>
+              </label>
 
             </div>
-
-            {/* Hidden HTML5 Native File Inputs */}
-            <input 
-              type="file" 
-              ref={cameraInputRef}
-              onChange={handleCameraCapture}
-              accept="image/*"
-              capture="environment"
-              style={{ display: 'none' }}
-              aria-label="Capture petition with camera"
-            />
-
-            <input 
-              type="file" 
-              ref={docInputRef}
-              onChange={handleFileChange}
-              accept="application/pdf,.pdf"
-              style={{ display: 'none' }}
-              aria-label="Upload PDF petition document"
-            />
-
-            <input 
-              type="file" 
-              ref={galleryInputRef}
-              accept="image/*,application/pdf,.pdf,.jpg,.jpeg,.png,.webp,.bmp,.tiff,.tif,.heic"
-              multiple
-              style={{ display: 'none' }}
-              onChange={handleGallerySelection}
-              aria-label="Choose petition photo or document from gallery"
-            />
 
             {/* Quality Tips */}
             <div className="mobile-tips-card">

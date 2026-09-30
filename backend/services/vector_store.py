@@ -37,7 +37,7 @@ def _deterministic_subword_embed(texts: List[str], dim: int = 384) -> List[List[
             results.append(vec.tolist())
             continue
             
-        clean_text = str(text).lower()
+        clean_text = text.lower()
         words = clean_text.split()
         for word in words:
             # Word token feature
@@ -110,11 +110,20 @@ class PGVectorStore:
             if self._embedder is None:
                 import torch
                 torch.set_num_threads(2)
+                os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
+                hf_token = getattr(settings, "HF_TOKEN", None) or os.getenv("HF_TOKEN") or os.getenv("HUGGING_FACE_HUB_TOKEN")
+                if hf_token:
+                    os.environ["HF_TOKEN"] = hf_token
+                    os.environ["HUGGING_FACE_HUB_TOKEN"] = hf_token
+
                 from sentence_transformers import SentenceTransformer
+                local_dir = os.path.join("/app", "models", "paraphrase-multilingual-MiniLM-L12-v2")
+                host_dir = os.path.join(os.getcwd(), "models", "paraphrase-multilingual-MiniLM-L12-v2")
+                model_target = local_dir if os.path.exists(local_dir) else (host_dir if os.path.exists(host_dir) else self.model_name)
                 try:
-                    self._embedder = SentenceTransformer(self.model_name, local_files_only=True)
+                    self._embedder = SentenceTransformer(model_target, local_files_only=True)
                 except Exception:
-                    self._embedder = SentenceTransformer(self.model_name)
+                    self._embedder = SentenceTransformer(model_target)
             if self._embedder:
                 embs = self._embedder.encode(texts, normalize_embeddings=True)
                 self._active_backend = "sentence-transformers"
@@ -182,7 +191,7 @@ class PGVectorStore:
                 VALUES (:id, :source_id, :page_number, :chunk_index, :chunk_text, :embedding, :metadata)
             """), {
                 "id": chunk_id,
-                "source_id": str(source_id),
+                "source_id": source_id,
                 "page_number": chunk.get("page_number", 1),
                 "chunk_index": chunk.get("index", 0),
                 "chunk_text": chunk["text"],
@@ -207,7 +216,7 @@ class PGVectorStore:
                         ORDER BY embedding <=> :query_embedding::vector
                         LIMIT :top_k
                     """
-                    params = {"query_embedding": str(query_emb), "source_id": str(source_id), "top_k": top_k}
+                    params = {"query_embedding": str(query_emb), "source_id": source_id, "top_k": top_k}
                 else:
                     sql = """
                         SELECT id, chunk_text, metadata, page_number, 1 - (embedding <=> :query_embedding::vector) AS similarity
@@ -228,7 +237,7 @@ class PGVectorStore:
                 FROM document_chunks
                 WHERE source_id = :source_id
             """
-            result = await db.execute(text(sql), {"source_id": str(source_id)})
+            result = await db.execute(text(sql), {"source_id": source_id})
         else:
             sql = """
                 SELECT id, chunk_text, metadata, page_number, embedding
@@ -277,7 +286,7 @@ class PGVectorStore:
                         ORDER BY rank DESC
                         LIMIT :top_k
                     """
-                    params = {"query": query, "source_id": str(source_id), "top_k": top_k}
+                    params = {"query": query, "source_id": source_id, "top_k": top_k}
                 else:
                     sql = """
                         SELECT id, chunk_text, metadata, page_number,
@@ -303,7 +312,7 @@ class PGVectorStore:
                       AND chunk_text LIKE :q_like
                     LIMIT :top_k
                 """
-                params = {"q_like": f"%{query}%", "source_id": str(source_id), "top_k": top_k}
+                params = {"q_like": f"%{query}%", "source_id": source_id, "top_k": top_k}
             else:
                 sql = """
                     SELECT id, chunk_text, metadata, page_number, 1.0 AS rank

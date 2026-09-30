@@ -38,7 +38,7 @@ export async function createUploadSession() {
 
   try {
     // 1. Primary: FastAPI backend route
-    const backendRes = await fetch('/api/v1/petitions/mobile-session', {
+    const backendRes = await fetch('/api/v1/grievance/mobile-session', {
       method: 'POST',
       headers: tunnelHeaders,
       body: JSON.stringify({ clientOrigin })
@@ -48,7 +48,8 @@ export async function createUploadSession() {
       if (data.sessionId || data.session_id) {
         return {
           sessionId: data.sessionId || data.session_id,
-          networkHost: data.networkHost || null
+          networkHost: data.networkHost || null,
+          availableHosts: data.availableHosts || []
         };
       }
     }
@@ -167,7 +168,7 @@ export async function uploadPetitionImage(sessionId, file, customFileName) {
     const controller = new AbortController();
     uploadTimeoutId = setTimeout(() => controller.abort(), 120000); // Allow large multi-page scans over Wi-Fi/tunnels.
 
-    const fastApiRes = await fetch('/api/v1/petitions/mobile-upload', {
+    const fastApiRes = await fetch('/api/v1/grievance/mobile-upload', {
       method: 'POST',
       headers: tunnelHeaders,
       body: formData,
@@ -191,7 +192,7 @@ export async function uploadPetitionImage(sessionId, file, customFileName) {
   // 2B. Secondary: FastAPI JSON Base64 upload if multipart was blocked/proxied
   if (!serverAcknowledged && dataUrl) {
     try {
-      const fastApiJsonRes = await fetch('/api/v1/petitions/mobile-upload', {
+      const fastApiJsonRes = await fetch('/api/v1/grievance/mobile-upload', {
         method: 'POST',
         headers: {
           ...tunnelHeaders,
@@ -268,9 +269,9 @@ export async function checkUploadStatus(sessionId) {
     // Ignore storage errors
   }
 
-  // 2. Poll FastAPI backend route: /api/v1/petitions/mobile-status/{sessionId}
+  // 2. Poll FastAPI backend route: /api/v1/grievance/mobile-status/{sessionId}
   try {
-    const res = await fetch(`/api/v1/petitions/mobile-status/${sessionId}`, {
+    const res = await fetch(`/api/v1/grievance/mobile-status/${sessionId}`, {
       headers: tunnelHeaders,
       cache: 'no-store'
     });
