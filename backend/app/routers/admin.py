@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
 
-from models.database import get_db, get_admin_db, get_audit_db, is_admin_sqlite, AuditAsyncSessionLocal
+from models.database import get_db, get_admin_db, get_audit_db, is_admin_sqlite, is_sqlite, AuditAsyncSessionLocal
 from models.schemas import QueueStatusResponse, MasterLocationCreate
 from app.dependencies import get_current_officer, get_optional_officer, log_audit_event
 
@@ -63,6 +63,8 @@ class TalukUpdateRequest(BaseModel):
     sub_departments: Optional[List[str]] = []
     local_body: Optional[str] = None
     firkas: Optional[List[str]] = []
+    villages: Optional[List[Dict[str, Any]]] = None
+
 
 
 
@@ -460,19 +462,21 @@ class UserUpdateRequest(BaseModel):
 @router.get("/db-health")
 async def check_database_health(
     user_db: AsyncSession = Depends(get_db),
-    admin_db: AsyncSession = Depends(get_admin_db)
+    admin_db: AsyncSession = Depends(get_admin_db),
+    audit_db: AsyncSession = Depends(get_audit_db)
 ):
     """
-    Validates live connectivity and response latency for both User DB and Admin DB.
-    Detects if either database drops or disconnects with 2s timeout protection.
+    Validates live connectivity and response latency for PostgreSQL User DB, Admin DB, and Audit DB.
+    Detects any connection issues with 2s timeout protection.
     """
     import time
     import asyncio
-    status_report = {
+    status_report: Dict[str, Any] = {
         "status": "healthy",
-        "user_db": {"status": "connected", "latency_ms": 0, "engine": "sqlite" if is_admin_sqlite else "postgresql"},
-        "admin_db": {"status": "connected", "latency_ms": 0, "engine": "sqlite" if is_admin_sqlite else "postgresql"},
-        "mode": "sqlite" if is_admin_sqlite else "postgresql",
+        "user_db": {"status": "connected", "latency_ms": 0.0, "engine": "postgresql"},
+        "admin_db": {"status": "connected", "latency_ms": 0.0, "engine": "postgresql"},
+        "audit_db": {"status": "connected", "latency_ms": 0.0, "engine": "postgresql"},
+        "mode": "postgresql",
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     }
 
@@ -483,7 +487,7 @@ async def check_database_health(
         status_report["user_db"]["latency_ms"] = round((time.time() - t0) * 1000, 2)
     except Exception as e:
         status_report["status"] = "degraded"
-        status_report["user_db"] = {"status": "disconnected", "error": str(e), "latency_ms": -1}
+        status_report["user_db"] = {"status": "disconnected", "error": str(e), "latency_ms": -1.0}
 
     # Test Admin DB with timeout
     try:
@@ -492,7 +496,16 @@ async def check_database_health(
         status_report["admin_db"]["latency_ms"] = round((time.time() - t0) * 1000, 2)
     except Exception as e:
         status_report["status"] = "degraded"
-        status_report["admin_db"] = {"status": "disconnected", "error": str(e), "latency_ms": -1}
+        status_report["admin_db"] = {"status": "disconnected", "error": str(e), "latency_ms": -1.0}
+
+    # Test Audit DB with timeout
+    try:
+        t0 = time.time()
+        await asyncio.wait_for(audit_db.execute(text("SELECT 1")), timeout=2.0)
+        status_report["audit_db"]["latency_ms"] = round((time.time() - t0) * 1000, 2)
+    except Exception as e:
+        status_report["status"] = "degraded"
+        status_report["audit_db"] = {"status": "disconnected", "error": str(e), "latency_ms": -1.0}
 
     if status_report["user_db"]["status"] == "disconnected" and status_report["admin_db"]["status"] == "disconnected":
         status_report["status"] = "disconnected"
@@ -517,8 +530,7 @@ async def list_admin_users(
     rows = res.mappings().all()
 
     if not rows:
-        from services.master_data_seeder import seed_official_accounts
-        await seed_official_accounts(db)
+        from backend.scripts.seed_db import seed_official_accounts
         res = await db.execute(text("""
             SELECT id, name, name_tamil, mobile, email, department, role, is_admin, status, last_login, created_at 
             FROM admin_users 
@@ -526,9 +538,40 @@ async def list_admin_users(
         """))
         rows = res.mappings().all()
 
+    curr_id = str(current_officer.get("officer_id") or current_officer.get("id") or "").strip().lower()
+    curr_email = str(current_officer.get("email") or "").strip().lower()
+
+    now_utc = datetime.now(timezone.utc)
     users = []
+    online_count = 0
+
     for r in rows:
         is_adm = bool(r["is_admin"])
+        user_id = str(r["id"]).strip()
+        user_email = str(r.get("email") or "").strip().lower()
+
+        # Check if this user is the current active session
+        is_current = bool((curr_id and user_id.lower() == curr_id) or (curr_email and user_email == curr_email))
+        
+        # Check if active online presence (current session or logged in within last 15 minutes)
+        is_online = is_current
+        ll = r.get("last_login")
+        if not is_online and ll:
+            try:
+                if isinstance(ll, datetime):
+                    ll_dt = ll if ll.tzinfo else ll.replace(tzinfo=timezone.utc)
+                    if (now_utc - ll_dt).total_seconds() <= 900:
+                        is_online = True
+                elif isinstance(ll, str):
+                    parsed_dt = datetime.fromisoformat(ll.replace("Z", "+00:00"))
+                    if (now_utc - (parsed_dt if parsed_dt.tzinfo else parsed_dt.replace(tzinfo=timezone.utc))).total_seconds() <= 900:
+                        is_online = True
+            except Exception:
+                pass
+
+        if is_online:
+            online_count += 1
+
         users.append({
             "id": r["id"],
             "name": r["name"],
@@ -539,11 +582,18 @@ async def list_admin_users(
             "role": r.get("role") or ("Admin" if is_adm else "Department User"),
             "status": r.get("status") or "Active",
             "isAdmin": is_adm,
+            "isCurrent": is_current,
+            "isOnline": is_online,
             "lastLogin": str(r["last_login"]) if r.get("last_login") else None,
             "createdAt": str(r["created_at"]) if r.get("created_at") else None
         })
 
-    return {"users": users, "total": len(users)}
+    return {
+        "users": users,
+        "total": len(users),
+        "onlineCount": online_count,
+        "offlineCount": len(users) - online_count
+    }
 
 
 @router.post("/users", status_code=status.HTTP_201_CREATED)
@@ -886,22 +936,22 @@ async def get_hierarchy_stats(
     Follows API Design Principles with structured, predictable resource representation.
     """
     taluks_res = await db.execute(text("SELECT COUNT(DISTINCT taluk_name_en) FROM master_locations WHERE taluk_name_en IS NOT NULL"))
-    taluks_count = taluks_res.scalar() or 9
+    taluks_count = taluks_res.scalar()
 
     firkas_res = await db.execute(text("SELECT COUNT(DISTINCT firka_name_en) FROM master_locations WHERE local_body_type IN ('Firka', 'Revenue Firka')"))
-    firkas_count = firkas_res.scalar() or 33
+    firkas_count = firkas_res.scalar()
 
     zones_res = await db.execute(text("SELECT COUNT(*) FROM master_locations WHERE local_body_type = 'Zone'"))
-    zones_count = zones_res.scalar() or 4
+    zones_count = zones_res.scalar()
 
     munis_res = await db.execute(text("SELECT COUNT(*) FROM master_locations WHERE local_body_type = 'Municipality'"))
-    munis_count = munis_res.scalar() or 5
+    munis_count = munis_res.scalar()
 
     wards_res = await db.execute(text("SELECT COUNT(*) FROM master_locations WHERE local_body_type = 'Ward' OR ward_no IS NOT NULL"))
-    wards_count = wards_res.scalar() or 60
+    wards_count = wards_res.scalar()
 
-    villages_res = await db.execute(text("SELECT COUNT(*) FROM master_locations WHERE local_body_type = 'Village' OR village_name_en IS NOT NULL"))
-    villages_count = villages_res.scalar() or 375
+    villages_res = await db.execute(text("SELECT COUNT(*) FROM master_locations WHERE village_name_en IS NOT NULL"))
+    villages_count = villages_res.scalar()
 
     counts = {
         "Zones": zones_count,
@@ -917,14 +967,14 @@ async def get_hierarchy_stats(
         "district_tamil": "ஈரோடு",
         "divisions": 2,
         "counts": counts,
-        "total_locations": sum(counts.values())
+        "total_locations": sum(int(v or 0) for v in counts.values())
     }
 
 
 @router.get("/hierarchy")
 async def get_administrative_hierarchy(db: AsyncSession = Depends(get_admin_db)):
     """
-    Returns the official hierarchy structure (District -> Divisions -> Taluks -> Firkas, Sub-Departments, Local Body)
+    Returns the official hierarchy structure (District -> Divisions -> Taluks -> Firkas, Villages, Sub-Departments, Local Body)
     queried directly from master_locations in the Admin Database. Zero hardcoded values.
     """
     res = await db.execute(text("""
@@ -943,7 +993,7 @@ async def get_administrative_hierarchy(db: AsyncSession = Depends(get_admin_db))
 
     # If empty or not yet enriched with sub_departments, seed authoritative records into Admin DB
     if not rows or not any(r.get("sub_departments") for r in rows):
-        from services.master_data_seeder import seed_authoritative_hierarchy
+        from backend.services.master_data_seeder import seed_authoritative_hierarchy
         await seed_authoritative_hierarchy(db)
         res = await db.execute(text("""
             SELECT DISTINCT 
@@ -958,6 +1008,38 @@ async def get_administrative_hierarchy(db: AsyncSession = Depends(get_admin_db))
             ORDER BY division_name_en ASC, taluk_name_en ASC, firka_name_en ASC
         """))
         rows = res.mappings().all()
+
+    # Query all authoritative revenue villages grouped by taluk
+    v_res = await db.execute(text("""
+        SELECT taluk_name_en, village_name_en, village_name_tamil, local_body_type
+        FROM master_locations
+        WHERE village_name_en IS NOT NULL
+        ORDER BY taluk_name_en ASC, village_name_en ASC
+    """))
+    v_rows = v_res.mappings().all()
+
+    taluk_villages_map: Dict[str, List[Dict[str, Any]]] = {}
+    for vr in v_rows:
+        t_name = vr.get("taluk_name_en")
+        if not t_name:
+            continue
+        v_name = vr.get("village_name_en") or ""
+        v_tamil = vr.get("village_name_tamil") or ""
+        lb_type = vr.get("local_body_type") or ""
+
+        cat = "Urban" if "(Urban)" in lb_type else "Rural"
+        gp = "Not applicable"
+        if "GP:" in lb_type:
+            gp = lb_type.split("GP:", 1)[1].strip()
+
+        if t_name not in taluk_villages_map:
+            taluk_villages_map[t_name] = []
+        taluk_villages_map[t_name].append({
+            "name": v_name,
+            "nameTamil": v_tamil,
+            "category": cat,
+            "gramPanchayat": gp
+        })
 
     district_info = {"name": "", "nameTamil": ""}
     if rows:
@@ -983,6 +1065,10 @@ async def get_administrative_hierarchy(db: AsyncSession = Depends(get_admin_db))
 
         if taluk not in divisions_map[div]["taluks"]:
             sub_list = [s.strip() for s in sub_depts_raw.split(",") if s.strip()]
+            v_list = taluk_villages_map.get(taluk, [])
+            rural_c = sum(1 for v in v_list if v.get("category") == "Rural")
+            urban_c = sum(1 for v in v_list if v.get("category") == "Urban")
+
             divisions_map[div]["taluks"][taluk] = {
                 "name": taluk,
                 "nameTamil": taluk_tamil,
@@ -990,7 +1076,11 @@ async def get_administrative_hierarchy(db: AsyncSession = Depends(get_admin_db))
                 "divisionTamil": div_tamil,
                 "subDepartments": sub_list,
                 "localBody": local_body,
-                "firkas": []
+                "firkas": [],
+                "villages": v_list,
+                "totalVillages": len(v_list),
+                "ruralCount": rural_c,
+                "urbanCount": urban_c
             }
 
         if firka and firka not in divisions_map[div]["taluks"][taluk]["firkas"]:
@@ -1006,12 +1096,14 @@ async def get_administrative_hierarchy(db: AsyncSession = Depends(get_admin_db))
         })
 
     # Add live aggregate counts directly from DB
+    all_taluks_set = {t for d in divisions_map.values() for t in d["taluks"]}
+    total_firkas = sum(len(t["firkas"]) for d in divisions_map.values() for t in d["taluks"].values())
     counts = {
         "Zones": 4,
-        "Taluks": 9,
-        "Firkas": 33,
+        "Taluks": len(all_taluks_set) or 10,
+        "Firkas": total_firkas or 33,
         "Municipalities": 5,
-        "Villages": 375,
+        "Villages": len(v_rows) or 486,
         "Wards": 60
     }
 
@@ -1029,10 +1121,10 @@ async def update_or_create_taluk(
     db: AsyncSession = Depends(get_admin_db)
 ):
     """
-    Creates or updates a Taluk's firkas, sub-departments, and local body classification in the database.
+    Creates or updates a Taluk's firkas, sub-departments, local body classification, and villages in the database.
     Generates 384-dimensional vector embeddings for AI RAG from live data.
     """
-    from services.vector_store import vector_store
+    from backend.services.vector_store import vector_store
 
     sub_depts_str = ", ".join(req.sub_departments) if req.sub_departments else ""
     firkas = req.firkas if req.firkas else [req.taluk]
@@ -1046,14 +1138,21 @@ async def update_or_create_taluk(
     div_meta = div_meta_res.mappings().one_or_none() or {}
     dist_code = div_meta.get("district_code") or "10"
     dist_ta = div_meta.get("district_name_tamil") or ""
-    dist_en = div_meta.get("district_name_en") or ""
+    dist_en = div_meta.get("district_name_en") or "Erode"
     div_ta = div_meta.get("division_name_tamil") or ""
 
-    # Delete existing records for this taluk in this division
-    await db.execute(
-        text("DELETE FROM master_locations WHERE division_name_en = :div AND taluk_name_en = :taluk"),
-        {"div": req.division, "taluk": req.taluk}
-    )
+    if req.villages is not None:
+        # User provided complete new/updated list of villages -> replace all records for this taluk
+        await db.execute(
+            text("DELETE FROM master_locations WHERE division_name_en = :div AND taluk_name_en = :taluk"),
+            {"div": req.division, "taluk": req.taluk}
+        )
+    else:
+        # User only updated taluk metadata/firkas -> only replace firka records, preserving existing villages
+        await db.execute(
+            text("DELETE FROM master_locations WHERE division_name_en = :div AND taluk_name_en = :taluk AND village_name_en IS NULL"),
+            {"div": req.division, "taluk": req.taluk}
+        )
 
     # Insert updated firka records
     search_texts = []
@@ -1063,7 +1162,7 @@ async def update_or_create_taluk(
     embeddings = await vector_store.aencode(search_texts)
 
     for f, stext, emb in zip(firkas, search_texts, embeddings):
-        emb_val = json.dumps(emb) if is_admin_sqlite else emb
+        emb_val = json.dumps(emb if isinstance(emb, list) else (emb.tolist() if hasattr(emb, "tolist") else list(emb)), separators=(",", ":"))
         await db.execute(text("""
             INSERT INTO master_locations (
                 district_code, district_name_tamil, district_name_en,
@@ -1085,11 +1184,69 @@ async def update_or_create_taluk(
             "taluk": req.taluk,
             "taluk_ta": taluk_ta,
             "firka": f,
-            "local_body": req.local_body or "",
+            "local_body": req.local_body or "Firka",
             "sub_depts": sub_depts_str,
             "search_text": stext,
             "embedding": emb_val
         })
+
+    # If villages were explicitly updated, insert them with vector embeddings
+    if req.villages is not None and len(req.villages) > 0:
+        primary_firka = firkas[0] if firkas else req.taluk
+        v_records = []
+        for idx, vill in enumerate(req.villages, start=1):
+            v_name = vill.get("name") or vill.get("village_name_en") or ""
+            v_ta = vill.get("nameTamil") or vill.get("village_name_tamil") or v_name
+            v_cat = vill.get("category") or "Rural"
+            v_gp = vill.get("gramPanchayat") or vill.get("gp") or "Not applicable"
+            v_stext = f"District {dist_en} {dist_ta} Division {req.division} {div_ta} Taluk {req.taluk} {taluk_ta} Firka {primary_firka} Revenue Village {v_name} Category {v_cat} Gram Panchayat {v_gp}"
+            v_records.append({
+                "name": v_name,
+                "name_ta": v_ta,
+                "category": v_cat,
+                "gp": v_gp,
+                "code": f"{idx:04d}",
+                "search_text": v_stext
+            })
+
+        batch_size = 64
+        for b_start in range(0, len(v_records), batch_size):
+            b_chunk = v_records[b_start:b_start + batch_size]
+            b_texts = [r["search_text"] for r in b_chunk]
+            b_embs = await vector_store.aencode(b_texts)
+            for v_item, v_emb in zip(b_chunk, b_embs):
+                v_emb_val = json.dumps(v_emb if isinstance(v_emb, list) else (v_emb.tolist() if hasattr(v_emb, "tolist") else list(v_emb)), separators=(",", ":"))
+                await db.execute(text("""
+                    INSERT INTO master_locations (
+                        district_code, district_name_tamil, district_name_en,
+                        division_name_tamil, division_name_en, taluk_code, taluk_name_tamil, taluk_name_en,
+                        firka_code, firka_name_en,
+                        village_code, village_name_tamil, village_name_en,
+                        local_body_type, sub_departments, search_text, embedding
+                    ) VALUES (
+                        :dist_code, :dist_ta, :dist_en,
+                        :div_ta, :div, '01', :taluk_ta, :taluk,
+                        '01', :firka,
+                        :v_code, :v_name_ta, :v_name,
+                        :local_body, :sub_depts, :search_text, :embedding
+                    )
+                """), {
+                    "dist_code": dist_code,
+                    "dist_ta": dist_ta,
+                    "dist_en": dist_en,
+                    "div": req.division,
+                    "div_ta": div_ta,
+                    "taluk": req.taluk,
+                    "taluk_ta": taluk_ta,
+                    "firka": primary_firka,
+                    "v_code": v_item["code"],
+                    "v_name_ta": v_item["name_ta"],
+                    "v_name": v_item["name"],
+                    "local_body": f"Village ({v_item['category']}) - GP: {v_item['gp']}",
+                    "sub_depts": sub_depts_str,
+                    "search_text": v_item["search_text"],
+                    "embedding": v_emb_val
+                })
 
     # Log admin activity
     await db.execute(text("""
@@ -1097,7 +1254,7 @@ async def update_or_create_taluk(
         VALUES (:id, 'UPDATE_HIERARCHY', :detail, :officer_id)
     """), {
         "id": f"ACT-{uuid.uuid4().hex[:8]}",
-        "detail": f"Updated Taluk {req.taluk} in {req.division} ({len(firkas)} firkas, RAG vector synced).",
+        "detail": f"Updated Taluk {req.taluk} in {req.division} ({len(firkas)} firkas, {len(req.villages) if req.villages is not None else 'existing'} villages, RAG vector synced).",
         "officer_id": current_officer.get("officer_id", "ADMIN")
     })
     await db.commit()
@@ -1392,9 +1549,9 @@ async def create_taxonomy_mapping(
         f"Sub-Type: {gsub} | Sub-Department: {sdept} | Responsible Officer: {resp}"
     )
 
-    from services.vector_store import vector_store
+    from backend.services.vector_store import vector_store
     emb_list = await vector_store.aencode([search_tax])
-    emb_val = json.dumps(emb_list[0]) if is_admin_sqlite else emb_list[0]
+    emb_val = json.dumps(emb_list[0] if isinstance(emb_list[0], list) else (emb_list[0].tolist() if hasattr(emb_list[0], "tolist") else list(emb_list[0])), separators=(",", ":"))
 
     insert_sql = """
         INSERT INTO cm_taxonomy_mappings (
@@ -1434,7 +1591,7 @@ async def create_taxonomy_mapping(
 
     # Refresh matching engine cache
     try:
-        from services.taxonomy_matcher import taxonomy_matcher
+        from backend.services.taxonomy_matcher import taxonomy_matcher
         await taxonomy_matcher.load_taxonomy()
     except Exception as e:
         logger.debug(f"Taxonomy matcher cache refresh: {e}")
@@ -1489,9 +1646,9 @@ async def update_taxonomy_mapping(
         f"Sub-Type: {gsub} | Sub-Department: {sdept} | Responsible Officer: {resp}"
     )
 
-    from services.vector_store import vector_store
+    from backend.services.vector_store import vector_store
     emb_list = await vector_store.aencode([search_tax])
-    emb_val = json.dumps(emb_list[0]) if is_admin_sqlite else emb_list[0]
+    emb_val = json.dumps(emb_list[0] if isinstance(emb_list[0], list) else (emb_list[0].tolist() if hasattr(emb_list[0], "tolist") else list(emb_list[0])), separators=(",", ":"))
 
     update_sql = """
         UPDATE cm_taxonomy_mappings
@@ -1528,7 +1685,7 @@ async def update_taxonomy_mapping(
 
     # Refresh matching engine cache
     try:
-        from services.taxonomy_matcher import taxonomy_matcher
+        from backend.services.taxonomy_matcher import taxonomy_matcher
         await taxonomy_matcher.load_taxonomy()
     except Exception as e:
         logger.debug(f"Taxonomy matcher cache refresh: {e}")
@@ -1580,7 +1737,7 @@ async def delete_taxonomy_mapping(
 
     # Refresh matching engine cache
     try:
-        from services.taxonomy_matcher import taxonomy_matcher
+        from backend.services.taxonomy_matcher import taxonomy_matcher
         await taxonomy_matcher.load_taxonomy()
     except Exception as e:
         logger.debug(f"Taxonomy matcher cache refresh: {e}")
@@ -1688,7 +1845,7 @@ async def update_intake_channel(
         VALUES (:id, 'UPDATE', :detail, :officer_id)
     """), {
         "id": f"ACT-CH-{uuid.uuid4().hex[:8].upper()}",
-        "detail": f"Updated intake channel #{channel_id}: {name} ({code}) - Active: {bool(is_active)}",
+        "detail": f"Updated intake channel #{channel_id}: {name} ({code}) - Active: {is_active}",
         "officer_id": officer_id
     })
     await db.commit()
@@ -1758,14 +1915,14 @@ async def _get_unified_live_activities(
     def _resolve_officer(off_id: str):
         if not off_id or off_id in ["SYSTEM", "None", "null"]:
             return "System / GDP Co-Pilot", "System Automated", "SYSTEM"
-        info = officer_map.get(str(off_id))
+        info = officer_map.get(off_id)
         if info:
-            return info["name"], info["role"], str(off_id)
-        if "ADM" in str(off_id).upper():
-            return "District Administrator", "Administrator", str(off_id)
-        if "DRO" in str(off_id).upper():
-            return "DRO Officer", "Revenue Officer", str(off_id)
-        return str(off_id), "Officer", str(off_id)
+            return info["name"], info["role"], off_id
+        if "ADM" in off_id.upper():
+            return "District Administrator", "Administrator", off_id
+        if "DRO" in off_id.upper():
+            return "DRO Officer", "Revenue Officer", off_id
+        return off_id, "Officer", off_id
 
     # 1. Fetch from admin_activity_log
     try:
@@ -1918,8 +2075,6 @@ async def _get_unified_live_activities(
         logger.debug(f"User DB audit log merge notice: {e}")
 
     # 3. Timezone-normalized date parser and deduplicator
-    is_sqlite = bool(is_admin_sqlite)
-
     def _parse_admin_date(d_val) -> datetime:
         if not d_val:
             return datetime.min.replace(tzinfo=timezone.utc)
@@ -1934,7 +2089,7 @@ async def _get_unified_live_activities(
                 except Exception:
                     return datetime.min.replace(tzinfo=timezone.utc)
         if dt.tzinfo is None:
-            if is_sqlite:
+            if is_admin_sqlite:
                 dt = dt.replace(tzinfo=timezone.utc)
             else:
                 dt = dt.astimezone() # Local server time to timezone-aware
@@ -2502,7 +2657,7 @@ async def download_certified_report(
     Directly compiles and streams official Government of Tamil Nadu audit reports in PDF or Word (.docx) format.
     """
     try:
-        from services.report_document_service import generate_report_document
+        from backend.services.report_document_service import generate_report_document
         from fastapi.responses import Response
 
         # Gather data from report-data logic

@@ -155,18 +155,6 @@ def _build_geo_matrix_from_db_rows(rows: List[Dict[str, Any]]) -> Dict[str, Any]
         }
     }
 
-    return {
-        "district": {"name_ta": dist_ta, "name_en": dist_en, "code": dist_code},
-        "urban_matrix": {
-            "corporation_name_en": "Erode City Municipal Corporation",
-            "corporation_name_ta": "ஈரோடு மாநகராட்சி",
-            "zones": list(urban_zones_map.values())
-        },
-        "rural_matrix": {
-            "taluks": list(rural_taluks_map.values())
-        }
-    }
-
 
 def load_master_geo_config(geo_path: Optional[str] = None) -> Dict[str, Any]:
     """Loads and caches the dual-layered district geo matrix directly from the database."""
@@ -182,40 +170,7 @@ def load_master_geo_config(geo_path: Optional[str] = None) -> Dict[str, Any]:
         except Exception as e:
             logger.error(f"[GEO_VALIDATOR] Failed to load geo config from {geo_path}: {e}")
 
-    # Load directly from Database master_locations table
-    db_candidates = [
-        os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "temp_cache", "dro_admin.db"),
-        os.path.join(os.getcwd(), "temp_cache", "dro_admin.db"),
-        os.path.join(os.getcwd(), "backend", "temp_cache", "dro_admin.db"),
-        os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "temp_cache", "dro_local.db"),
-    ]
-
-    for cand in db_candidates:
-        if os.path.exists(cand):
-            try:
-                import sqlite3
-                con = sqlite3.connect(cand)
-                con.row_factory = sqlite3.Row
-                cur = con.cursor()
-                cur.execute("""
-                    SELECT district_code, district_name_tamil, district_name_en,
-                           division_code, division_name_tamil, division_name_en,
-                           taluk_code, taluk_name_tamil, taluk_name_en,
-                           firka_code, firka_name_tamil, firka_name_en,
-                           local_body_type, ward_no, ward_name_tamil, ward_name_en,
-                           pincode, search_text
-                    FROM master_locations
-                """)
-                rows = [dict(r) for r in cur.fetchall()]
-                con.close()
-                if rows:
-                    _GEO_CACHE = _build_geo_matrix_from_db_rows(rows)
-                    logger.info(f"[GEO_VALIDATOR] Successfully loaded geo matrix from database {cand} ({len(rows)} records)")
-                    return _GEO_CACHE
-            except Exception as e:
-                logger.debug(f"Geo DB load notice for {cand}: {e}")
-
-    return {"urban_matrix": {"zones": []}, "rural_matrix": {"taluks": []}}
+    return _GEO_CACHE or {"urban_matrix": {"zones": []}, "rural_matrix": {"taluks": []}}
 
 
 def validate_geo_payload(payload: Dict[str, Any]) -> Dict[str, Any]:

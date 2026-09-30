@@ -229,38 +229,22 @@ class SemanticCacheManager:
             prompt_hash = self.compute_prompt_hash(prompt_text)
             cache_id = f"sc-{uuid.uuid4().hex[:12]}"
             ttl = ttl_days or getattr(settings, "SEMANTIC_CACHE_TTL_DAYS", 30)
-            from models.database import is_sqlite
-
             # Encode prompt
             embs = await vector_store.aencode([prompt_text])
             emb_list = embs[0] if embs else []
-
             resp_str = json.dumps(response_data, ensure_ascii=False)
-            emb_val = json.dumps(emb_list) if is_sqlite else emb_list
 
-            if is_sqlite:
-                await db.execute(text("""
-                    INSERT INTO semantic_cache (id, prompt_hash, prompt_text, embedding, response_json, hit_count, created_at, expires_at)
-                    VALUES (:id, :hash, :prompt, :emb, :resp, 0, CURRENT_TIMESTAMP, datetime('now', :ttl_clause))
-                """), {
-                    "id": cache_id,
-                    "hash": prompt_hash,
-                    "prompt": prompt_text[:2000],
-                    "emb": emb_val,
-                    "resp": resp_str,
-                    "ttl_clause": f"+{ttl} days"
-                })
-            else:
-                await db.execute(text("""
-                    INSERT INTO semantic_cache (id, prompt_hash, prompt_text, embedding, response_json, hit_count, created_at, expires_at)
-                    VALUES (:id, :hash, :prompt, :emb, CAST(:resp AS JSONB), 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP + INTERVAL '30 days')
-                """), {
-                    "id": cache_id,
-                    "hash": prompt_hash,
-                    "prompt": prompt_text[:2000],
-                    "emb": str(emb_val),
-                    "resp": resp_str
-                })
+            await db.execute(text("""
+                INSERT INTO semantic_cache (id, prompt_hash, prompt_text, embedding, response_json, hit_count, created_at, expires_at)
+                VALUES (:id, :hash, :prompt, CAST(:emb AS jsonb), CAST(:resp AS jsonb), 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP + (:ttl || ' days')::interval)
+            """), {
+                "id": cache_id,
+                "hash": prompt_hash,
+                "prompt": prompt_text[:2000],
+                "emb": json.dumps(emb_list),
+                "resp": resp_str,
+                "ttl": str(ttl)
+            })
 
             await db.commit()
             logger.info(f"💾 [SEMANTIC CACHE] Stored entry {cache_id} for prompt hash {prompt_hash[:8]}")

@@ -49,10 +49,10 @@ def get_cache_key(text: str, sl: str, tl: str) -> str:
 
 
 async def fetch_free_translation_async(text: str, target_lang: str, source_lang: str = "auto") -> str:
-    if not text or not str(text).strip():
+    if not text or not text.strip():
         return text
 
-    clean_text = str(text).strip()
+    clean_text = text.strip()
     tl = target_lang.lower()
     sl = source_lang.lower()
 
@@ -107,10 +107,10 @@ async def batch_translate_async(texts: List[str], target_lang: str, source_lang:
     uncached_items = []
 
     for idx, t in enumerate(texts):
-        if not t or not str(t).strip():
+        if not t or not t.strip():
             results[idx] = t
             continue
-        clean = str(t).strip()
+        clean = t.strip()
         cache_key = get_cache_key(clean, sl, tl)
         if cache_key in TRANSLATION_CACHE:
             results[idx] = TRANSLATION_CACHE[cache_key]
@@ -127,7 +127,7 @@ async def batch_translate_async(texts: List[str], target_lang: str, source_lang:
 
     for i, orig_idx in enumerate(uncached_indices):
         item_res = translated_batch[i]
-        if isinstance(item_res, Exception):
+        if isinstance(item_res, BaseException):
             results[orig_idx] = uncached_items[i]
         else:
             results[orig_idx] = item_res

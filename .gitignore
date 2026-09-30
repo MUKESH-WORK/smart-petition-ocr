@@ -48,7 +48,7 @@ backend/data/*
 !backend/data/*.json
 !backend/data/README.md
 !backend/data/government_taxonomy.pdf
-
+!backend/data/erode_administrative_hierarchy_villages.pdf
 # Environment files & Secrets
 .env
 *.env

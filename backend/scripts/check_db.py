@@ -1,7 +1,8 @@
 import sys
 import asyncio
 
-sys.stdout.reconfigure(encoding="utf-8")
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 from models.database import AsyncSessionLocal
 from sqlalchemy import text
 

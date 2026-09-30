@@ -413,8 +413,25 @@ export default function UserManagement({
   ];
   const dynamicSections = [...new Set([...defaultSections, ...users.map((u) => u.department)])].filter(Boolean).sort();
 
+  // Determine current active officer from session storage
+  let currentOfficerId = '';
+  try {
+    const raw = sessionStorage.getItem('gdp_officer_session') || localStorage.getItem('gdp_officer_session');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      currentOfficerId = parsed?.id || parsed?.officerId || '';
+    }
+  } catch { }
+  if (!currentOfficerId) {
+    currentOfficerId = localStorage.getItem('officer_id') || 'ADM-ERODE-001';
+  }
+
+  const onlineCount = users.filter((u) => u.isOnline || (currentOfficerId && u.id === currentOfficerId)).length;
+  const offlineCount = Math.max(0, users.length - onlineCount);
+
   const query = filters.search.trim().toLowerCase();
   const filteredUsers = users.filter((u) => {
+    const isUserOnline = Boolean(u.isOnline || (currentOfficerId && u.id === currentOfficerId));
     const matchQuery =
       !query ||
       (u.name && u.name.toLowerCase().includes(query)) ||
@@ -422,7 +439,16 @@ export default function UserManagement({
       (u.mobile && u.mobile.includes(query)) ||
       (u.id && u.id.toLowerCase().includes(query));
     const matchDept = !filters.department || u.department === filters.department;
-    const matchStatus = !filters.status || u.status === filters.status;
+    let matchStatus = true;
+    if (filters.status === 'Online') {
+      matchStatus = isUserOnline;
+    } else if (filters.status === 'Offline') {
+      matchStatus = !isUserOnline;
+    } else if (filters.status === 'Active') {
+      matchStatus = u.status === 'Active';
+    } else if (filters.status === 'Inactive') {
+      matchStatus = u.status === 'Inactive';
+    }
     return matchQuery && matchDept && matchStatus;
   });
 
@@ -440,9 +466,23 @@ export default function UserManagement({
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             <h1>{getTranslation(currentLanguage, 'allUsers', 'All Users')}</h1>
           </div>
-          <p aria-live="polite">
-            {loading ? 'Refreshing user accounts…' : `${filteredUsers.length} of ${users.length} official accounts in database`}
-          </p>
+          <div className="admin-stat-summary-pill" aria-live="polite">
+            {loading ? (
+              <span>Refreshing user accounts…</span>
+            ) : (
+              <>
+                <span className="online-badge">
+                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#22c55e', display: 'inline-block' }}></span>
+                  {onlineCount} {currentLanguage === 'ta' ? 'ஆன்லைனில்' : 'Currently Online'}
+                </span>
+                <span className="offline-badge">
+                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#94a3b8', display: 'inline-block' }}></span>
+                  {offlineCount} {currentLanguage === 'ta' ? 'ஆஃப்லைனில்' : 'Offline'}
+                </span>
+                <span>({users.length} {currentLanguage === 'ta' ? 'மொத்த அரசு கணக்குகள்' : 'Total Accounts'})</span>
+              </>
+            )}
+          </div>
         </div>
         <div style={{ display: 'flex', gap: '8px' }}>
           <button
@@ -465,19 +505,7 @@ export default function UserManagement({
         </div>
       </header>
 
-      {isDbDisconnected && (
-        <div className="admin-db-banner is-disconnected" role="alert">
-          <div className="admin-db-banner-left">
-            <AlertTriangle size={18} />
-            <span>
-              <strong>Database Connection Lost:</strong> Cannot reach Admin Database. User accounts are read-only until reconnected.
-            </span>
-          </div>
-          <button type="button" className="admin-reconnect-btn" onClick={onReconnectDb}>
-            Reconnect Now
-          </button>
-        </div>
-      )}
+
 
       <div className="admin-user-filters">
         <label className="admin-search">
@@ -496,9 +524,9 @@ export default function UserManagement({
           ))}
         </select>
         <select aria-label="Filter by status" {...filter('status')}>
-          <option value="">All Status</option>
-          <option value="Active">Active</option>
-          <option value="Inactive">Inactive</option>
+          <option value="">All Presence & Status</option>
+          <option value="Active">Account: Active</option>
+          <option value="Inactive">Account: Inactive</option>
         </select>
       </div>
 
@@ -516,6 +544,8 @@ export default function UserManagement({
           <tbody>
             {filteredUsers.map((user) => {
               const displayName = (currentLanguage === 'ta' && user.nameTamil) ? user.nameTamil : user.name;
+              const isUserOnline = Boolean(user.isOnline || (currentOfficerId && user.id === currentOfficerId));
+              const isYou = Boolean(user.isCurrent || (currentOfficerId && user.id === currentOfficerId));
               const initials = (displayName || 'User')
                 .split(/\s+/)
                 .filter(Boolean)
@@ -528,9 +558,12 @@ export default function UserManagement({
                 <tr key={user.id}>
                   <td onClick={() => setDialog({ user })}>
                     <div className="admin-user-name">
-                      <span className="admin-avatar" aria-hidden="true">
-                        {initials}
-                      </span>
+                      <div className="admin-avatar-wrap">
+                        <span className="admin-avatar" aria-hidden="true">
+                          {initials}
+                        </span>
+                        {isUserOnline && <span className="admin-avatar-online-dot" title="Currently Online" />}
+                      </div>
                       <div>
                         <div style={{ display: 'flex', alignItems: 'center' }}>
                           <button
@@ -544,6 +577,7 @@ export default function UserManagement({
                             {displayName}
                           </button>
                           <span className="admin-id-badge">{user.id}</span>
+
                         </div>
                         <span className="admin-email">{user.email}</span>
                       </div>
@@ -551,12 +585,28 @@ export default function UserManagement({
                   </td>
                   <td onClick={() => setDialog({ user })}>{user.department || '—'}</td>
                   <td onClick={() => setDialog({ user })}>
-                    <span className={`admin-status ${user.status === 'Active' ? 'is-success' : 'is-inactive'}`}>
-                      {user.status || 'Active'}
-                    </span>
+                    {isUserOnline ? (
+                      <span className="admin-status is-online">
+                        {isYou ? 'Online (You)' : 'Online'}
+                      </span>
+                    ) : user.status === 'Inactive' ? (
+                      <span className="admin-status is-inactive">
+                        Inactive
+                      </span>
+                    ) : (
+                      <span className="admin-status is-offline">
+                        Offline
+                      </span>
+                    )}
                   </td>
                   <td className="admin-date" onClick={() => setDialog({ user })}>
-                    {user.lastLogin ? new Date(user.lastLogin).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' }) : 'Never'}
+                    {isYou ? (
+                      <span style={{ color: '#15803d', fontWeight: 600 }}>Active Now</span>
+                    ) : user.lastLogin ? (
+                      new Date(user.lastLogin).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' })
+                    ) : (
+                      <span style={{ color: '#94a3b8' }}>Never</span>
+                    )}
                   </td>
                   <td style={{ textAlign: 'right', paddingRight: '16px' }}>
                     <button

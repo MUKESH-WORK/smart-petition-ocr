@@ -245,7 +245,7 @@ async def run_pipeline():
 
         # ── Step 5: Insert records into master_locations ──────────────────
         for r, emb in zip(new_records, embeddings):
-            emb_val = json.dumps(emb) if is_admin_sqlite else emb
+            emb_val = json.dumps(emb if isinstance(emb, list) else (emb.tolist() if hasattr(emb, "tolist") else list(emb)), separators=(",", ":"))
             await db.execute(text("""
                 INSERT INTO master_locations (
                     district_code, district_name_tamil, district_name_en,

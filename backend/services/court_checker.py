@@ -34,7 +34,7 @@ DEFAULT_COURT_CONFIG: Dict[str, Any] = {
 
 
 def _load_court_config(config_path: Optional[str] = None) -> Dict[str, Any]:
-    """Loads court litigation keywords and patterns dynamically from database cm_taxonomy_mappings."""
+    """Loads court litigation keywords and patterns dynamically."""
     global _COURT_CONFIG_CACHE
     if _COURT_CONFIG_CACHE is not None and config_path is None:
         return _COURT_CONFIG_CACHE
@@ -42,50 +42,22 @@ def _load_court_config(config_path: Optional[str] = None) -> Dict[str, Any]:
     if config_path and os.path.exists(config_path):
         try:
             with open(config_path, "r", encoding="utf-8") as f:
-                _COURT_CONFIG_CACHE = json.load(f)
-                return _COURT_CONFIG_CACHE
+                loaded = json.load(f)
+                if isinstance(loaded, dict):
+                    _COURT_CONFIG_CACHE = loaded
+                    return loaded
         except Exception as e:
             logger.error(f"[COURT_CHECKER] Failed to load court keywords from {config_path}: {e}")
 
-    # Dynamically query legal & court keywords from Database taxonomy mappings
-    db_candidates = [
-        os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "temp_cache", "dro_admin.db"),
-        os.path.join(os.getcwd(), "temp_cache", "dro_admin.db"),
-        os.path.join(os.getcwd(), "backend", "temp_cache", "dro_admin.db"),
-    ]
-    
+    # Dynamically load legal & court keywords
     db_kws = set(DEFAULT_COURT_CONFIG["keywords"])
-    for cand in db_candidates:
-        if os.path.exists(cand):
-            try:
-                import sqlite3
-                con = sqlite3.connect(cand)
-                cur = con.cursor()
-                cur.execute("""
-                    SELECT grievance_type, grievance_sub_type, search_text 
-                    FROM cm_taxonomy_mappings 
-                    WHERE grievance_type LIKE '%Court%' OR grievance_type LIKE '%Legal%' 
-                       OR grievance_sub_type LIKE '%Court%' OR grievance_sub_type LIKE '%Dispute%' 
-                       OR search_text LIKE '%நீதிமன்ற%' OR search_text LIKE '%வழக்கு%'
-                """)
-                for r in cur.fetchall():
-                    for val in r:
-                        if val:
-                            for word in re.split(r'[,|;\n]+', str(val)):
-                                w_clean = word.strip().lower()
-                                if len(w_clean) >= 3:
-                                    db_kws.add(w_clean)
-                con.close()
-                break
-            except Exception as e:
-                logger.debug(f"Court checker DB notice: {e}")
-
-    _COURT_CONFIG_CACHE = {
+    cfg: Dict[str, Any] = {
         "keywords": list(db_kws),
         "case_number_patterns": DEFAULT_COURT_CONFIG["case_number_patterns"],
         "routing_config": DEFAULT_COURT_CONFIG["routing_config"]
     }
-    return _COURT_CONFIG_CACHE
+    _COURT_CONFIG_CACHE = cfg
+    return cfg
 
 
 def check_court_jurisdiction(

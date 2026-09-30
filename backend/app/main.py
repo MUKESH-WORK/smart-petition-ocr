@@ -7,18 +7,23 @@ import logging
 from typing import Optional, List, Dict, Any
 from contextlib import asynccontextmanager
 
-# Ensure backend directory is in sys.path for robust imports across all processes
+# Ensure backend directory and repository root are in sys.path for robust imports across all processes
 _backend_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+_repo_root = os.path.abspath(os.path.join(_backend_dir, ".."))
 if _backend_dir not in sys.path:
     sys.path.insert(0, _backend_dir)
+if _repo_root not in sys.path:
+    sys.path.insert(0, _repo_root)
 
 # Ensure UTF-8 output encoding across Windows consoles
 if sys.platform == "win32":
-    try:
-        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
-    except Exception:
-        pass
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if callable(reconfigure):
+            try:
+                reconfigure(encoding="utf-8", errors="replace")
+            except Exception:
+                pass
 
 # Ensure all uploads & temp buffers use workspace temp cache
 _workspace_temp = os.path.abspath(os.path.join(_backend_dir, "temp_cache"))
@@ -37,7 +42,7 @@ from sqlalchemy import text
 from app.config import settings
 from app.routers import grievance, search, admin, translate, petitions
 from models.database import engine, AsyncSessionLocal, init_db_schema, is_sqlite
-from services.job_queue import job_queue
+from backend.services.job_queue import job_queue
 
 # Configure logging
 logging.basicConfig(
@@ -60,8 +65,8 @@ async def lifespan(app: FastAPI):
     # 2. Seed and load official taxonomy before serving requests. The matcher reads
     #    the Admin DB populated from government_taxonomy.pdf, never a JSON snapshot.
     try:
-        from services.master_data_seeder import seed_master_data_if_needed
-        from services.taxonomy_matcher import taxonomy_matcher
+        from scripts.seed_db import seed_master_data_if_needed
+        from backend.services.taxonomy_matcher import taxonomy_matcher
 
         await seed_master_data_if_needed()
         taxonomy_count = await taxonomy_matcher.load_taxonomy()
@@ -71,7 +76,7 @@ async def lifespan(app: FastAPI):
         logger.warning(f"Non-blocking master-data initialization notice: {e}")
 
     # 3. Warm up background services asynchronously.
-    from services.vector_store import vector_store
+    from backend.services.vector_store import vector_store
     from core.llm_client import llm_client
 
     async def _async_warmup():

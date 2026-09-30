@@ -4,7 +4,7 @@ from typing import Optional, Dict, Any
 from fastapi import Depends, HTTPException, Header, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
-from models.database import get_db, AsyncSessionLocal
+from models.database import get_db, get_admin_db, get_audit_db, get_readonly_db, AsyncSessionLocal, AuditAsyncSessionLocal
 from core.security import decode_access_token
 
 logger = logging.getLogger(__name__)
@@ -102,7 +102,7 @@ async def log_audit_event(
     db: Optional[AsyncSession] = None
 ):
     """
-    Writes 1:1 audit event into the decoupled SQLite audit store.
+    Writes 1:1 audit event into PostgreSQL audit_log table.
     Uses an independent database session so audit writes are fully isolated
     and never commit or roll back caller transactions.
     """
@@ -111,13 +111,12 @@ async def log_audit_event(
         if ip_address and (ip_address.replace(".", "").isdigit() or ":" in ip_address):
             valid_ip = ip_address
 
-        from models.database import AuditAsyncSessionLocal
         async with AuditAsyncSessionLocal() as audit_db:
             await audit_db.execute(text("""
                 INSERT INTO audit_log (timestamp, source_id, officer_id, action, details, ip_address)
-                VALUES (CURRENT_TIMESTAMP, :source_id, :officer_id, :action, :details, :ip_address)
+                VALUES (CURRENT_TIMESTAMP, :source_id, :officer_id, :action, CAST(:details AS jsonb), :ip_address)
             """), {
-                "source_id": str(source_id) if source_id else None,
+                "source_id": source_id,
                 "officer_id": officer_id,
                 "action": action,
                 "details": json.dumps(details or {}, ensure_ascii=False),
@@ -125,5 +124,5 @@ async def log_audit_event(
             })
             await audit_db.commit()
     except Exception as e:
-        logger.error(f"Failed to log audit event to decoupled SQLite audit store: {e}")
+        logger.error(f"Failed to log audit event to PostgreSQL audit store: {e}")
 

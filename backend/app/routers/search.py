@@ -2,9 +2,9 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from models.database import get_db
-from models.schemas import SearchRequest, SearchResultItem
-from services.vector_store import vector_store
+from backend.models.database import get_db
+from backend.models.schemas import SearchRequest, SearchResultItem
+from backend.services.vector_store import vector_store
 from app.dependencies import get_current_officer
 
 router = APIRouter(prefix="/search", tags=["Search"])

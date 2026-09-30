@@ -20,7 +20,7 @@ import tarfile
 import hashlib
 import sqlite3
 import argparse
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 # Ensure UTF-8 output across Windows consoles
@@ -150,7 +150,7 @@ def cmd_export(args):
         
     manifest = {
         "version": "1.0",
-        "exported_at": datetime.utcnow().isoformat() + "Z",
+        "exported_at": datetime.now(timezone.utc).isoformat(),
         "repo": "smart-petition-ocr",
         "databases": {}
     }
@@ -295,7 +295,7 @@ def cmd_seed_fresh(args):
     if str(backend_path) not in sys.path:
         sys.path.insert(0, str(backend_path))
     from models.database import init_db_schema, get_admin_db
-    from services.master_data_seeder import seed_authoritative_hierarchy, seed_official_accounts, seed_master_data_if_needed
+    from scripts.seed_db import seed_authoritative_hierarchy, seed_official_accounts, seed_master_data_if_needed
     
     async def _run():
         print("  • Initializing database tables...")

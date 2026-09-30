@@ -1,19 +1,6 @@
 import os
 from typing import Optional
-try:
-    from pydantic_settings import BaseSettings, SettingsConfigDict
-except ImportError:
-    try:
-        from pydantic import BaseSettings
-        SettingsConfigDict = None
-    except ImportError:
-        class BaseSettings:
-            def __init__(self, **kwargs):
-                for k, v in self.__class__.__dict__.items():
-                    if not k.startswith("_") and not callable(v):
-                        env_val = os.getenv(k)
-                        setattr(self, k, env_val if env_val is not None else v)
-        SettingsConfigDict = None
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -24,13 +11,16 @@ class Settings(BaseSettings):
     # Database Settings
     USE_SQLITE: bool = False
     POSTGRES_USER: str = "dro_user"
-    POSTGRES_PASSWORD: str = os.environ.get("POSTGRES_PASSWORD", "")
-    POSTGRES_HOST: str = "postgres"
-    POSTGRES_PORT: int = 5432
-    POSTGRES_DB: str = "dro_grievance_db"
+    POSTGRES_PASSWORD: str = os.environ.get("POSTGRES_PASSWORD", "dro_password_2026")
+    POSTGRES_HOST: str = os.environ.get("POSTGRES_HOST", "localhost")
+    POSTGRES_PORT: int = int(os.environ.get("POSTGRES_PORT", 5433))
+    POSTGRES_DB: str = os.environ.get("POSTGRES_DB", "dro_grievance_db")
     
     DATABASE_URL: str = ""
     DATABASE_SYNC_URL: str = ""
+    DATABASE_READONLY_URL: Optional[str] = None
+    ADMIN_DATABASE_URL: Optional[str] = None
+    AUDIT_DATABASE_URL: Optional[str] = None
     
     # Security
     SECRET_KEY: str = ""
@@ -100,21 +90,20 @@ class Settings(BaseSettings):
     DEDUP_PHASH_ENABLED: bool = True
     DEDUP_PHASH_THRESHOLD: int = 4            # Max Hamming distance for image perceptual similarity
 
-    if SettingsConfigDict is not None:
-        _backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        _root_dir = os.path.dirname(_backend_dir)
-        _env_candidates = [
-            os.environ.get("ENV_FILE", ""),
-            os.path.join(_root_dir, ".env"),
-            os.path.join(_backend_dir, ".env"),
-            ".env"
-        ]
-        _selected_env = next((p for p in _env_candidates if p and os.path.exists(p)), ".env")
-        model_config = SettingsConfigDict(
-            env_file=_selected_env,
-            env_file_encoding="utf-8",
-            extra="ignore"
-        )
+    _backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _root_dir = os.path.dirname(_backend_dir)
+    _env_candidates = [
+        os.environ.get("ENV_FILE", ""),
+        os.path.join(_root_dir, ".env"),
+        os.path.join(_backend_dir, ".env"),
+        ".env"
+    ]
+    _selected_env = next((p for p in _env_candidates if p and os.path.exists(p)), ".env")
+    model_config = SettingsConfigDict(
+        env_file=_selected_env,
+        env_file_encoding="utf-8",
+        extra="ignore"
+    )
 
 
 settings = Settings()

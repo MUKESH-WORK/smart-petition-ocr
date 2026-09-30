@@ -4,9 +4,8 @@ import os
 import json
 import uuid
 import logging
-import datetime
 import tempfile
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta, date
 from typing import List, Optional
 from fastapi import APIRouter, Depends, UploadFile, File, Form, Header, HTTPException, Request, BackgroundTasks
 from fastapi.responses import FileResponse, StreamingResponse
@@ -91,18 +90,24 @@ async def upload_petition(
     try:
         # 1. Always generate a fresh unique UUID for the new upload
         new_source_id = str(uuid.uuid4())
-        content = await file.read()
-        ext = os.path.splitext(file.filename)[1].lower().replace(".", "")
+        if not file.filename or not file.filename.strip():
+            raise HTTPException(
+                status_code=400,
+                detail="செல்லுபடியாகும் கோப்பு பெயர் தேவை (Valid filename is required)."
+            )
+        filename = file.filename.strip()
+        ext = os.path.splitext(filename)[1].lower().replace(".", "")
         if ext not in ALLOWED_EXTENSIONS:
             raise HTTPException(
                 status_code=422,
                 detail="ஆவண வடிவம் ஆதரிக்கப்படவில்லை. PDF அல்லது படங்களை (JPG, PNG) பதிவேற்றவும்."
             )
 
+        content = await file.read()
         # 2. Save file to disk with unique source_id and calculate SHA-256
-        file_path, file_hash, file_size = await file_store.save_uploaded_file(new_source_id, file.filename, content)
-        logger.info(f"📄 [UPLOAD] New source_id={new_source_id}")
-        logger.info(f"📄 [UPLOAD] file_hash={file_hash}")
+        file_path, file_hash, file_size = await file_store.save_uploaded_file(new_source_id, filename, content)
+        logger.info(f" [UPLOAD] New source_id={new_source_id}")
+        logger.info(f" [UPLOAD] file_hash={file_hash}")
 
         # 3. Ensure officer exists to satisfy foreign key
         if eff_officer_id:
@@ -117,23 +122,40 @@ async def upload_petition(
             except Exception as e:
                 logger.debug(f"Officer record validation notice: {e}")
 
-        # 4. Insert into sources as a clean separate row (EVERY upload gets a NEW source_id)
+        # 4. Insert into sources (gracefully handling existing file_hash in legacy SQLite tables)
         file_data_db = content if getattr(settings, "STORE_FILE_BYTEA", False) else None
-        res_insert = await db.execute(text("""
-            INSERT INTO sources (source_id, officer_id, file_name, file_type, file_size_bytes, file_hash, page_count, status, file_data, created_at, updated_at)
-            VALUES (:source_id, :officer_id, :file_name, :file_type, :file_size, :file_hash, 0, 'uploaded', :file_data, NOW(), NOW())
-            RETURNING source_id, file_name, file_size_bytes, page_count, status, created_at
-        """), {
-            "source_id": new_source_id,
-            "officer_id": eff_officer_id,
-            "file_name": file.filename,
-            "file_type": ext,
-            "file_size": file_size,
-            "file_hash": file_hash,
-            "file_data": file_data_db
-        })
-        row = res_insert.mappings().one()
-        await db.commit()
+        try:
+            res_insert = await db.execute(text("""
+                INSERT INTO sources (source_id, officer_id, file_name, file_type, file_size_bytes, file_hash, page_count, status, file_data, created_at, updated_at)
+                VALUES (:source_id, :officer_id, :file_name, :file_type, :file_size, :file_hash, 0, 'uploaded', :file_data, NOW(), NOW())
+                RETURNING source_id, file_name, file_size_bytes, page_count, status, created_at
+            """), {
+                "source_id": new_source_id,
+                "officer_id": eff_officer_id,
+                "file_name": file.filename,
+                "file_type": ext,
+                "file_size": file_size,
+                "file_hash": file_hash,
+                "file_data": file_data_db
+            })
+            row = res_insert.mappings().one()
+            await db.commit()
+        except Exception as insert_err:
+            await db.rollback()
+            logger.info(f"Duplicate file upload notice: {insert_err}. Locating existing source record for hash {file_hash[:12]}...")
+            existing_s_res = await db.execute(text("""
+                SELECT source_id, file_name, file_size_bytes, page_count, status, created_at
+                FROM sources
+                WHERE file_hash = :hash
+                ORDER BY created_at DESC
+                LIMIT 1
+            """), {"hash": file_hash})
+            existing_row = existing_s_res.mappings().one_or_none()
+            if existing_row:
+                row = existing_row
+                new_source_id = str(row["source_id"])
+            else:
+                raise insert_err
 
         # 5. Duplicate Check: Check if an identical document (SHA-256) was previously processed with a valid draft
         existing_res = await db.execute(text("""
@@ -1178,5 +1200,5 @@ async def list_official_departments():
     Returns the complete list of official government departments
     derived directly from the CM Helpline Grievance Taxonomy.
     """
-    from services.taxonomy_matcher import taxonomy_matcher
+    from backend.services.taxonomy_matcher import taxonomy_matcher
     return taxonomy_matcher.get_official_departments()
