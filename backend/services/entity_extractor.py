@@ -486,7 +486,7 @@ def extract_header_entities(header_zone_text: str, full_ocr_text: str = "") -> D
             if not any(sw in nt for sw in skip_words) and len(nt) >= 4:
                 counts[nt] = counts.get(nt, 0) + 1
         if counts:
-            cand_applicant = max(counts, key=counts.get)
+            cand_applicant = max(counts, key=lambda k: counts[k])
 
     entities["petitioner_name"] = cand_applicant
 

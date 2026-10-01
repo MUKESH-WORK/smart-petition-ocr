@@ -59,6 +59,7 @@ services:
       - "host.docker.internal:host-gateway"
     volumes:
       - document_storage:/app/storage
+      - ./models/paraphrase-multilingual-MiniLM-L12-v2:/app/models/paraphrase-multilingual-MiniLM-L12-v2:ro
     depends_on:
       postgres:
         condition: service_healthy

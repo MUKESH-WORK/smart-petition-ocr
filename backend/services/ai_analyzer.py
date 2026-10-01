@@ -33,8 +33,10 @@ from services.entity_extractor import (
     extract_gdp_form_metadata,
     is_same_person_or_invalid
 )
+from services.semantic_classifier import semantic_classifier
 
 logger = logging.getLogger(__name__)
+
 
 
 def datetime_suffix_short() -> str:
@@ -227,28 +229,57 @@ class AIAnalyzer:
         else:
             detected_category = raw_g
 
-        # Check financial assistance / pension FIRST before civic utilities
-        if any(k in doc_text.lower() for k in [
-            "உதவித்தொகை", "உதவித் தொகை", "உதவி தொகை", "நிதி உதவி", "நிதியுதவி",
-            "வயது மூப்பு", "முதியோர்", "ஓய்வூதியம்", "வேலைக்கு செல்ல முடியவில்லை",
-            "மகனோ", "மகளோ உதவி இல்லை", "oap", "pension", "financial assistance"
-        ]):
-            if any(w in doc_text.lower() for w in ["விதவை", "widow", "dwps", "ஆதரவற்ற விதவை"]):
-                detected_category = "விதவை ஓய்வூதியம் / உதவித்தொகை"
-            elif any(w in doc_text.lower() for w in ["கல்வி", "scholarship", "கல்லூரி"]):
-                detected_category = "கல்வி உதவித்தொகை"
-            elif any(w in doc_text.lower() for w in ["மாற்றுத்திறனாளி", "differently abled", "ஊனம்", "dap"]):
-                detected_category = "மாற்றுத்திறனாளி ஓய்வூதியம்"
-            else:
-                detected_category = "முதியோர் உதவித்தொகை / ஓய்வூதியம்"
-        elif any(k in doc_text.lower() for k in ["குடிநீர்", "தண்ணீர்", "குடிநீர் இணைப்பு", "drinking water", "water connection", "water supply"]):
-            detected_category = "குடிநீர் வசதி"
-        elif any(k in doc_text.lower() for k in ["தெருவிளக்கு", "பழுதடைந்த தெருவிளக்கு", "street light"]):
-            detected_category = "தெருவிளக்கு வசதி"
-        elif any(k in doc_text.lower() for k in ["கழிவுநீர்", "வடிகால்", "சாக்கடை", "drainage", "storm water", "sewage"]):
-            detected_category = "கழிவுநீர் / வடிகால் வசதி"
-        elif any(k in doc_text.lower() for k in ["சாலைப்பணி", "சாலை பணி", "சாலை சீரமைப்பு", "சாலை பராமரிப்பு", "நெடுஞ்சாலை பணி", "விபத்து அபாயம்", "பழுதடைந்த சாலை"]):
-            detected_category = "சாலை வசதி / பராமரிப்பு"
+        # ────────────────────────────────────────────────────────────────────
+        # Pillar 1 + 2: Semantic Classification (Subject Line Priority + Vector Embeddings)
+        # Uses meaning-aware classification instead of fragile keyword matching.
+        # The semantic classifier:
+        #   1. Extracts the பொருள் (Subject) line and gives it 3x weight
+        #   2. Extracts the prayer/request section and gives it 2x weight
+        #   3. Compares embeddings against pre-computed category centroids
+        # ────────────────────────────────────────────────────────────────────
+        semantic_result = None
+        try:
+            zones = segment_petition_zones(doc_text)
+            semantic_result = semantic_classifier.classify(
+                zone_a_header=zones.get("zone_a_header", ""),
+                zone_b_body=zones.get("zone_b_body", ""),
+                full_doc_text=doc_text,
+            )
+            if semantic_result and semantic_result.get("confidence", 0) >= 0.15 and semantic_result.get("label"):
+                detected_category = semantic_result["label"]
+                logger.info(
+                    f"🎯 Pillar 1+2 Semantic Classification: '{detected_category}' "
+                    f"(confidence={semantic_result['confidence']}, method={semantic_result.get('method')}, "
+                    f"subject='{semantic_result.get('subject_line', '')[:60]}')"
+                )
+        except Exception as sem_err:
+            logger.debug(f"Semantic classifier fallback note: {sem_err}")
+
+        # Keyword fallback: Only used when semantic classifier confidence is too low
+        if not detected_category or detected_category == "பொது குறை":
+            logger.info("📎 Falling back to keyword classification (semantic confidence too low)")
+            # Check financial assistance / pension FIRST before civic utilities
+            if any(k in doc_text.lower() for k in [
+                "உதவித்தொகை", "உதவித் தொகை", "உதவி தொகை", "நிதி உதவி", "நிதியுதவி",
+                "வயது மூப்பு", "முதியோர்", "ஓய்வூதியம்", "வேலைக்கு செல்ல முடியவில்லை",
+                "மகனோ", "மகளோ உதவி இல்லை", "oap", "pension", "financial assistance"
+            ]):
+                if any(w in doc_text.lower() for w in ["விதவை", "widow", "dwps", "ஆதரவற்ற விதவை"]):
+                    detected_category = "விதவை ஓய்வூதியம் / உதவித்தொகை"
+                elif any(w in doc_text.lower() for w in ["கல்வி", "scholarship", "கல்லூரி"]):
+                    detected_category = "கல்வி உதவித்தொகை"
+                elif any(w in doc_text.lower() for w in ["மாற்றுத்திறனாளி", "differently abled", "ஊனம்", "dap"]):
+                    detected_category = "மாற்றுத்திறனாளி ஓய்வூதியம்"
+                else:
+                    detected_category = "முதியோர் உதவித்தொகை / ஓய்வூதியம்"
+            elif any(k in doc_text.lower() for k in ["குடிநீர்", "தண்ணீர்", "குடிநீர் இணைப்பு", "drinking water", "water connection", "water supply"]):
+                detected_category = "குடிநீர் வசதி"
+            elif any(k in doc_text.lower() for k in ["தெருவிளக்கு", "பழுதடைந்த தெருவிளக்கு", "street light"]):
+                detected_category = "தெருவிளக்கு வசதி"
+            elif any(k in doc_text.lower() for k in ["கழிவுநீர்", "வடிகால்", "சாக்கடை", "drainage", "storm water", "sewage"]):
+                detected_category = "கழிவுநீர் / வடிகால் வசதி"
+            elif any(k in doc_text.lower() for k in ["சாலைப்பணி", "சாலை பணி", "சாலை சீரமைப்பு", "சாலை பராமரிப்பு", "நெடுஞ்சாலை பணி", "விபத்து அபாயம்", "பழுதடைந்த சாலை"]):
+                detected_category = "சாலை வசதி / பராமரிப்பு"
 
         if not detected_category:
             for cat, keywords in {
@@ -904,8 +935,67 @@ class AIAnalyzer:
             )
         ) or "General Administration"
 
-        # Domain routing: Destitute Widow Pension (DWPS) / Social Security Schemes (OAP / Financial Assistance)
-        if any(k in (p_gtype + " " + p_gsub + " " + doc_context).lower() for k in [
+        # ────────────────────────────────────────────────────────────────────
+        # Pillar 1+2 Semantic Override: When the semantic classifier has high
+        # confidence (≥0.25), override the keyword-based domain routing with
+        # the semantically determined category. This prevents misclassification
+        # from keyword collisions (e.g., "தண்ணீர்" in a road petition).
+        # ────────────────────────────────────────────────────────────────────
+        _semantic_override_applied = False
+        try:
+            sem_cls = semantic_classifier.classify(
+                zone_a_header=zone_a,
+                zone_b_body=zone_b,
+                full_doc_text=doc_context,
+            )
+            if sem_cls and sem_cls.get("confidence", 0) >= 0.50 and sem_cls.get("category_key"):
+                cat_key = sem_cls["category_key"]
+                doc_lower = doc_context.lower()
+                is_false_road = (
+                    cat_key == "road_maintenance" and
+                    not any(w in doc_lower for w in ["சாலை", "ரோடு", "தார் சாலை", "மண் சாலை", "குண்டு குழி", "சேதமடைந்த சாலை", "road", "pavement"]) and
+                    any(w in doc_lower for w in ["குடிநீர்", "தண்ணீர்", "மேல்நிலைத் தொட்டி", "குழாய்", "drinking water"])
+                )
+                if not is_false_road:
+                    _semantic_override_applied = True
+                    p_dept = sem_cls["department"]
+                    p_gtype = sem_cls["grievance_type"]
+                    p_gsub = sem_cls["grievance_subtype"]
+                    p_subdept = sem_cls["sub_department"]
+                    if not gdp_meta.get("responsible_officer"):
+                        p_resp_off = sem_cls["responsible_officer"]
+
+                    # If drinking water, refine between Village Panchayat (RDPR) vs Municipality (MAWS)
+                    if cat_key == "drinking_water":
+                        if any(p in doc_context for p in ["பஞ்சாயத்து", "ஊராட்சி ஒன்றிய", "ஊராட்சி", "கிராம ஊராட்சி"]):
+                            p_dept = "Rural Development and Panchayat Raj Department (RDPR)"
+                            p_gtype = "Village Infrastructure"
+                            p_gsub = "Drinking Water Supply - RD"
+                            p_subdept = "Rural Development and Panchayat Raj"
+                            p_resp_off = "Block Development Officer - Village Panchayat"
+                        else:
+                            p_dept = "Municipal Administration and Water Supply (MAWS)"
+                            p_gtype = "Drinking Water"
+                            p_gsub = "Insufficient Water Supply"
+                            p_subdept = "Commissionerate of Municipal Administration (CMA)"
+                            p_resp_off = "Commissioner Municipality, Commissioner Municipal Corporation, Executive Officer - Town Panchayat"
+
+                    logger.info(
+                        f"🧠 Semantic Override Applied: dept={p_dept}, type={p_gtype}, "
+                        f"sub={p_gsub} (confidence={sem_cls['confidence']}, "
+                        f"gap={sem_cls.get('confidence_gap', 0)}, "
+                        f"subject='{sem_cls.get('subject_line', '')[:50]}')"
+                    )
+                else:
+                    logger.warning("⚠️ Semantic override rejected by negative keyword sanity check (false road_maintenance on drinking water petition)")
+        except Exception as sem_err:
+            logger.debug(f"Semantic override note: {sem_err}")
+
+        # Domain routing: Only apply keyword-based routing when semantic override was NOT applied.
+        # When semantic classifier has high confidence, it already set the correct dept/type/subtype.
+        if _semantic_override_applied:
+            logger.info("⏭️ Skipping keyword domain routing — semantic override already applied")
+        elif any(k in (p_gtype + " " + p_gsub + " " + doc_context).lower() for k in [
             "dwps", "ஆதரவற்ற விதவை", "விதவை உதவி", "விதவை ஓய்வூதியம்", "விதவை", "destitute widow", "widow pension",
             "முதியோர்", "oap", "உதவித்தொகை", "உதவித் தொகை", "உதவி தொகை", "நிதி உதவி", "நிதியுதவி",
             "வயது மூப்பு", "வேலைக்கு செல்ல முடியவில்லை", "மகனோ", "மகளோ உதவி இல்லை", "social security schemes"
@@ -1207,7 +1297,7 @@ class AIAnalyzer:
             if "Commissionerate of Municipal Administration" in p_subdept or "CMA" in p_subdept:
                 p_subdept = "Commissionerate of Municipal Administration (CMA)"
             elif "\n" in p_subdept:
-                p_subdept = p_subdept.split("\n")[0].strip()
+                p_subdept = re.sub(r'\s+', ' ', p_subdept).strip()
 
         if p_resp_off:
             if "Commissioner Municipality" in p_resp_off or "Municipal Corporation" in p_resp_off:
@@ -1327,8 +1417,9 @@ class AIAnalyzer:
             if not val or val == "-":
                 return default_val
             s = str(val).strip()
-            if "\n" in s:
-                s = s.split("\n")[0].strip()
+            # Collapse any line-wraps from PDF table extraction into a single clean line
+            s = re.sub(r'[\r\n\t]+', ' ', s).strip()
+            s = re.sub(r'\s+', ' ', s)
             narrative_markers = [
                 "கோருதல்", "வேண்டி", "குறித்து", "தொடர்பாக", "பொருள் :", "பொருள்:", 
                 "விண்ணப்பம்", "நடவடிக்கை எடுக்க", "விபத்து அபாயம்", "சாலைப்பணிகளால்", "சாலைப் பணிகளால்"

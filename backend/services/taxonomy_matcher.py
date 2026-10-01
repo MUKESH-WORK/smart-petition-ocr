@@ -266,9 +266,12 @@ class CMHelplineTaxonomyValidator:
             self.types_map.clear()
 
             for item in self.taxonomy:
-                dept = (item.get("department") or "").strip()
-                gtype = (item.get("grievance_type") or "").strip()
-                gsub = (item.get("grievance_sub_type") or "").strip()
+                dept = re.sub(r'\s+', ' ', (item.get("department") or "")).strip()
+                gtype = re.sub(r'\s+', ' ', (item.get("grievance_type") or "")).strip()
+                gsub = re.sub(r'\s+', ' ', (item.get("grievance_sub_type") or "")).strip()
+                item["department"] = dept
+                item["grievance_type"] = gtype
+                item["grievance_sub_type"] = gsub
 
                 if dept:
                     dept_set.add(dept)
@@ -302,7 +305,7 @@ class CMHelplineTaxonomyValidator:
         """
         source_items = self.taxonomy
         if header_dept_keyword:
-            kw = str(header_dept_keyword).strip().lower()
+            kw = header_dept_keyword.strip().lower()
             # Expand with semantic concept terms if Tamil keyword (e.g. குடிநீர் -> drinking water, water supply)
             search_terms = {kw}
             for c_key, c_terms in self.concept_map.items():
@@ -311,9 +314,9 @@ class CMHelplineTaxonomyValidator:
 
             scoped = []
             for item in self.taxonomy:
-                dept_val = str(item.get("department", "")).lower()
-                gtype_val = str(item.get("grievance_type", "")).lower()
-                gsub_val = str(item.get("grievance_sub_type", "")).lower()
+                dept_val = item.get("department", "").lower()
+                gtype_val = item.get("grievance_type", "").lower()
+                gsub_val = item.get("grievance_sub_type", "").lower()
                 item_str = f"{dept_val} {gtype_val} {gsub_val}"
                 if any(term in item_str for term in search_terms):
                     scoped.append(item)
@@ -379,7 +382,7 @@ class CMHelplineTaxonomyValidator:
         """Returns departments present in the PDF-seeded Admin DB taxonomy."""
         return list(self.departments)
 
-    def normalize_department(self, dept_input: Optional[str]) -> Optional[str]:
+    def normalize_department(self, dept_input: Optional[str]) -> str:
         """
         Dynamically matches and normalizes any user/LLM input against the official
         departments present in the PDF-seeded Admin DB taxonomy.
@@ -387,7 +390,7 @@ class CMHelplineTaxonomyValidator:
         if not dept_input:
             return "General Administration"
 
-        raw = str(dept_input).strip()
+        raw = dept_input.strip()
         raw_upper = raw.upper()
 
         # 1. Exact match against data departments
@@ -470,7 +473,7 @@ class CMHelplineTaxonomyValidator:
         gsub_in = (detected_subtype or "").strip()
 
         if not self.taxonomy:
-            dept_prefix = str(dept_norm).split('(')[0].strip()
+            dept_prefix = dept_norm.split('(')[0].strip()
             return {
                 "department": dept_norm,
                 "grievance_type": gtype_in or "General Grievance",
