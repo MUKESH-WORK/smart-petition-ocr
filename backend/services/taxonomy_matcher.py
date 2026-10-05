@@ -2,7 +2,8 @@ import json
 import os
 import re
 import logging
-from typing import Dict, Any, Optional, List, Set
+from typing import Dict, Any, Optional, List, Set, Union
+import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -180,11 +181,14 @@ class CMHelplineTaxonomyValidator:
     """
 
     def __init__(self):
-        self.taxonomy: List[Dict[str, str]] = []
+        self.taxonomy: List[Dict[str, Any]] = []
+        self.taxonomy_by_id: Dict[int, Dict[str, Any]] = {}
+        self.taxonomy_embeddings: Optional[np.ndarray] = None
+        self.taxonomy_metadata: List[Dict[str, Any]] = []
         self.departments: List[str] = []
         self.department_acronyms: Dict[str, str] = {}
-        self.dept_entries: Dict[str, List[Dict[str, str]]] = {}
-        self.subtypes_map: Dict[str, Dict[str, str]] = {}
+        self.dept_entries: Dict[str, List[Dict[str, Any]]] = {}
+        self.subtypes_map: Dict[str, Dict[str, Any]] = {}
         self.types_map: Dict[str, List[str]] = {}
         self.concept_map = self._load_tamil_concept_map()
 
@@ -213,50 +217,81 @@ class CMHelplineTaxonomyValidator:
             "வாரிசு": ["legal heir", "heir", "certificate"],
             "விதவை": ["destitute widow", "widow", "pension", "dwps"],
             "முதியோர்": ["old age pension", "pension", "oap", "social security"],
-            "உதவித்தொகை": ["pension", "financial assistance", "social security", "oap"],
-            "உதவித் தொகை": ["pension", "financial assistance", "social security", "oap"],
-            "உதவி தொகை": ["pension", "financial assistance", "social security", "oap"],
-            "நிதி உதவி": ["financial assistance", "pension", "social security"],
+            "உதவித்தொகை": ["financial assistance", "assistance", "grant", "scholarship", "aid"],
+            "உதவித் தொகை": ["financial assistance", "assistance", "grant", "scholarship", "aid"],
+            "உதவி தொகை": ["financial assistance", "assistance", "grant", "scholarship", "aid"],
+            "நிதி உதவி": ["financial assistance", "grant", "aid"],
             "வயது மூப்பு": ["old age pension", "pension", "oap", "social security"],
             "குடிநீர்": ["drinking water", "water supply"],
             "சாலை": ["road", "street"],
             "தெருவிளக்கு": ["street light", "lighting"],
             "மின்சாரம்": ["electricity", "power", "tangedco"],
             "ரேஷன்": ["ration card", "civil supplies"],
-            "சாதி": ["community certificate"]
+            "சாதி": ["community certificate"],
+            "சமுதாய கூடம்": ["community hall"],
+            "சமூக கூடம்": ["community hall"],
+            "ஆதிதிராவிடர்": ["adi dravidar", "adw"],
+            "ஆதி திராவிடர்": ["adi dravidar", "adw"]
         }
 
     async def load_taxonomy(self) -> int:
-        """Load only PDF-seeded records from the configured Admin database."""
+        """Load all PDF-seeded records from cm_taxonomy_mappings including precomputed embeddings."""
         from sqlalchemy import text
         from models.database import AdminAsyncSessionLocal
 
         async with AdminAsyncSessionLocal() as db:
             result = await db.execute(text("""
-                SELECT department, department_code, sub_department, grievance_type,
-                       grievance_sub_type, responsible_officer
+                SELECT id, department, department_code, sub_department, grievance_type,
+                       grievance_sub_type, responsible_officer, search_text, embedding
                 FROM cm_taxonomy_mappings
                 ORDER BY id
             """))
-            records = [
-                {
+            records = []
+            embeddings = []
+            for row in result.mappings().all():
+                rec = {
+                    "id": row["id"],
                     "department": row["department"] or "",
                     "department_code": row["department_code"] or "",
                     "sub_department": row["sub_department"] or "",
                     "grievance_type": row["grievance_type"] or "",
                     "grievance_sub_type": row["grievance_sub_type"] or "",
                     "responsible_officer": row["responsible_officer"] or "",
+                    "search_text": row["search_text"] or "",
                 }
-                for row in result.mappings().all()
-            ]
+                emb_raw = row["embedding"]
+                emb_vec = None
+                if emb_raw:
+                    try:
+                        parsed = json.loads(emb_raw) if isinstance(emb_raw, str) else list(emb_raw)
+                        if parsed and len(parsed) == 384:
+                            emb_vec = np.array(parsed, dtype=np.float32)
+                            norm = float(np.linalg.norm(emb_vec))
+                            if norm > 0:
+                                emb_vec = emb_vec / norm
+                    except Exception as e:
+                        logger.warning(f"Error parsing embedding for taxonomy id {row['id']}: {e}")
+                if emb_vec is None:
+                    emb_vec = np.zeros(384, dtype=np.float32)
 
-        self._set_taxonomy(records)
-        logger.info("Loaded %s PDF-seeded taxonomy records from Admin DB.", len(records))
+                records.append(rec)
+                embeddings.append(emb_vec)
+
+        self._set_taxonomy(records, embeddings)
+        logger.info("Loaded %s PDF-seeded taxonomy records (with %s vectors) from Admin DB.", len(records), len(embeddings))
         return len(records)
 
-    def _set_taxonomy(self, records: List[Dict[str, str]]) -> None:
-        """Build lookup indexes from the database taxonomy rows."""
+    def _set_taxonomy(self, records: List[Dict[str, Any]], embeddings: Optional[List[np.ndarray]] = None) -> None:
+        """Build lookup indexes and vector matrix from the database taxonomy rows."""
         self.taxonomy = records
+        self.taxonomy_metadata = records
+        self.taxonomy_by_id = {r["id"]: r for r in records if "id" in r}
+
+        if embeddings is not None and len(embeddings) > 0:
+            self.taxonomy_embeddings = np.array(embeddings, dtype=np.float32)
+        elif self.taxonomy_embeddings is None:
+            self.taxonomy_embeddings = np.zeros((len(records), 384), dtype=np.float32)
+
         try:
             # Reset containers
             dept_set: Set[str] = set()
@@ -272,6 +307,9 @@ class CMHelplineTaxonomyValidator:
                 item["department"] = dept
                 item["grievance_type"] = gtype
                 item["grievance_sub_type"] = gsub
+                if not item.get("scope_type"):
+                    from services.grievance_scope_classifier import deduce_taxonomy_scope
+                    item["scope_type"] = deduce_taxonomy_scope(dept, gtype, gsub)
 
                 if dept:
                     dept_set.add(dept)
@@ -297,11 +335,67 @@ class CMHelplineTaxonomyValidator:
         except Exception as e:
             logger.error(f"Error processing taxonomy records: {e}")
 
-    def get_candidates(self, header_dept_keyword: Optional[str] = None, top_k: int = 5) -> List[Dict[str, str]]:
+    def search_candidates_by_vector(self, query_embedding: Union[List[float], np.ndarray], top_k: int = 12) -> List[Dict[str, Any]]:
+        """
+        Fast in-memory cosine similarity search against all 1,847 DB taxonomy embeddings.
+        Returns top-K matching taxonomy candidates with similarity scores.
+        """
+        if self.taxonomy_embeddings is None or len(self.taxonomy_embeddings) == 0:
+            logger.warning("Taxonomy embeddings matrix is empty or uninitialized.")
+            return []
+
+        q = np.array(query_embedding, dtype=np.float32)
+        if q.ndim > 1:
+            q = q.squeeze()
+        if len(q) != 384:
+            logger.warning(f"Query embedding dimension mismatch: expected 384, got {len(q)}")
+            return []
+
+        norm = float(np.linalg.norm(q))
+        if norm > 0:
+            q = q / norm
+        else:
+            return []
+
+        # Vectorized dot product against all N normalized taxonomy embeddings
+        scores = np.dot(self.taxonomy_embeddings, q)
+        k_val = min(top_k, len(scores))
+        top_indices = np.argsort(-scores)[:k_val]
+
+        candidates = []
+        for idx in top_indices:
+            meta = self.taxonomy_metadata[idx]
+            candidates.append({
+                "taxonomy_id": meta["id"],
+                "Department": meta.get("department", ""),
+                "department": meta.get("department", ""),
+                "department_code": meta.get("department_code", ""),
+                "Grievance Type": meta.get("grievance_type", ""),
+                "grievance_type": meta.get("grievance_type", ""),
+                "Grievance Sub Type": meta.get("grievance_sub_type", ""),
+                "grievance_sub_type": meta.get("grievance_sub_type", ""),
+                "Sub Department": meta.get("sub_department", ""),
+                "sub_department": meta.get("sub_department", ""),
+                "Responsible officer": meta.get("responsible_officer", ""),
+                "responsible_officer": meta.get("responsible_officer", ""),
+                "search_text": meta.get("search_text", ""),
+                "semantic_score": round(float(scores[idx]), 4),
+            })
+        return candidates
+
+    def get_taxonomy_by_id(self, taxonomy_id: Optional[Union[int, str]]) -> Optional[Dict[str, Any]]:
+        """Returns the authoritative DB taxonomy row for the given ID."""
+        if taxonomy_id is None:
+            return None
+        try:
+            return self.taxonomy_by_id.get(int(taxonomy_id))
+        except (ValueError, TypeError):
+            return None
+
+    def get_candidates(self, header_dept_keyword: Optional[str] = None, top_k: int = 5) -> List[Dict[str, Any]]:
         """
         Filters candidates by header metadata / keywords if present, else returns top-K rows.
-        Returns exact format:
-        [{'Department': ..., 'Grievance Type': ..., 'Grievance Sub Type': ..., 'Sub Department': ..., 'Responsible officer': ...}]
+        Returns format with both standard keys and Taxonomy_ID.
         """
         source_items = self.taxonomy
         if header_dept_keyword:
@@ -326,6 +420,8 @@ class CMHelplineTaxonomyValidator:
         candidates = []
         for item in source_items[:top_k]:
             candidates.append({
+                "Taxonomy_ID": item.get("id"),
+                "taxonomy_id": item.get("id"),
                 "Department": item.get("department", ""),
                 "Grievance Type": item.get("grievance_type", ""),
                 "Grievance Sub Type": item.get("grievance_sub_type", ""),
@@ -417,7 +513,7 @@ class CMHelplineTaxonomyValidator:
 
         # 4. Keyword / concept routing to official departments
         raw_lower = raw.lower()
-        if any(k in raw_lower for k in ["revenue", "வருவாய்", "நில நிர்வாகம்", "social security", "சமூக பாதுகாப்பு", "ஓய்வூதியம்", "pension", "உதவித்தொகை", "உதவித் தொகை", "உதவி தொகை"]):
+        if any(k in raw_lower for k in ["revenue", "வருவாய்", "நில நிர்வாகம்", "social security", "சமூக பாதுகாப்பு", "ஓய்வூதியம்", "pension"]):
             return self.department_acronyms.get("REV", "Revenue and Disaster Management (REV)")
         if any(k in raw_lower for k in ["municipal", "water supply", "cma", "twad", "மாநகராட்சி", "நகராட்சி", "குடிநீர்"]):
             return self.department_acronyms.get("MAWS", "Municipal Administration and Water Supply (MAWS)")
@@ -480,6 +576,7 @@ class CMHelplineTaxonomyValidator:
                 "grievance_subtype": gsub_in or "Public Grievance Redressal",
                 "sub_department": f"{dept_prefix} Administration",
                 "responsible_officer": "Competent Authority",
+                "scope_type": "UNKNOWN",
                 "validated": False,
                 "match_score": 0
             }
@@ -555,7 +652,7 @@ class CMHelplineTaxonomyValidator:
                     score -= 40.0
 
             # Financial assistance / Old Age Pension / Social Security Schemes priority
-            if any(s in query_text for s in ["உதவித்தொகை", "உதவித் தொகை", "உதவி தொகை", "நிதி உதவி", "வயது மூப்பு", "முதியோர்", "வேலைக்கு செல்ல முடியவில்லை", "வாழ்வாதாரம்"]):
+            if any(s in query_text for s in ["வயது மூப்பு", "முதியோர்", "முதியவர்", "வேலைக்கு செல்ல முடியவில்லை", "வாழ்வாதாரம்", "old age pension", "oap"]):
                 if "social security" in t_gtype or "old age pension" in t_gsub or "oap" in t_gsub or "pension" in t_gsub:
                     score += 40.0
                 if "revenue" in t_dept:
@@ -570,10 +667,10 @@ class CMHelplineTaxonomyValidator:
                             score += 20.0
 
             # Scholarship priority when seeking educational financial assistance
-            if any(s in query_text for s in ["scholarship", "கல்வி உதவித்தொகை", "கல்வி உதவி"]):
-                if "scholarship" in t_gsub:
+            if any(s in query_text for s in ["scholarship", "கல்வி உதவித்தொகை", "கல்வி உதவி", "படிப்பு", "கல்லூரி", "மாணவர்", "மாணவி"]):
+                if "scholarship" in t_gsub or "கல்வி" in t_gsub:
                     score += 35.0
-                elif "scholarship" in t_gtype:
+                elif "scholarship" in t_gtype or "கல்வி" in t_gtype:
                     score += 25.0
 
             # Subtype overlap (prevent empty string match)
@@ -636,6 +733,7 @@ class CMHelplineTaxonomyValidator:
                 "grievance_subtype": final_subtype,
                 "sub_department": best_item.get("sub_department", ""),
                 "responsible_officer": best_item.get("responsible_officer", ""),
+                "scope_type": best_item.get("scope_type", "UNKNOWN"),
                 "validated": True,
                 "match_score": best_score
             }
@@ -648,6 +746,7 @@ class CMHelplineTaxonomyValidator:
             "grievance_subtype": "Public Grievance Redressal",
             "sub_department": f"{fallback_dept.split('(')[0].strip()} / நிர்வாகம்",
             "responsible_officer": "துறை அலுவலர்",
+            "scope_type": "UNKNOWN",
             "validated": False,
             "match_score": 0
         }

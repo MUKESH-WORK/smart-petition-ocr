@@ -67,11 +67,15 @@ async def lifespan(app: FastAPI):
     try:
         from scripts.seed_db import seed_master_data_if_needed
         from services.taxonomy_matcher import taxonomy_matcher
+        from services.location_matcher import location_matcher
 
         await seed_master_data_if_needed()
         taxonomy_count = await taxonomy_matcher.load_taxonomy()
         if taxonomy_count == 0:
             logger.warning("No PDF-seeded taxonomy rows found; taxonomy matching is unavailable.")
+        
+        loc_count = await location_matcher.load_from_db()
+        logger.info(f"Loaded {loc_count} administrative location units into dynamic location matcher.")
     except Exception as e:
         logger.warning(f"Non-blocking master-data initialization notice: {e}")
 

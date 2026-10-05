@@ -49,7 +49,10 @@ function resolveInitialProfile(p) {
   const name =
     p?.fullName ||
     p?.name ||
-    stored.name;
+    stored.fullName ||
+    stored.name ||
+    localStorage.getItem('officer_name') ||
+    '';
 
   const nameTamil = p?.nameTamil || p?.name_tamil || stored.nameTamil || stored.name_tamil || '';
 
@@ -155,13 +158,18 @@ export default function ProfileView({
       } else {
         await updateMyProfile({
           name: updated.fullName,
+          fullName: updated.fullName,
           name_tamil: updated.nameTamil,
+          nameTamil: updated.nameTamil,
           mobile: updated.phone,
+          phone: updated.phone,
           email: updated.email,
+          designation: updated.designation,
           department: updated.department
         });
         localStorage.setItem('officer_profile', JSON.stringify(updated));
         localStorage.setItem('tn_gdp_officer_profile', JSON.stringify(updated));
+        if (updated.fullName) localStorage.setItem('officer_name', updated.fullName);
       }
 
       setInitialData(updated);

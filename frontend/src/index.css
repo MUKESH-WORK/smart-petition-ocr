@@ -22,12 +22,14 @@
   height: var(--header-height, 56px) !important;
   min-height: var(--header-height, 56px) !important;
   max-height: var(--header-height, 56px) !important;
-  padding: 0 16px !important;
+  padding: 0 20px 0 16px !important;
   flex-wrap: nowrap !important;
   align-items: center !important;
   overflow: visible !important;
   position: relative !important;
   z-index: 100 !important;
+  width: 100% !important;
+  box-sizing: border-box !important;
 }
 
 [data-lang="ta"] .header-left {

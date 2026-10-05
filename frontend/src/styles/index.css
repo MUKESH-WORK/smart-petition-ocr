@@ -4,7 +4,8 @@
 /* Application Root Layout (Strictly 100vh Desktop Shell) */
 .app-container {
   height: 100vh;
-  width: 100vw;
+  width: 100%;
+  max-width: 100%;
   display: flex;
   flex-direction: column;
   background-color: var(--bg-canvas);

@@ -13,6 +13,7 @@ from sqlalchemy import text
 from models.database import get_db, get_admin_db, get_audit_db, is_admin_sqlite, is_sqlite, AuditAsyncSessionLocal
 from models.schemas import QueueStatusResponse, MasterLocationCreate
 from app.dependencies import get_current_officer, get_optional_officer, log_audit_event
+from app.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -220,6 +221,7 @@ async def admin_session_login(req: LoginRequest, db: AsyncSession = Depends(get_
     return {
         "access_token": token,
         "token_type": "bearer",
+        "expires_in": getattr(settings, "ACCESS_TOKEN_EXPIRE_MINUTES", 540) * 60,
         **user_dict,
         "user": user_dict,
         "status": "success"
@@ -288,8 +290,11 @@ async def admin_session_logout(
 
 class ProfileUpdateRequest(BaseModel):
     fullName: Optional[str] = None
+    name: Optional[str] = None
     name_tamil: Optional[str] = None
+    nameTamil: Optional[str] = None
     phone: Optional[str] = None
+    mobile: Optional[str] = None
     email: Optional[str] = None
     designation: Optional[str] = None
     department: Optional[str] = None
@@ -381,18 +386,25 @@ async def update_my_profile(
     updates_admin = []
     params: Dict[str, Any] = {"id": officer_id}
 
-    if req.fullName is not None and req.fullName.strip():
+    target_name = (req.fullName or req.name or "").strip()
+    if target_name:
         updates_admin.append("name = :name")
-        params["name"] = req.fullName.strip()
-    if req.name_tamil is not None:
+        params["name"] = target_name
+
+    target_name_tamil = (req.name_tamil or req.nameTamil or "").strip()
+    if target_name_tamil:
         updates_admin.append("name_tamil = :name_tamil")
-        params["name_tamil"] = req.name_tamil.strip()
-    if req.phone is not None and req.phone.strip():
+        params["name_tamil"] = target_name_tamil
+
+    target_mobile = (req.phone or req.mobile or "").strip()
+    if target_mobile:
         updates_admin.append("mobile = :mobile")
-        params["mobile"] = req.phone.strip()
+        params["mobile"] = target_mobile
+
     if req.email is not None and req.email.strip():
         updates_admin.append("email = :email")
         params["email"] = req.email.strip().lower()
+
     if req.department is not None and req.department.strip():
         updates_admin.append("department = :department")
         params["department"] = req.department.strip()
@@ -420,7 +432,7 @@ async def update_my_profile(
                 if "email" in params:
                     u_updates.append("email = :email")
                     u_params["email"] = params["email"]
-                if req.designation:
+                if req.designation and req.designation.strip():
                     u_updates.append("designation = :designation")
                     u_params["designation"] = req.designation.strip()
                 if "department" in params:
@@ -433,7 +445,29 @@ async def update_my_profile(
         except Exception as e:
             logger.debug(f"User DB officers profile sync notice: {e}")
 
-    return {"status": "success", "message": "Profile updated successfully."}
+    # Fetch fresh record from DB to return complete verified profile
+    fresh_user_res = await db.execute(
+        text("SELECT id, name, name_tamil, mobile, email, department, role, is_admin FROM admin_users WHERE id = :id"),
+        {"id": officer_id}
+    )
+    fresh_user = fresh_user_res.mappings().one_or_none()
+
+    return {
+        "status": "success",
+        "message": "Profile updated successfully.",
+        "user": {
+            "id": officer_id,
+            "officerId": officer_id,
+            "name": fresh_user.get("name") if fresh_user else (params.get("name") or ""),
+            "fullName": fresh_user.get("name") if fresh_user else (params.get("name") or ""),
+            "nameTamil": fresh_user.get("name_tamil") if fresh_user else (params.get("name_tamil") or ""),
+            "mobile": fresh_user.get("mobile") if fresh_user else (params.get("mobile") or ""),
+            "phone": fresh_user.get("mobile") if fresh_user else (params.get("mobile") or ""),
+            "email": fresh_user.get("email") if fresh_user else (params.get("email") or ""),
+            "department": fresh_user.get("department") if fresh_user else (params.get("department") or ""),
+            "designation": req.designation or ""
+        }
+    }
 
 
 class UserCreateRequest(BaseModel):

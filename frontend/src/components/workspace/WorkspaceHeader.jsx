@@ -1,17 +1,11 @@
 import React from 'react';
-import { FileText, PlusCircle, User, Building2, CheckCircle2 } from 'lucide-react';
+import { FileText, PlusCircle } from 'lucide-react';
 import './Workspace.css';
 
 export default function WorkspaceHeader({
   petition,
   onNewPetition
 }) {
-  const petitionerName = petition?.portalDetails?.petitionerName;
-  const hasPetitionerName = petitionerName && petitionerName !== 'Not found';
-
-  const department = petition?.portalDetails?.governmentDepartment;
-  const hasDepartment = department && department !== 'Not found';
-
   return (
     <div className="workspace-header-bar">
       
@@ -30,7 +24,7 @@ export default function WorkspaceHeader({
         </div>
       </div>
 
-      {/* Right: New Petition Action */}
+      {/* Right: Actions */}
       <div className="workspace-header-right">
         <button 
           type="button" 

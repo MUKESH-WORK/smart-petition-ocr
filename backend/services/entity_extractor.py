@@ -41,17 +41,17 @@ def parse_petition_zones(ocr_text: str) -> Dict[str, str]:
     return zones
 
 
-def parse_tamil_address_and_location(address_str: str) -> Dict[str, str]:
+def parse_tamil_address_and_location(address_str: str) -> Dict[str, Any]:
     """
     Parses Tamil address string, identifies Revenue Village, and sets correct Taluk/District.
     Eliminates redundant double village repetitions and properly maps Taluk vs Village.
     """
-    location = {
+    location: Dict[str, Any] = {
         "full_address": "",
         "address": "",
-        "village": "Not found",
-        "taluk": "ஈரோடு",
-        "district": "ஈரோடு"
+        "village": None,
+        "taluk": None,
+        "district": None
     }
     if not address_str:
         return location
@@ -104,12 +104,46 @@ def parse_tamil_address_and_location(address_str: str) -> Dict[str, str]:
     location["full_address"] = clean_addr or ", ".join(dedup_parts)
     location["address"] = location["full_address"]
 
-    # 3. Dynamic Administrative Hierarchy resolution via location_matcher
+    # 2.6 Extract Door No and Street Name
+    door_no = None
+    street_name = None
+    for p in dedup_parts:
+        if not door_no:
+            dm = re.search(r'(?:^|[\s,])(\d{1,4}[A-Za-z]?\s*(?:[/\\-]\s*\d{1,4}[A-Za-z]?)?)(?:$|[\s,])', p)
+            if dm:
+                cand_door = dm.group(1).strip()
+                if len(cand_door) <= 10 and not re.search(r'6\d{5}', cand_door):
+                    door_no = cand_door
+        if not street_name:
+            if any(s in p for s in ["தெரு", "வீதி", "சாலை", "ரோடு", "Street", "Road", "Lane", "Nagar", "நகர்", "காலனி"]):
+                clean_street = re.sub(r'^\d+[/\\-]\d+\s*,?\s*', '', p).strip(' ,.-')
+                if clean_street and not any(skip in clean_street for skip in ["மாவட்டம்", "வட்டம்", "District", "Taluk"]):
+                    street_name = clean_street
+    if door_no:
+        location["door_no"] = door_no
+    if street_name:
+        location["street"] = street_name
+        location["street_name"] = street_name
+
+    # 2.5 Extract explicit taluk clues from address dynamically
+    detected_taluk = None
+    t_match = re.search(r'([A-Za-z\u0B80-\u0BFF\s\.\-]+?)(?:\([Tt][Kk]\)|\([Tt]\.[Kk]\)|\(வட்டம்\)|(?<!மா)வட்டம்|\bTaluk\b|\(Taluk\))', address_str, re.IGNORECASE)
+    if t_match:
+        t_val = t_match.group(1).strip(':, -')
+        t_val = re.sub(r'[\(\[\{]?(?:TK|Tk|T\.K|வட்டம்|Taluk)[\)\]\}]?', '', t_val, flags=re.IGNORECASE).strip(' :,.-')
+        for tk_entry in location_matcher.taluk_keywords:
+            if any(kw in t_val.lower() for kw in tk_entry["keywords"]):
+                detected_taluk = tk_entry["taluk_ta"]
+                break
+        if not detected_taluk and t_val and t_val != location.get("village"):
+            detected_taluk = t_val
+
+    # 3. Dynamic Administrative Hierarchy resolution via database-driven location_matcher
     hier = location_matcher.match_hierarchy(
         address_text=clean_addr,
         village=location.get("village"),
-        street=None,
-        detected_taluk=None
+        street=location.get("street"),
+        detected_taluk=detected_taluk
     )
     if hier.get("district"):
         location["district"] = hier["district"]
@@ -117,8 +151,14 @@ def parse_tamil_address_and_location(address_str: str) -> Dict[str, str]:
         location["revenue_division"] = hier["revenue_division"]
     if hier.get("taluk"):
         location["taluk"] = hier["taluk"]
+    elif detected_taluk:
+        location["taluk"] = detected_taluk
     if hier.get("firka"):
         location["firka"] = hier["firka"]
+    if hier.get("block"):
+        location["block"] = hier["block"]
+    else:
+        location["block"] = location_matcher.resolve_block(location.get("taluk"), location.get("firka"), location.get("village"))
     if hier.get("ward"):
         location["ward"] = hier["ward"]
     if hier.get("ward_no"):
@@ -132,25 +172,19 @@ def parse_tamil_address_and_location(address_str: str) -> Dict[str, str]:
     if hier.get("zone"):
         location["zone"] = hier["zone"]
 
-    # Fallback to text matching if not determined
     if not location.get("taluk") or location["taluk"] == location.get("village"):
-        t_match = re.search(r'([A-Za-z\u0B80-\u0BFF\s\.\-]+?)(?:\(Tk\)|\(TK\)|\(வட்டம்\)|வட்டம்|Taluk)', address_str, re.IGNORECASE)
-        if t_match:
-            t_val = t_match.group(1).strip(':, -')
-            t_val = re.sub(r'[\(\[\{]?(?:TK|Tk|T\.K|வட்டம்)[\)\]\}]?', '', t_val).strip(' :,.-')
-            if t_val and t_val != location["village"]:
-                location["taluk"] = t_val
-        if not location.get("taluk"):
-            location["taluk"] = location.get("district") or "ஈரோடு"
+        if detected_taluk:
+            location["taluk"] = detected_taluk
 
     return location
 
 
-def parse_tamil_location(address_str: str, default_taluk: str = "ஈரோடு") -> Dict[str, str]:
+def parse_tamil_location(address_str: str, default_taluk: Optional[str] = None) -> Dict[str, Any]:
     """Alias for backwards compatibility with parse_tamil_address_and_location."""
     res = parse_tamil_address_and_location(address_str)
     if not res.get("taluk") or res["taluk"] == res.get("village"):
-        res["taluk"] = default_taluk
+        if default_taluk:
+            res["taluk"] = default_taluk
     return res
 
 
@@ -324,7 +358,8 @@ def parse_door_street_village(addr_str: str) -> Dict[str, Optional[str]]:
         # Ignore administrative keywords
         if any(skip in seg for skip in ["வட்டம்", "மாவட்டம்", "Taluk", "District", "வருவாய்"]):
             continue
-        if seg in ["ஈரோடு", "Erode", "பவானி", "Bhavani", "பெருந்துறை", "Perundurai"]:
+        # Ignore administrative taluk names dynamically
+        if any(tk.get("taluk_ta", "").lower() == seg.lower() or tk.get("taluk_en", "").lower() == seg.lower() for tk in location_matcher.taluk_keywords):
             continue
 
         # Check if segment is a street
@@ -592,7 +627,39 @@ def extract_header_entities(header_zone_text: str, full_ocr_text: str = "") -> D
     return entities
 
 
+def extract_all_entities(full_text: str) -> Dict[str, Any]:
+    """
+    Extracts structured entities and metadata from raw OCR text using 
+    zone segmentation, header extraction, and GDP form parsing.
+    """
+    if not full_text:
+        return {}
 
+    zones = parse_petition_zones(full_text)
+    header_zone = zones.get("header_zone", "")
+    header_ents = extract_header_entities(header_zone, full_text)
+    gdp_meta = extract_gdp_form_metadata(full_text)
+
+    res: Dict[str, Any] = {
+        "petitioner_name": header_ents.get("petitioner_name") or None,
+        "father_or_husband_name": header_ents.get("father_husband_name") or None,
+        "phone_number": header_ents.get("phone_number") or None,
+        "address": header_ents.get("address") or None,
+        "door_no": header_ents.get("door_no") or None,
+        "street_name": header_ents.get("street_name") or None,
+        "village": header_ents.get("village") or None,
+        "firka": header_ents.get("firka") or None,
+        "taluk": header_ents.get("taluk") or None,
+        "revenue_division": header_ents.get("revenue_division") or None,
+        "district": header_ents.get("district") or None,
+        "ward": header_ents.get("ward") or None,
+        "municipality_ward": header_ents.get("municipality_ward") or None,
+        "local_body_type": header_ents.get("local_body_type") or None,
+        "complainant_signatory": header_ents.get("complainant_signatory") or None,
+        "ref_number": gdp_meta.get("ref_number") or None,
+        "department": gdp_meta.get("department") or None,
+    }
+    return res
 def segment_petition_zones(ocr_text: str) -> Dict[str, str]:
     """
     Splits petition text into Zone A (Sender), Zone B (Narrative), and Zone C (Accused)

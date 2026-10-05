@@ -17,17 +17,7 @@ async def extract_document(ocr_result: InternalOCRDocument) -> Dict[str, Any]:
 
     logger.info(f"Extracting structured fields for document {document_id} ({len(full_text)} chars)")
 
-    # 1. Try existing deep extraction engine if present in backend
-    try:
-        from services.entity_extractor import extract_all_entities
-        extracted = extract_all_entities(full_text)
-        if extracted and isinstance(extracted, dict):
-            extracted["document_id"] = document_id
-            return extracted
-    except Exception as ex:
-        logger.debug(f"Direct backend entity extractor not used: {ex}")
-
-    # 2. Heuristic & Regex extraction engine
+    # 1. Base extracted schema
     extracted: Dict[str, Any] = {
         "document_id": document_id,
         "petitioner_name": None,
@@ -46,6 +36,17 @@ async def extract_document(ocr_result: InternalOCRDocument) -> Dict[str, Any]:
             "provider": ocr_result.provider
         }
     }
+
+    # 2. Try existing deep extraction engine if present in backend
+    try:
+        from services.entity_extractor import extract_all_entities
+        deep_data = extract_all_entities(full_text)
+        if deep_data and isinstance(deep_data, dict):
+            for k, v in deep_data.items():
+                if v is not None:
+                    extracted[k] = v
+    except Exception as ex:
+        logger.debug(f"Direct backend entity extractor not used: {ex}")
 
     phone_match = re.search(r"\b[6-9]\d{9}\b", full_text)
     if phone_match:

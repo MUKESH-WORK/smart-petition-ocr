@@ -237,7 +237,7 @@ class LLMClient:
                             self._model_verified = True
                             return self.model
 
-                        for candidate in ["qwen2.5:3b-instruct", "qwen2.5:3b", "qwen", "mistral", "phi4", "llama"]:
+                        for candidate in ["qwen2.5:7b-instruct-q4_K_M", "qwen2.5:7b", "qwen", "mistral", "phi4", "llama"]:
                             for m in available_models:
                                 if candidate in m.lower():
                                     logger.info(f"Ollama auto-switching from '{self.model}' to '{m}'")

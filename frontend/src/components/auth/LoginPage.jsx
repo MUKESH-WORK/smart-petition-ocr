@@ -91,6 +91,14 @@ export default function LoginPage({ onLogin }) {
         throw new Error('Authentication succeeded, but user profile could not be loaded.');
       }
 
+      // Calculate strict 9-hour expiration timestamp (540 minutes = 32400 seconds)
+      const expiresInSec = sessionData.expires_in || (9 * 60 * 60);
+      const expiresAt = Date.now() + (expiresInSec * 1000);
+      localStorage.setItem('session_expires_at', String(expiresAt));
+      localStorage.setItem('session_login_time', String(Date.now()));
+      sessionStorage.setItem('session_expires_at', String(expiresAt));
+      sessionStorage.setItem('session_login_time', String(Date.now()));
+
       // Persist live profile and JWT authentication token systematically
       if (sessionData.access_token) {
         localStorage.setItem('auth_token', sessionData.access_token);
@@ -107,7 +115,9 @@ export default function LoginPage({ onLogin }) {
         ...user,
         role: user.is_admin ? 'admin' : 'user',
         user: user,
-        profile: user
+        profile: user,
+        expires_at: expiresAt,
+        access_token: sessionData.access_token
       });
     } catch (err) {
       setError(err.message || 'Authentication failed');

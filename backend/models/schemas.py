@@ -207,7 +207,7 @@ class GrievanceDraftResponse(BaseModel):
     address: Optional[str] = None
     gender: Optional[str] = "-None-"
     is_differently_abled: Optional[str] = "No"
-    community_or_individual: Optional[str] = "Public"
+    community_or_individual: Optional[str] = None
 
     # Grievance
     description: Optional[str] = None

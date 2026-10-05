@@ -170,6 +170,8 @@ async def init_db_schema():
         "ALTER TABLE audit_log ALTER COLUMN source_id TYPE VARCHAR(100);",
         "ALTER TABLE audit_log ALTER COLUMN ip_address TYPE VARCHAR(50);",
         "ALTER TABLE grievance_drafts ADD COLUMN IF NOT EXISTS complainant_signatory VARCHAR(200);",
+        "ALTER TABLE grievance_drafts ADD COLUMN IF NOT EXISTS community_or_individual VARCHAR(50);",
+        "ALTER TABLE grievance_drafts ALTER COLUMN community_or_individual DROP DEFAULT;",
         "ALTER TABLE officers ADD COLUMN IF NOT EXISTS name VARCHAR(100);",
         "ALTER TABLE officers ADD COLUMN IF NOT EXISTS email VARCHAR(150);",
         "ALTER TABLE officers ADD COLUMN IF NOT EXISTS mobile VARCHAR(20);",
@@ -353,6 +355,7 @@ async def init_db_schema():
                 grievance_type VARCHAR(255) NOT NULL,
                 grievance_sub_type VARCHAR(255) NOT NULL,
                 responsible_officer TEXT,
+                scope_type VARCHAR(50) DEFAULT 'UNKNOWN',
                 search_text TEXT,
                 embedding JSONB
             );
@@ -373,6 +376,7 @@ async def init_db_schema():
             "ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS department VARCHAR(100);",
             "ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS role VARCHAR(50);",
             "ALTER TABLE cm_taxonomy_mappings ALTER COLUMN responsible_officer TYPE TEXT;",
+            "ALTER TABLE cm_taxonomy_mappings ADD COLUMN IF NOT EXISTS scope_type VARCHAR(50) DEFAULT 'UNKNOWN';",
         ]:
             try:
                 await conn.execute(text(col_stmt))

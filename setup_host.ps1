@@ -251,7 +251,7 @@ if ($isOllamaRunning) {
 # STEP 4: Check / Pull Required Ollama Model (qwen2.5:3b-instruct)
 # ------------------------------------------------------------------------------
 Log-Info "Step 4/10: Checking required LLM model (qwen2.5:3b-instruct)..."
-$targetModel = "qwen2.5:3b-instruct"
+$targetModel = "qwen2.5:7b-instruct-q4_K_M"
 
 $hasModel = $false
 try {

@@ -21,6 +21,14 @@ export function getAuthToken() {
  * Standard authenticated headers combining Bearer JWT and X-Officer-Id
  */
 export function authHeaders(contentType = 'application/json') {
+  // Verify 9-hour session validity on every authenticated API call
+  const expiresAt = Number(localStorage.getItem('session_expires_at') || sessionStorage.getItem('session_expires_at') || 0);
+  if (expiresAt > 0 && Date.now() >= expiresAt) {
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('gdp_session_expired'));
+    }
+  }
+
   const headers = {};
   if (contentType) headers['Content-Type'] = contentType;
   const token = getAuthToken();
@@ -79,10 +87,12 @@ export function mapDraftToPortalDetails(draft = {}, analysis = {}) {
     }
   };
 
-  const rawGrievanceId = draft.dro_grievance_id || (analysis.id ? `TN/AHFISH/ERD/P/OFFLINE/31AUG26/${analysis.id}` : 'TN/AHFISH/ERD/P/OFFLINE/31AUG26/001');
-  const formattedGrievanceId = rawGrievanceId.includes('TN/AHFISH')
-    ? rawGrievanceId
-    : `TN/AHFISH/ERD/P/OFFLINE/31AUG26/${rawGrievanceId.replace(/[^a-zA-Z0-9]/g, '').slice(-4) || '001'}`;
+  const deptMatch = (draft.department || analysis.department || '').match(/\(([A-Z0-9]+)\)/);
+  const deptCode = deptMatch ? deptMatch[1] : (draft.department_code || analysis.department_code || 'REV');
+  const dateCode = '31AUG26';
+  const defaultGrievanceId = `TN/${deptCode}/ERD/P/OFFLINE/${dateCode}/${analysis.id || '001'}`;
+  const rawGrievanceId = draft.dro_grievance_id || defaultGrievanceId;
+  const formattedGrievanceId = rawGrievanceId.replace(/TN\/AHFISH/g, `TN/${deptCode}`);
 
   return {
     // 1. Petitioner Information
@@ -106,13 +116,13 @@ export function mapDraftToPortalDetails(draft = {}, analysis = {}) {
     localBodyType: draft.local_body_type || 'Rural / கிராமப்புறம்',
     grievanceType: draft.grievance_type || analysis.grievance_type_suggested || 'Not found',
     grievanceSubType: draft.grievance_subtype || analysis.grievance_subtype_suggested || 'Not found',
-    district: draft.district || 'Erode / ஈரோடு',
+    district: draft.district || 'Not found',
     subDepartment: draft.sub_department || 'Not found',
     ward: draft.ward || 'Not found',
     municipalityWard: draft.municipality_ward || 'Not found',
     block: draft.block || 'Not found',
     taluk: draft.taluk || 'Not found',
-    revenueDivision: draft.revenue_division || 'Erode / ஈரோடு',
+    revenueDivision: draft.revenue_division || 'Not found',
     firka: draft.firka || 'Not found',
     streetName: draft.street_name || 'Not found',
     doorNumber: draft.door_no || 'Not found',
@@ -376,9 +386,8 @@ export async function uploadAndAnalyzePetition(file, onProgress, signal, onDupli
     let fallbackName = analysisData.petitioner_name || '';
     let fallbackPhone = '';
     let fallbackAddr = '';
-    let fallbackVillage = '';
-    let fallbackTaluk = 'ஈரோடு';
-    let fallbackDistrict = 'ஈரோடு';
+    let fallbackTaluk = '';
+    let fallbackDistrict = '';
 
     if (fullOcrText) {
       const phoneMatch = fullOcrText.match(/(?:செல்|போன்|கைபேசி|Mobile|Phone)\s*[:\.\-]?\s*([6-9]\d{4}\s*\d{5}|[6-9]\d{9})/i) || fullOcrText.match(/\b([6-9]\d{9})\b/);
@@ -396,9 +405,6 @@ export async function uploadAndAnalyzePetition(file, onProgress, signal, onDupli
           fallbackAddr = lines.slice(1).join(', ');
         }
       }
-
-      if (fullOcrText.includes('சூரம்பட்டி')) fallbackVillage = 'சூரம்பட்டி';
-      if (fullOcrText.includes('ஈரோடு') || fullOcrText.includes('ஈ. ரோடு')) fallbackDistrict = 'ஈரோடு';
     }
 
     const fallbackSummary = analysisData.description_summary_tamil ||

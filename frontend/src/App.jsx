@@ -84,13 +84,81 @@ function getInitialWorkstationModule(isAdmin) {
   return route.module;
 }
 
+function clearAuthStorage() {
+  try {
+    sessionStorage.removeItem(SESSION_STORAGE_KEY);
+    localStorage.removeItem(SESSION_STORAGE_KEY);
+    sessionStorage.removeItem(ACTIVE_PETITION_KEY);
+    sessionStorage.removeItem('session_expires_at');
+    sessionStorage.removeItem('session_login_time');
+    for (let index = sessionStorage.length - 1; index >= 0; index -= 1) {
+      const key = sessionStorage.key(index);
+      if (key?.startsWith('gdp_assistant_conversation_')) sessionStorage.removeItem(key);
+    }
+    localStorage.removeItem('auth_token');
+    localStorage.removeItem('token');
+    localStorage.removeItem('officer_id');
+    localStorage.removeItem('officer_name');
+    localStorage.removeItem('officer_role');
+    localStorage.removeItem('officer_profile');
+    localStorage.removeItem('tn_gdp_officer_profile');
+    localStorage.removeItem('session_expires_at');
+    localStorage.removeItem('session_login_time');
+  } catch (err) {
+    console.warn('Auth storage cleanup warning:', err);
+  }
+}
+
+function isSessionExpired(sessionObj) {
+  try {
+    const rawExpiry = sessionObj?.expires_at ||
+      sessionObj?.expiresAt ||
+      localStorage.getItem('session_expires_at') ||
+      sessionStorage.getItem('session_expires_at');
+    
+    if (rawExpiry) {
+      const expiresAt = Number(rawExpiry);
+      if (!isNaN(expiresAt) && expiresAt > 0 && Date.now() >= expiresAt) {
+        return true;
+      }
+    }
+
+    const token = sessionObj?.access_token || localStorage.getItem('auth_token') || localStorage.getItem('token');
+    if (token && typeof token === 'string') {
+      const parts = token.split('.');
+      if (parts.length === 3) {
+        try {
+          const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
+          if (payload.exp && typeof payload.exp === 'number' && Date.now() >= payload.exp * 1000) {
+            return true;
+          }
+        } catch (_) {
+          // ignore parsing error for non-standard tokens
+        }
+      }
+    }
+  } catch (_) {}
+  return false;
+}
+
 function getInitialSession() {
   if (typeof window === 'undefined') return null;
   try {
+    if (isSessionExpired()) {
+      console.warn('Session has reached the 9-hour limit. Forcing logout.');
+      clearAuthStorage();
+      return null;
+    }
+
     const raw = sessionStorage.getItem(SESSION_STORAGE_KEY) || localStorage.getItem(SESSION_STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
       if (parsed && (parsed.id || parsed.officerId || parsed.user?.id)) {
+        if (isSessionExpired(parsed)) {
+          console.warn('Stored session is expired. Forcing logout.');
+          clearAuthStorage();
+          return null;
+        }
         return parsed;
       }
     }
@@ -129,22 +197,7 @@ export default function App() {
     };
   }, []);
 
-  const handleLoginSuccess = (newSession) => {
-    try {
-      if (newSession) {
-        sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(newSession));
-        localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(newSession));
-      } else {
-        sessionStorage.removeItem(SESSION_STORAGE_KEY);
-        localStorage.removeItem(SESSION_STORAGE_KEY);
-      }
-    } catch (e) {
-      console.warn('Session save notice:', e);
-    }
-    setSession(newSession);
-  };
-
-  const handleAppLogout = async () => {
+  const handleAppLogout = useCallback(async () => {
     try {
       const officerId = session?.id || session?.officerId || session?.user?.id;
       if (officerId) {
@@ -153,20 +206,67 @@ export default function App() {
     } catch (err) {
       console.warn('Logout session cleanup warning:', err);
     } finally {
-      sessionStorage.removeItem(SESSION_STORAGE_KEY);
-      localStorage.removeItem(SESSION_STORAGE_KEY);
-      sessionStorage.removeItem(ACTIVE_PETITION_KEY);
-      for (let index = sessionStorage.length - 1; index >= 0; index -= 1) {
-        const key = sessionStorage.key(index);
-        if (key?.startsWith('gdp_assistant_conversation_')) sessionStorage.removeItem(key);
-      }
-      localStorage.removeItem('auth_token');
-      localStorage.removeItem('token');
-      localStorage.removeItem('officer_id');
-      localStorage.removeItem('officer_name');
-      localStorage.removeItem('officer_role');
+      clearAuthStorage();
       setSession(null);
     }
+  }, [session]);
+
+  // Strict 9-hour hard timeout watcher & 401 broadcast interceptor
+  useEffect(() => {
+    if (!session) return;
+
+    const checkSessionExpiry = () => {
+      if (isSessionExpired(session)) {
+        console.warn('9-hour session duration elapsed. Enforcing immediate logout at any cost.');
+        handleAppLogout();
+      }
+    };
+
+    // Check every 15 seconds
+    const interval = setInterval(checkSessionExpiry, 15000);
+
+    // Check when user returns to or focuses the window/tab
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        checkSessionExpiry();
+      }
+    };
+
+    const handleSessionExpiredEvent = () => {
+      console.warn('Session expired event received. Forcing immediate logout.');
+      handleAppLogout();
+    };
+
+    window.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', checkSessionExpiry);
+    window.addEventListener('gdp_session_expired', handleSessionExpiredEvent);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', checkSessionExpiry);
+      window.removeEventListener('gdp_session_expired', handleSessionExpiredEvent);
+    };
+  }, [session, handleAppLogout]);
+
+  const handleLoginSuccess = (newSession) => {
+    try {
+      if (newSession) {
+        if (!newSession.expires_at) {
+          const expiresInSec = newSession.expires_in || (9 * 60 * 60);
+          newSession.expires_at = Date.now() + (expiresInSec * 1000);
+        }
+        sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(newSession));
+        localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(newSession));
+        localStorage.setItem('session_expires_at', String(newSession.expires_at));
+        sessionStorage.setItem('session_expires_at', String(newSession.expires_at));
+      } else {
+        clearAuthStorage();
+      }
+    } catch (e) {
+      console.warn('Session save notice:', e);
+    }
+    setSession(newSession);
   };
 
   if (staticPage === 'privacy') {
@@ -206,13 +306,54 @@ function Workstation({ session, onLogout }) {
   const handleSaveProfile = async (updatedProfile) => {
     setOfficerProfile(updatedProfile);
     try {
+      const resolvedName = (updatedProfile.fullName || updatedProfile.name || '').trim();
+      const resolvedNameTamil = (updatedProfile.nameTamil || updatedProfile.name_tamil || '').trim();
+      const resolvedPhone = (updatedProfile.phone || updatedProfile.mobile || '').trim();
+      const resolvedEmail = (updatedProfile.email || '').trim();
+      const resolvedDept = (updatedProfile.department || '').trim();
+
       localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(updatedProfile));
+      localStorage.setItem('officer_profile', JSON.stringify(updatedProfile));
+      if (resolvedName) localStorage.setItem('officer_name', resolvedName);
+      if (resolvedPhone) localStorage.setItem('officer_phone', resolvedPhone);
+      if (resolvedEmail) localStorage.setItem('officer_email', resolvedEmail);
+
+      // Keep active session in sync with the updated profile
+      if (session) {
+        const updatedSession = {
+          ...session,
+          name: resolvedName || session.name,
+          nameTamil: resolvedNameTamil || session.nameTamil,
+          mobile: resolvedPhone || session.mobile,
+          phone: resolvedPhone || session.phone,
+          email: resolvedEmail || session.email,
+          department: resolvedDept || session.department,
+          user: {
+            ...(session.user || {}),
+            name: resolvedName || session.user?.name,
+            fullName: resolvedName || session.user?.fullName,
+            nameTamil: resolvedNameTamil || session.user?.nameTamil,
+            mobile: resolvedPhone || session.user?.mobile,
+            phone: resolvedPhone || session.user?.phone,
+            email: resolvedEmail || session.user?.email,
+            department: resolvedDept || session.user?.department,
+          }
+        };
+        sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(updatedSession));
+        localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(updatedSession));
+        setSession(updatedSession);
+      }
+
       await updateMyProfile({
-        name: updatedProfile.fullName || updatedProfile.name,
-        name_tamil: updatedProfile.nameTamil || updatedProfile.name_tamil,
-        mobile: updatedProfile.phone || updatedProfile.mobile,
-        email: updatedProfile.email,
-        department: updatedProfile.department
+        name: resolvedName,
+        fullName: resolvedName,
+        name_tamil: resolvedNameTamil,
+        nameTamil: resolvedNameTamil,
+        mobile: resolvedPhone,
+        phone: resolvedPhone,
+        email: resolvedEmail,
+        designation: updatedProfile.designation,
+        department: resolvedDept
       });
       showToast('Profile updated and saved to database successfully.');
     } catch (err) {

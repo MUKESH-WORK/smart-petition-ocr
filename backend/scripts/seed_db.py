@@ -28,7 +28,7 @@ BACKEND_DIR = SCRIPT_DIR.parent if SCRIPT_DIR.name == "scripts" else SCRIPT_DIR
 REPO_ROOT = BACKEND_DIR.parent
 
 for p in [str(BACKEND_DIR), str(REPO_ROOT)]:
-    if p not in sys.path:
+    if p != "/" and p not in sys.path:
         sys.path.insert(0, p)
 
 if hasattr(sys.stdout, "reconfigure"):
@@ -118,10 +118,10 @@ AUTHORITATIVE_HIERARCHY_DATA = [
         "sub_departments": "Revenue, Civil Supplies, Land Records",
         "local_body_type": "Erode City Municipal Corporation",
         "firkas": [
-            ("East", "கிழக்கு"),
-            ("North", "வடக்கு"),
-            ("South", "தெற்கு"),
-            ("West", "மேற்கு")
+            ("Erode East", "ஈரோடு கிழக்கு"),
+            ("Erode North", "ஈரோடு வடக்கு"),
+            ("Erode South", "ஈரோடு தெற்கு"),
+            ("Erode West", "ஈரோடு மேற்கு")
         ]
     },
     {
@@ -557,8 +557,8 @@ OFFICIAL_ACCOUNTS = [
     {
         "id": "ADM-ERODE-001",
         "officer_id": "ADM-ERODE-001",
-        "name": "Tmt. Raja Gopal Sunkara, I.A.S.",
-        "name_tamil": "திருமதி. ராஜா கோபால் சுன்கரா, இ.ஆ.ப.",
+        "name": "Thiru. S. Kandasamy, I.A.S",
+        "name_tamil": "திரு. ச. கந்தசாமி இ.ஆ.ப",
         "mobile": "+91 424 2262000",
         "email": "collector.erode@tn.gov.in",
         "department": "District Administration / Collectorate",
@@ -686,10 +686,12 @@ async def seed_official_accounts(db=None):
         db = AdminAsyncSessionLocal()
         own_session = True
 
-    default_hash = _hash_default_password("Govt@2024")
+    default_password = os.getenv("DEFAULT_ADMIN_PASSWORD", "Govt@2024")
+    default_hash = _hash_default_password(default_password)
 
     try:
         # 1. Seed into Admin DB (admin_users)
+        inserted_admin = 0
         for acc in OFFICIAL_ACCOUNTS:
             check = await db.execute(text("SELECT id FROM admin_users WHERE id = :id OR email = :email"), {"id": acc["id"], "email": acc["email"]})
             if not check.scalar():
@@ -708,26 +710,13 @@ async def seed_official_accounts(db=None):
                     "is_admin": acc["is_admin"],
                     "status": acc["status"]
                 })
-            else:
-                await db.execute(text("""
-                    UPDATE admin_users SET 
-                        name = :name, name_tamil = :name_tamil, mobile = :mobile, 
-                        department = :department, role = :role, status = :status,
-                        is_admin = :is_admin
-                    WHERE id = :id
-                """), {
-                    "id": acc["id"],
-                    "name": acc["name"],
-                    "name_tamil": acc["name_tamil"],
-                    "mobile": acc["mobile"],
-                    "department": acc.get("department", "Revenue Administration"),
-                    "role": acc.get("role", "Department User"),
-                    "status": acc["status"],
-                    "is_admin": acc["is_admin"]
-                })
+                inserted_admin += 1
 
         await db.commit()
-        logger.info("Seeded 1 Administrator and 9 Users in Admin DB.")
+        if inserted_admin > 0:
+            logger.info(f"Seeded {inserted_admin} official accounts in Admin DB.")
+        else:
+            logger.info("Official accounts already present in Admin DB; preserving existing records.")
     except Exception as e:
         logger.debug(f"Admin users seed notice: {e}")
         try:
@@ -741,6 +730,7 @@ async def seed_official_accounts(db=None):
     # 2. Seed into User DB (officers)
     try:
         async with UserAsyncSessionLocal() as u_db:
+            inserted_officers = 0
             for acc in OFFICIAL_ACCOUNTS:
                 off_check = await u_db.execute(text("SELECT officer_id FROM officers WHERE officer_id = :id"), {"id": acc["officer_id"]})
                 if not off_check.scalar():
@@ -756,20 +746,12 @@ async def seed_official_accounts(db=None):
                         "is_admin": acc["is_admin"],
                         "status": acc["status"]
                     })
-                else:
-                    await u_db.execute(text("""
-                        UPDATE officers SET name = :name, name_tamil = :name_tamil, mobile = :mobile, email = :email, is_admin = :is_admin
-                        WHERE officer_id = :id
-                    """), {
-                        "id": acc["officer_id"],
-                        "name": acc["name"],
-                        "name_tamil": acc["name_tamil"],
-                        "mobile": acc["mobile"],
-                        "email": acc["email"],
-                        "is_admin": acc["is_admin"]
-                    })
+                    inserted_officers += 1
             await u_db.commit()
-            logger.info("Seeded 10 official accounts into User DB officers table.")
+            if inserted_officers > 0:
+                logger.info(f"Seeded {inserted_officers} official accounts into User DB officers table.")
+            else:
+                logger.info("Official accounts already present in User DB; preserving existing records.")
     except Exception as e:
         logger.debug(f"User DB officers seed notice: {e}")
 

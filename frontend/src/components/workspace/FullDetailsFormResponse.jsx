@@ -200,9 +200,9 @@ export default function FullDetailsFormResponse({ initialDetails }) {
           <FieldDisplayBox label="33.Due Date/தீர்வு நாள் dd MMM yyyy hh:mm" value={data.dueDate} />
           <FieldDisplayBox label="35. Status */நிலை*" value={data.status} />
 
-          {/* Row 2: Left: 36 .Source Code, Right: 37.Grievance ID-TN/AHFISH/ERD/P/{Mode}/31AUG26/g */}
+          {/* Row 2: Left: 36 .Source Code, Right: 37. Grievance ID */}
           <FieldDisplayBox label="36 .Source Code" value={data.sourceCode} />
-          <FieldDisplayBox label="37.Grievance ID-TN/AHFISH/ERD/P/{Mode}/31AUG26/g" value={data.grievanceId} />
+          <FieldDisplayBox label="37. Grievance ID" value={data.grievanceId} />
 
           {/* Row 3: Left: 38.Priority, Right: 39. Call Disposition */}
           <FieldDisplayBox label="38.Priority" value={data.priority} />

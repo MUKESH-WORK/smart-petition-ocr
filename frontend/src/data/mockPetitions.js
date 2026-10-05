@@ -54,7 +54,7 @@ export function extractPetitionDetails(petition) {
     dueDate: '31 Aug 2026 17:00',
     status: 'Open / நிலுவையில் உள்ளது',
     sourceCode: 'GDP - Grievance Day Petition',
-    grievanceId: petition.id ? `TN/AHFISH/ERD/P/OFFLINE/31AUG26/${petition.id}` : 'TN/AHFISH/ERD/P/OFFLINE/31AUG26/001',
+    grievanceId: petition.id ? `TN/REV/ERD/P/OFFLINE/31AUG26/${petition.id}` : 'TN/REV/ERD/P/OFFLINE/31AUG26/001',
     priority: 'Medium',
     callDisposition: 'Registered / பதிவு செய்யப்பட்டது',
     isWhatsappAppeal: 'No',

@@ -404,28 +404,16 @@ def process_petition_geo(petition_payload: Dict[str, Any], master_geo_path: Opti
         v_name_en = v_name_en or "Rural Territory"
         v_name_ta = v_name_ta or "ஊரக பகுதி"
 
-        t_name_en = p_taluk or (matched_rural_taluk_obj.get("taluk_name_en") if matched_rural_taluk_obj else "Erode")
-        t_name_ta = p_taluk or (matched_rural_taluk_obj.get("taluk_name_ta") if matched_rural_taluk_obj else "ஈரோடு")
+        t_name_en = p_taluk or (matched_rural_taluk_obj.get("taluk_name_en") if matched_rural_taluk_obj else None)
+        t_name_ta = p_taluk or (matched_rural_taluk_obj.get("taluk_name_ta") if matched_rural_taluk_obj else None)
         
-        # Normalize Taluk names
-        if t_name_en in ["சத்தியமங்கலம்", "Sathyamangalam"]:
-            t_name_en = "Sathyamangalam"
-            t_name_ta = "சத்தியமங்கலம்"
-        elif t_name_en in ["பவானி", "Bhavani"]:
-            t_name_en = "Bhavani"
-            t_name_ta = "பவானி"
-        elif t_name_en in ["ஈரோடு", "Erode"]:
-            t_name_en = "Erode"
-            t_name_ta = "ஈரோடு"
-        elif t_name_en in ["பெருந்துறை", "Perundurai"]:
-            t_name_en = "Perundurai"
-            t_name_ta = "பெருந்துறை"
+        from services.location_matcher import location_matcher
+        rev_div_ta = (matched_rural_village.get("division_ta") if matched_rural_village else None) or (location_matcher.taluk_to_division.get(t_name_ta) if t_name_ta else None)
+        rev_div_en = (matched_rural_village.get("division_en") if matched_rural_village else None) or (location_matcher.taluk_to_division_en.get(t_name_ta) if t_name_ta else None)
 
         f_name_en = matched_rural_village.get("firka_en") if matched_rural_village else None
         f_name_ta = matched_rural_village.get("firka_ta") if matched_rural_village else None
         r_pin = p_pincode or (matched_rural_village.get("pincode") if matched_rural_village else None)
-        rev_div_en = "Gobichettipalayam Division" if t_name_en in ["Sathyamangalam", "Bhavani", "Gobichettipalayam", "Anthiyur", "Thalavadi"] else "Erode Division"
-        rev_div_ta = "கோபிசெட்டிபாளையம் வருவாய் கோட்டம்" if rev_div_en.startswith("Gobichettipalayam") else "ஈரோடு வருவாய் கோட்டம்"
 
         local_body_type = f"Village Panchayat ({v_name_en})"
 
@@ -439,8 +427,8 @@ def process_petition_geo(petition_payload: Dict[str, Any], master_geo_path: Opti
         return {
             "status": "matched",
             "boundary_type": boundary_type,
-            "district": "ஈரோடு",
-            "district_en": "Erode",
+            "district": location_matcher.district_name_ta,
+            "district_en": location_matcher.district_name_en,
             "revenue_division": rev_div_ta,
             "revenue_division_en": rev_div_en,
             "taluk": t_name_ta,

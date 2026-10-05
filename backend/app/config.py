@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     # Security
     SECRET_KEY: str = ""
     JWT_ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 540
     ALLOWED_ORIGINS: str = "http://localhost:5173,http://localhost:5174,http://localhost:5175,http://localhost:5176,http://127.0.0.1:5173,http://127.0.0.1:5174,http://127.0.0.1:5175,http://127.0.0.1:5176"
     SEED_DEMO_DATA: bool = False
     
@@ -37,7 +37,7 @@ class Settings(BaseSettings):
     # LLM Engine (ollama, llama_cpp, openai_compat)
     LLM_PROVIDER: str = "ollama"
     LLM_API_BASE_URL: str = os.environ.get("LLM_API_BASE_URL", "http://127.0.0.1:11434/v1")
-    LLM_MODEL_NAME: str = os.environ.get("LLM_MODEL_NAME", "qwen2.5:3b-instruct")
+    LLM_MODEL_NAME: str = os.environ.get("LLM_MODEL_NAME", "qwen2.5:7b-instruct-q4_K_M")
     LLM_TEMPERATURE: float = 0.1
     LLM_MAX_TOKENS: int = 1024
     
