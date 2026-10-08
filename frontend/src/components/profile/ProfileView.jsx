@@ -71,7 +71,7 @@ function resolveInitialProfile(p) {
     p?.id ||
     stored.id ||
     stored.officerId ||
-    (isAdm ? 'ADM-ERODE-001' : 'OFF-USER-001');
+    '';
 
   const role = isAdm ? 'District Administrator' : (p?.role || stored.role || 'Department User');
   const assignedOffice = p?.assignedOffice || 'Erode District Collectorate, Tamil Nadu';

@@ -2,7 +2,7 @@
 # GDP Assistant - Fresh Server Host and Ollama Bootstrap Script (Windows)
 # ==============================================================================
 # Automates host pre-flight verification, Ollama installation, daemon startup,
-# AI model downloading (qwen2.5:3b-instruct), Redis installation,
+# AI model downloading (qwen2.5:7b-instruct-q4_K_M / configurable), Redis installation,
 # Sentence Transformer model caching, environment setup, and Docker Compose deployment.
 #
 # Usage:
@@ -14,6 +14,7 @@ param()
 
 $ErrorActionPreference = "Stop"
 [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
+$rootDir = $PSScriptRoot
 
 function Log-Info {
     param([string]$Msg)
@@ -248,17 +249,30 @@ if ($isOllamaRunning) {
 }
 
 # ------------------------------------------------------------------------------
-# STEP 4: Check / Pull Required Ollama Model (qwen2.5:3b-instruct)
+# STEP 4: Check / Pull Required Ollama Model
 # ------------------------------------------------------------------------------
-Log-Info "Step 4/10: Checking required LLM model (qwen2.5:3b-instruct)..."
+$envFilePath = Join-Path $rootDir ".env"
+if (-not (Test-Path $envFilePath)) {
+    $envFilePath = Join-Path $rootDir ".env.example"
+}
 $targetModel = "qwen2.5:7b-instruct-q4_K_M"
+if (Test-Path $envFilePath) {
+    try {
+        $modelMatch = Select-String -Path $envFilePath -Pattern "^\s*LLM_MODEL_NAME\s*=\s*['`"]?([^'`"#\s]+)" | Select-Object -First 1
+        if ($modelMatch -and $modelMatch.Matches[0].Groups[1].Value) {
+            $targetModel = $modelMatch.Matches[0].Groups[1].Value.Trim()
+        }
+    } catch {}
+}
+
+Log-Info "Step 4/10: Checking required LLM model ($targetModel)..."
 
 $hasModel = $false
 try {
     $tagsResp = Invoke-RestMethod -Uri "http://127.0.0.1:11434/api/tags" -Method Get -TimeoutSec 5
     if ($tagsResp -and $tagsResp.models) {
         foreach ($m in $tagsResp.models) {
-            if ($m.name -like "*qwen2.5:3b-instruct*" -or $m.model -like "*qwen2.5:3b-instruct*") {
+            if ($m.name -like "*$targetModel*" -or $m.model -like "*$targetModel*") {
                 $hasModel = $true
                 break
             }
@@ -268,7 +282,7 @@ try {
     Log-Warn "REST tag inspection failed; checking via ollama list CLI..."
     try {
         $listOutput = (ollama list 2>&1 | Out-String)
-        if ($listOutput -match "qwen2.5:3b-instruct") {
+        if ($listOutput -match [regex]::Escape($targetModel)) {
             $hasModel = $true
         }
     } catch {}
@@ -277,7 +291,7 @@ try {
 if ($hasModel) {
     Log-Ok "Required Ollama model '$targetModel' is already installed."
 } else {
-    Log-Info "Model '$targetModel' is missing. Downloading via 'ollama pull $targetModel' (~1.9 GB)..."
+    Log-Info "Model '$targetModel' is missing. Downloading via 'ollama pull $targetModel'..."
     try {
         $pullProcess = Start-Process ollama -ArgumentList "pull $targetModel" -NoNewWindow -PassThru -Wait
         if ($pullProcess.ExitCode -ne 0) {
@@ -286,7 +300,7 @@ if ($hasModel) {
         Log-Ok "Model '$targetModel' successfully downloaded and verified."
     } catch {
         Log-Err "Failed to pull Ollama model '$targetModel': $_"
-        Log-Err "Please run 'ollama pull qwen2.5:3b-instruct' manually, then rerun this script."
+        Log-Err "Please run 'ollama pull $targetModel' manually, then rerun this script."
         exit 1
     }
 }
@@ -394,6 +408,8 @@ $rootDir = $PSScriptRoot
 $modelDir = Join-Path $rootDir "models"
 $stModelDir = Join-Path $modelDir "paraphrase-multilingual-MiniLM-L12-v2"
 $stModelConfig = Join-Path $stModelDir "config.json"
+$venvDir = Join-Path $rootDir ".venv"
+$venvPython = Join-Path $venvDir "Scripts\python.exe"
 
 if (Test-Path $stModelConfig) {
     Log-Ok "Sentence Transformer model 'paraphrase-multilingual-MiniLM-L12-v2' is already saved in '$modelDir'."
@@ -615,6 +631,18 @@ try {
 # ------------------------------------------------------------------------------
 # STEP 9: Build and Start GDP Assistant Containers
 # ------------------------------------------------------------------------------
+Log-Info "Synchronizing host LAN IP for mobile QR access..."
+try {
+    $syncScript = Join-Path $rootDir "scripts\sync_host_lan_ip.py"
+    if (Test-Path $syncScript) {
+        $pyRunner = if ($venvPython -and (Test-Path $venvPython)) { $venvPython } elseif ($py311Exe -and (Test-Path $py311Exe)) { $py311Exe } else { "python" }
+        $null = & $pyRunner "$syncScript" --once 2>&1
+        Log-Ok "Host LAN network configuration initialized."
+    }
+} catch {
+    Log-Warn "Host network sync notice: $_"
+}
+
 Log-Info "Step 9/10: Building and starting GDP Assistant Docker services..."
 Log-Info "Executing: docker compose up -d --build..."
 
@@ -633,10 +661,12 @@ try {
 # STEP 10: Verify Application Health and Connectivity
 # ------------------------------------------------------------------------------
 Log-Info "Step 10/10: Verifying application readiness and container health..."
-$healthUrl = "http://localhost/health"
+$healthUrl = "http://localhost:8080/health"
+$fallbackHealthUrl = "http://localhost/health"
 $maxHealthWaitSec = 300
 $healthWaited = 0
 $isHealthy = $false
+$activeUrl = $healthUrl
 
 Log-Info "Polling $healthUrl for application readiness (timeout 300s)..."
 while ($healthWaited -lt $maxHealthWaitSec) {
@@ -646,10 +676,20 @@ while ($healthWaited -lt $maxHealthWaitSec) {
         $hResp = Invoke-RestMethod -Uri $healthUrl -Method Get -TimeoutSec 3 -ErrorAction Stop
         if ($hResp -and ($hResp.status -eq "healthy" -or $hResp.status -eq "degraded" -or $hResp.status -eq "ok")) {
             $isHealthy = $true
+            $activeUrl = $healthUrl
             break
         }
     } catch {
-        Write-Host -NoNewline "."
+        try {
+            $hRespFallback = Invoke-RestMethod -Uri $fallbackHealthUrl -Method Get -TimeoutSec 2 -ErrorAction Stop
+            if ($hRespFallback -and ($hRespFallback.status -eq "healthy" -or $hRespFallback.status -eq "degraded" -or $hRespFallback.status -eq "ok")) {
+                $isHealthy = $true
+                $activeUrl = $fallbackHealthUrl
+                break
+            }
+        } catch {
+            Write-Host -NoNewline "."
+        }
     }
 }
 Write-Host ""
@@ -662,7 +702,7 @@ if (-not $isHealthy) {
     exit 1
 }
 
-Log-Ok "GDP Assistant application is HEALTHY and responding at $healthUrl."
+Log-Ok "GDP Assistant application is HEALTHY and responding at $activeUrl."
 
 # Inspect internal supervisor status
 Log-Info "Inspecting internal supervisor process tree..."
@@ -697,9 +737,9 @@ Write-Host "====================================================================
 Write-Host "   DEPLOYMENT COMPLETE: GDP Assistant is Ready!" -ForegroundColor Green
 Write-Host "================================================================================" -ForegroundColor Green
 Write-Host ""
-Write-Host "   Web Application UI : http://localhost" -ForegroundColor White
-Write-Host "   REST API and Docs  : http://localhost/api/v1/docs" -ForegroundColor White
-Write-Host "   System Health Check: http://localhost/health" -ForegroundColor White
+Write-Host "   Web Application UI : http://localhost:8080" -ForegroundColor White
+Write-Host "   REST API and Docs  : http://localhost:8080/api/v1/docs" -ForegroundColor White
+Write-Host "   System Health Check: http://localhost:8080/health" -ForegroundColor White
 Write-Host ""
 Write-Host "   Useful Commands:" -ForegroundColor Yellow
 Write-Host "     - View App Logs    : docker logs -f gdp_assistant"

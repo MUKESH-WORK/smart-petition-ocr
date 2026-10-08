@@ -255,59 +255,11 @@ class AIAnalyzer:
         except Exception as sem_err:
             logger.debug(f"Semantic classifier fallback note: {sem_err}")
 
-        # Keyword fallback: Only used when semantic classifier confidence is too low
-        if not detected_category or detected_category == "பொது குறை":
-            logger.info("📎 Falling back to keyword classification (semantic confidence too low)")
-            # Check financial assistance / pension FIRST before civic utilities
-            if any(k in doc_text.lower() for k in [
-                "உதவித்தொகை", "உதவித் தொகை", "உதவி தொகை", "நிதி உதவி", "நிதியுதவி",
-                "வயது மூப்பு", "முதியோர்", "ஓய்வூதியம்", "வேலைக்கு செல்ல முடியவில்லை",
-                "மகனோ", "மகளோ உதவி இல்லை", "oap", "pension", "financial assistance"
-            ]):
-                if any(w in doc_text.lower() for w in ["விதவை", "widow", "dwps", "ஆதரவற்ற விதவை"]):
-                    detected_category = "விதவை ஓய்வூதியம் / உதவித்தொகை"
-                elif any(w in doc_text.lower() for w in ["கல்வி", "scholarship", "கல்லூரி", "மாணவர்", "மாணவி"]):
-                    detected_category = "கல்வி உதவித்தொகை"
-                elif any(w in doc_text.lower() for w in ["மாற்றுத்திறனாளி", "differently abled", "ஊனம்", "dap"]):
-                    detected_category = "மாற்றுத்திறனாளி ஓய்வூதியம்"
-                elif any(w in doc_text.lower() for w in ["முதியோர்", "வயது மூப்பு", "முதியவர்", "மூத்த குடிமக்கள்", "oap", "old age", "senior citizen"]):
-                    detected_category = "முதியோர் உதவித்தொகை / ஓய்வூதியம்"
-                else:
-                    detected_category = "பொது நிதி உதவி"
-            elif any(k in doc_text.lower() for k in ["குடிநீர்", "தண்ணீர்", "குடிநீர் இணைப்பு", "drinking water", "water connection", "water supply"]):
-                detected_category = "குடிநீர் வசதி"
-            elif any(k in doc_text.lower() for k in ["தெருவிளக்கு", "பழுதடைந்த தெருவிளக்கு", "street light"]):
-                detected_category = "தெருவிளக்கு வசதி"
-            elif any(k in doc_text.lower() for k in ["கழிவுநீர்", "வடிகால்", "சாக்கடை", "drainage", "storm water", "sewage"]):
-                detected_category = "கழிவுநீர் / வடிகால் வசதி"
-            elif any(k in doc_text.lower() for k in ["சாலைப்பணி", "சாலை பணி", "சாலை சீரமைப்பு", "சாலை பராமரிப்பு", "நெடுஞ்சாலை பணி", "விபத்து அபாயம்", "பழுதடைந்த சாலை"]):
-                detected_category = "சாலை வசதி / பராமரிப்பு"
-
         if not detected_category:
-            for cat, keywords in {
-                "முதியோர் உதவித்தொகை / ஓய்வூதியம்": ["முதியோர்", "வயது மூப்பு", "முதியவர்", "மூத்த குடிமக்கள்", "oap", "old age", "senior citizen"],
-                "விதவை ஓய்வூதியம் / உதவித்தொகை": ["ஆதரவற்ற விதவை", "விதவை", "widow", "dwps", "dwp"],
-                "கல்வி உதவித்தொகை": ["கல்வி உதவித்தொகை", "கல்வி உதவி", "scholarship", "கல்லூரி உதவி", "மாணவர் கல்வி", "கல்வி"],
-                "மாற்றுத்திறனாளி உதவித்தொகை": ["மாற்றுத்திறனாளி", "differently abled", "ஊனம்", "dap"],
-                "பொது நிதி உதவி": ["உதவித்தொகை", "உதவித் தொகை", "உதவி தொகை", "நிதி உதவி", "நிதியுதவி", "financial assistance"],
-                "குடிநீர் வசதி": ["குடிநீர்", "தண்ணீர்", "நீர் வசதி", "water connection", "drinking water"],
-                "கழிவுநீர் / வடிகால் வசதி": ["கழிவுநீர்", "வடிகால்", "சாக்கடை", "drainage", "storm water", "sewage", "தூர்வார"],
-                "தெருவிளக்கு வசதி": ["தெருவிளக்கு", "விளக்குகள்", "மின்விளக்கு", "street light", "lighting"],
-                "நில ஆக்கிரமிப்பு அகற்றுதல்": ["ஆக்கிரமிப்பு", "போக வழி", "வழி ஆக்கிரமிப்பு", "பாதை ஆக்கிரமிப்பு", "encroachment"],
-                "வாரிசு சான்றிதழ்": ["வாரிசு", "இறப்பு", "சான்று", "சான்றிதழ்", "heir"],
-                "பட்டா மாறுதல்": ["பட்டா மாறுதல்", "பட்டா பெயர் மாற்றம்", "உட்பிரிவு", "patta transfer"],
-                "பட்டா / நிலம்": ["நில", "பட்டா", "சர்வே", "land", "patta", "நத்தம்"],
-                "சாலை வசதி": ["சாலைப்பணி", "சாலை பராமரிப்பு", "சாலை சீரமைப்பு", "விபத்து அபாயம்"],
-                "மின்சார வசதி": ["மின்", "electric", "electricity", "eb"],
-                "ஆதார் / பெயர் மாற்றம்": ["ஆதார் திருத்தம்", "ஆதார் பெயர் மாற்றம்", "ஆதார் அட்டை சேர்க்கை"],
-                "வருவாய்த்துறை": ["வருவாய்", "revenue"],
-                "சுகாதாரம்": ["சுகாதாரம்", "சாக்கடை", "குப்பை"]
-            }.items():
-                if any(k.lower() in doc_text.lower() for k in keywords):
-                    detected_category = cat
-                    break
-
-        detected_category = detected_category or "பொது குறை"
+            if semantic_result and semantic_result.get("label"):
+                detected_category = semantic_result["label"]
+            else:
+                detected_category = "பொது குறை"
         if detected_category in ["-", "--", ""]:
             detected_category = "பொது குறை"
 
@@ -375,41 +327,22 @@ class AIAnalyzer:
             f_subdept = "General Administration / பொது நிர்வாகம்"
             f_respoff = "துறை அலுவலர்"
 
-        if "கல்வி" in detected_category or "scholarship" in doc_text.lower() or "கல்வி உதவி" in doc_text:
-            summary_ta = f"மனுதாரர் {pet_name or ''} ஏழை குடும்பத்தைச் சேர்ந்தவர். குடும்ப வறுமை சூழ்நிலையில் கல்லூரி படிப்பைத் தொடர அரசு முதலமைச்சரின் கல்வி உதவித்தொகை (Scholarship) திட்டத்தின் கீழ் நிதி உதவி வழங்குமாறு கோரியுள்ளார்."
-            summary_en = f"Petitioner {pet_name or 'Applicant'} from an economically disadvantaged family has requested financial assistance under the Chief Minister's Scholarship Scheme to continue higher education studies."
-        elif any(w in (detected_category + " " + doc_text) for w in ["முதியோர்", "வயது மூப்பு", "முதியவர்", "மூத்த குடிமக்கள்", "old age", "oap"]):
-            summary_ta = f"மனுதாரர் {pet_name or 'மனுதாரர்'}, வயது மூப்பு மற்றும் உடல்நலக்குறைவு காரணமாக வேலைக்குச் செல்ல இயலாத நிலையில் உள்ளதாலும், ஆதரவளிக்க மகன், மகள் எவரும் இல்லாததாலும், வாழ்வாதாரத்திற்கு அரசின் சமூக பாதுகாப்பு திட்டத்தின் கீழ் முதியோர் உதவித்தொகை (Old Age Pension) வழங்கிடக் கோரி மனு அளித்துள்ளார்."
-            summary_en = f"Petitioner {pet_name or 'Applicant'}, unable to work due to advanced age and ill health with no family support, has requested financial assistance / Old Age Pension (OAP) under the government Social Security Schemes."
-        elif "குடிநீர்" in (detected_category + " " + doc_text) or "தண்ணீர்" in (detected_category + " " + doc_text) or "water" in doc_text.lower():
-            loc_str = f"{loc} பகுதியில்" if loc else "பகுதியில்"
-            summary_ta = f"மனுதாரர் {pet_name or 'மனுதாரர்'}, {loc_str} போதிய குடிநீர் விநியோகம் இல்லாததால், முறையான குடிநீர் இணைப்பு வழங்கி தினசரி தடையின்றி குடிநீர் விநியோகம் செய்யுமாறு உரிய நடவடிக்கை கோரியுள்ளார்."
-            summary_en = f"Petitioner {pet_name or 'Applicant'} has requested proper drinking water connection and regular daily water supply in {loc or 'the area'}."
-        elif "தெருவிளக்கு" in detected_category or "street light" in doc_text.lower() or "தெருவிளக்கு" in doc_text:
-            loc_str = f"{loc} பகுதியில்" if loc else "பகுதியில்"
-            summary_ta = f"மனுதாரர் {pet_name or 'மனுதாரர்'}, {loc_str} பழுதடைந்து எரியாமல் உள்ள தெருவிளக்குகளை ஆய்வு செய்து புதிய விளக்குகள் பொருத்தி சீரமைத்து தருமாறு உரிய நடவடிக்கை கோரியுள்ளார்."
-            summary_en = f"Petitioner {pet_name or 'Applicant'} has requested inspection and repair of damaged street lights in {loc or 'the area'}."
-        elif "வடிகால்" in (detected_category + " " + doc_text) or "கழிவுநீர்" in (detected_category + " " + doc_text) or "drain" in doc_text.lower():
-            loc_str = f"{loc} பகுதியில்" if loc else "பகுதியில்"
-            summary_ta = f"மனுதாரர் {pet_name or 'மனுதாரர்'}, {loc_str} கழிவுநீர் மற்றும் மழைநீர் தேங்கி சுகாதாரக் கேடு ஏற்படுவதால், அடைபட்டுள்ள வடிகால்களைத் தூர்வாரி புதிய வடிகால் வசதி அமைத்துத் தருமாறு உரிய நடவடிக்கை கோரியுள்ளார்."
-            summary_en = f"Petitioner {pet_name or 'Applicant'} has requested desilting of clogged drains and construction of new drainage facilities in {loc or 'the area'} to prevent sewage stagnation."
-        elif any(k in (detected_category + " " + doc_text).lower() for k in ["சாலைப்பணி", "சாலை பணி", "சாலை சீரமைப்பு", "சாலை பராமரிப்பு", "விபத்து அபாயம்"]):
-            loc_str = f"{loc} பகுதியில்" if loc else "பகுதியில்"
-            summary_ta = f"மனுதாரர் {pet_name or 'மனுதாரர்'}, {loc_str} சாலை பணிகளால் ஏற்படும் விபத்து அபாயத்தைத் தடுத்து, தகுந்த எச்சரிக்கைப் பலகைகள் / வேகத்தடைகள் அமைத்து சாலையை விரைந்து சீரமைக்க உரிய நடவடிக்கை கோரியுள்ளார்."
-            summary_en = f"Petitioner {pet_name or 'Applicant'} has requested necessary road safety measures, warning signs/speed breakers, and expeditious completion of road works in {loc or 'the area'} to prevent accidents."
-        else:
-            parts = []
-            if pet_name:
-                parts.append(f"மனுதாரர் {pet_name}")
-            else:
-                parts.append("மனுதாரர்")
-            if loc:
-                parts.append(f"{loc} பகுதி")
-            if surv:
-                parts.append(f"புல எண் {surv} சார்ந்து")
-            parts.append(f"{detected_category} தொடர்பாக நடவடிக்கை கோரியுள்ளார்.")
-            summary_ta = " ".join(parts)
-            summary_en = f"Petitioner {pet_name or 'Applicant'} has requested administrative action regarding {detected_category} in {loc or 'the district'}."
+        fallback_facts = {
+            "petitioner_name": pet_name,
+            "district": entity_map.get("district") or loc,
+            "taluk": entity_map.get("taluk"),
+            "village": entity_map.get("village") or loc,
+            "street_name": entity_map.get("street_name") or entity_map.get("street"),
+            "door_no": entity_map.get("door_no"),
+            "grievance_subject": entity_map.get("petition_subject") or detected_category,
+            "requested_action": entity_map.get("requested_action") or detected_category,
+            "grievance_type": f_gtype,
+            "grievance_subtype": f_gsub,
+            "department": dept,
+        }
+        from services.summary_normalizer import build_factual_administrative_summary
+        summary_ta = build_factual_administrative_summary(fallback_facts)
+        summary_en = f"Petitioner {pet_name or 'Applicant'} has requested official administrative action regarding {f_gsub or f_gtype}."
 
         return {
             "grievance_type": f_gtype,
@@ -503,102 +436,18 @@ class AIAnalyzer:
         except Exception as sem_err:
             logger.debug(f"Semantic taxonomy resolution note: {sem_err}")
 
-        # CRITICAL FIX 2: NEVER overwrite a valid DB taxonomy with legacy keyword routing.
+        # Database authoritative resolution: NEVER overwrite with hardcoded keyword routing
         if tax_row is None and p_gtype != "Ambiguous / Needs Manual Review":
-            logger.info("ℹ️ No authoritative DB taxonomy resolved; executing fallback legacy keyword routing")
-            if any(k in (p_gtype + " " + p_gsub + " " + doc_context).lower() for k in [
-                "dwps", "ஆதரவற்ற விதவை", "விதவை உதவி", "விதவை ஓய்வூதியம்", "destitute widow", "widow pension",
-                "முதியோர்", "oap", "old age pension", "வயது மூப்பு", "முதியவர்",
-                "வேலைக்கு செல்ல முடியவில்லை", "மகனோ, மகளோ உதவி இல்லை", "differently abled", "மாற்றுத்திறனாளி"
-            ]) and not any(w in doc_context.lower() for w in ["கல்வி", "scholarship", "கல்லூரி", "மாணவர்", "மாணவி", "பள்ளி", "படிப்பு"]):
-                if any(w in (p_gtype + " " + p_gsub + " " + doc_context).lower() for w in ["விதவை", "widow", "dwps", "ஆதரவற்ற விதவை"]):
-                    p_dept = "Revenue and Disaster Management (REV)"
-                    p_gtype = "Destitute Widow Pension Scheme (DWPS) / Social Security Schemes"
-                    p_gsub = "Destitute Widow Pension (DWP)"
-                    p_subdept = "Social Security Schemes (SSS) / Revenue Administration"
-                    p_resp_off = "Special Tahsildar (SSS) / Tahsildar"
-                elif any(w in (p_gtype + " " + p_gsub + " " + doc_context).lower() for w in ["differently abled", "மாற்றுத்திறனாளி", "ஊனம்", "dap"]):
-                    p_dept = "Revenue and Disaster Management (REV)"
-                    p_gtype = "Social Security Schemes (SSS)"
-                    p_gsub = "Differently Abled Pension (DAP)"
-                    p_subdept = "Social Security Schemes (SSS) / Revenue Administration"
-                    p_resp_off = "Special Tahsildar (SSS) / Tahsildar"
-                elif any(w in (p_gtype + " " + p_gsub + " " + doc_context).lower() for w in ["முதியோர்", "oap", "old age", "வயது மூப்பு", "முதியவர்"]):
-                    p_dept = "Revenue and Disaster Management (REV)"
-                    p_gtype = "Social Security Schemes (SSS)"
-                    p_gsub = "Old Age Pension (OAP)"
-                    p_subdept = "Social Security Schemes (SSS) / Revenue Administration"
-                    p_resp_off = "Special Tahsildar (SSS) / Tahsildar"
-            elif any(k in (p_gtype + " " + p_gsub + " " + doc_context).lower() for k in ["free hsd", "hsd", "house site", "வீட்டு மனை", "natham patta"]):
-                p_dept = "Revenue and Disaster Management (REV)"
-                p_gtype = "Natham Patta /Free House Site Patta"
-                p_gsub = "Natham Patta /Free House Site Patta"
-                p_subdept = "Revenue Administration / நில நிர்வாகம்"
-                p_resp_off = "Tahsildar, Erode"
-            elif any(k in doc_context for k in ["வழி ஆக்கிரமிப்பு", "பாதை ஆக்கிரமிப்பு", "போக வழி", "ஆக்கிரமிப்பை அகற்ற"]) and ("ஆக்கிரமிப்பு" not in p_gtype):
-                if "பட்டா" in p_gtype or p_gtype in ["பொது குறை", "நிலம்", "பொது"]:
-                    p_gtype = "நில ஆக்கிரமிப்பு அகற்றுதல்"
-                    p_gsub = "பொதுப்பாதை / வழிப்பாதை ஆக்கிரமிப்பு அகற்றுதல்"
-            elif any(k in (p_gtype + " " + p_gsub + " " + doc_context).lower() for k in ["குடிநீர்", "தண்ணீர்", "குடிநீர் இணைப்பு", "drinking water", "water connection", "water supply"]):
-                if any(p in doc_context for p in ["பஞ்சாயத்து", "ஊராட்சி ஒன்றிய", "ஊராட்சி", "கிராம ஊராட்சி"]):
-                    p_dept = "Rural Development and Panchayat Raj Department (RDPR)"
-                    p_gtype = "Village Infrastructure"
-                    p_gsub = "Drinking Water Supply - RD"
-                    p_subdept = "Rural Development and Panchayat Raj"
-                    p_resp_off = "Block Development Officer - Village Panchayat"
-                else:
-                    p_dept = "Municipal Administration and Water Supply (MAWS)"
-                    p_gtype = "Drinking Water"
-                    has_water_conn = any(w in doc_context for w in [
-                        "குடிநீர் இணைப்பு", "புதிய இணைப்பு", "வீட்டு இணைப்பு", "குழாய் இணைப்பு", 
-                        "water connection", "new connection", "household water connection"
-                    ])
-                    p_gsub = "New Water Connection - Household Water Connection" if has_water_conn else "Insufficient Water Supply"
-                    p_subdept = "Commissionerate of Municipal Administration (CMA)"
-                    p_resp_off = "Commissioner Municipality, Commissioner Municipal Corporation, Executive Officer - Town Panchayat"
-            elif any(k in (p_gtype + " " + p_gsub + " " + doc_context).lower() for k in ["தெருவிளக்கு", "street light", "விளக்குகள்", "மின்விளக்கு", "பழுதடைந்த தெருவிளக்கு"]):
-                if any(p in doc_context for p in ["பஞ்சாயத்து", "ஊராட்சி", "கிராம"]):
-                    p_dept = "Rural Development and Panchayat Raj Department (RDPR)"
-                    p_gtype = "Village Infrastructure"
-                    p_gsub = "Street Light - RD"
-                    p_subdept = "Rural Development and Panchayat Raj"
-                    p_resp_off = "Block Development Officer - Village Panchayat"
-                else:
-                    p_dept = "Municipal Administration and Water Supply (MAWS)"
-                    p_gtype = "Street Lights - MAWS"
-                    p_gsub = "Street Lights - MAWS"
-                    p_subdept = "Commissionerate of Municipal Administration (CMA)"
-                    p_resp_off = "Commissioner Municipal Corporation / Municipality, Erode"
-            elif any(k in (p_gtype + " " + p_gsub + " " + doc_context).lower() for k in ["கழிவுநீர்", "வடிகால்", "சாக்கடை", "drainage", "storm water", "sewage", "தூர்வார"]):
-                if any(p in doc_context for p in ["பஞ்சாயத்து", "ஊராட்சி ஒன்றிய"]):
-                    p_dept = "Rural Development and Panchayat Raj Department (RDPR)"
-                    p_gtype = "Village Infrastructure"
-                    p_gsub = "Drainage and Sewage Issues"
-                    p_subdept = "Rural Development and Panchayat Raj"
-                    p_resp_off = "Block Development Officer - Village Panchayat"
-                else:
-                    p_dept = "Municipal Administration and Water Supply (MAWS)"
-                    p_gtype = "Storm Water Drains - MAWS"
-                    p_gsub = "Storm Water Drains - MAWS"
-                    p_subdept = "Commissionerate of Municipal Administration (CMA)"
-                    p_resp_off = "Commissioner Municipal Corporation / Municipality, Erode"
-            elif any(k in (p_gtype + " " + p_gsub + " " + doc_context).lower() for k in ["scholarship", "கல்வி உதவி", "கல்வி உதவித்தொகை", "கல்லூரி படிப்பு", "பல்கலைக்கழக"]):
-                if "higher education" not in (p_dept or "").lower() and "social justice" not in (p_dept or "").lower() and "minorities" not in (p_dept or "").lower():
-                    p_dept = "Higher Education Department (HIGHEDU)"
-                p_gtype = "Scholarship - High Edu"
-                p_gsub = "Scholarship - High Edu"
-                p_subdept = "Director Of Collegiate Education"
-                p_resp_off = "Joint Director of Collegiate Education"
-            elif (
-                any(k in (p_gtype + " " + p_gsub).lower() for k in ["aadhar", "aadhaar", "tactv", "esevai", "ceg", "information technology"]) or
-                any(k in doc_context.lower() for k in ["ஆதார் திருத்தம்", "ஆதார் அட்டை பெயர் மாற்றம்", "ஆதார் பதிவு", "ஆதார் சேர்க்கை", "இ-சேவை மையம்", "esevai center", "aadhaar enrolment", "aadhaar correction"])
-            ):
-                if "information technology" not in (p_dept or "").lower():
-                    p_dept = "Information Technology Department (IT)"
-                    p_gtype = "Application Related Complaints - CeG"
-                    p_gsub = "eSevai - Complaint related to Aadhaar Enrolment"
-                    p_subdept = "Commissionerate of eGovernance/Tamil Nadu e-Governance Agency"
-                    p_resp_off = "e-sevai helpdesk"
+            if sem_cls and sem_cls.get("taxonomy_id"):
+                top_id = sem_cls["taxonomy_id"]
+                tax_row = taxonomy_matcher.get_taxonomy_by_id(top_id)
+                if tax_row:
+                    p_dept = tax_row["department"]
+                    p_gtype = tax_row["grievance_type"]
+                    p_gsub = tax_row["grievance_sub_type"]
+                    p_subdept = tax_row.get("sub_department") or p_subdept or f"{p_dept} / நிர்வாகம்"
+                    p_resp_off = tax_row.get("responsible_officer") or p_resp_off or "துறை அலுவலர்"
+                    logger.info(f"🏛️ Resolved authoritative DB taxonomy from semantic classification: ID={top_id} ('{p_dept}' - '{p_gsub}')")
 
         return {
             "department": p_dept,
@@ -730,56 +579,38 @@ class AIAnalyzer:
             except Exception as tex_err:
                 logger.debug(f"Taxonomy auto-load notice: {tex_err}")
 
-        # 1. Fast Dynamic DB Taxonomy Classification (runs in ~25ms against 1,847 DB embeddings)
+        # 1. High-Recall Multi-Path Retrieval + Contextual Reranking against all 1,847 DB rows
         pre_classification = semantic_classifier.classify(
             zone_a_header=zone_a or "",
             zone_b_body=zone_b or "",
             full_doc_text=doc_context or "",
-            top_k=5
+            top_k=10
         )
         pre_tax_id = pre_classification.get("taxonomy_id")
         is_ambiguous = pre_classification.get("is_ambiguous", False)
+        top_candidates = pre_classification.get("candidates", [])[:10]
+        subj_line = pre_classification.get("subject_line", "")
+        pray_sect = pre_classification.get("prayer_section", "")
+
         auth_taxonomy = None
-        if not is_ambiguous and pre_tax_id:
+        if pre_tax_id:
             auth_taxonomy = taxonomy_matcher.get_taxonomy_by_id(pre_tax_id)
-            if not auth_taxonomy and pre_classification.get("candidates"):
-                for c in pre_classification["candidates"]:
+            if not auth_taxonomy and top_candidates:
+                for c in top_candidates:
                     if c.get("taxonomy_id") == pre_tax_id or c.get("Taxonomy_ID") == pre_tax_id:
                         auth_taxonomy = c
                         break
-            if not auth_taxonomy and pre_classification.get("department"):
-                auth_taxonomy = {
-                    "id": pre_tax_id,
-                    "taxonomy_id": pre_tax_id,
-                    "department": pre_classification.get("department", ""),
-                    "department_code": pre_classification.get("department_code", ""),
-                    "grievance_type": pre_classification.get("grievance_type", ""),
-                    "grievance_sub_type": pre_classification.get("grievance_subtype") or pre_classification.get("grievance_sub_type", ""),
-                    "sub_department": pre_classification.get("sub_department", ""),
-                    "responsible_officer": pre_classification.get("responsible_officer", ""),
-                }
-
-            if auth_taxonomy:
-                dept_name = auth_taxonomy.get("department") or auth_taxonomy.get("Department") or ""
-                sub_type = auth_taxonomy.get("grievance_sub_type") or auth_taxonomy.get("grievance_subtype") or auth_taxonomy.get("Grievance Sub Type") or ""
-                logger.info(f"🎯 Decisive DB taxonomy pre-resolved: ID={pre_tax_id} ('{dept_name}' - '{sub_type}')")
-                top_candidates = pre_classification.get("candidates", [])[:5]
-            else:
-                top_candidates = pre_classification.get("candidates", [])[:5]
-                is_ambiguous = True
-                logger.warning(f"⚠️ Pre-classification suggested ID={pre_tax_id} but record could not be resolved. Scoping Top-5 candidates for LLM.")
-        else:
-            top_candidates = pre_classification.get("candidates", [])[:5]
-            logger.info(f"⚖️ Ambiguity detected in DB pre-classification (margin={pre_classification.get('margin', 0):.4f}). Scoping Top-5 candidates for LLM.")
 
         fallback_analysis = self._build_grounded_fallback(doc_context, existing_entities)
 
-        # 2. Compact Structured LLM Prompt (Focused entity extraction only, no 400-token summaries)
+        # 2. Compact Structured LLM Prompt (Top 10 DB candidates + Normalized Subject & Prayer)
         prompt = prompt_builder.build_analysis_prompt(
             zone_a_header=zone_a or doc_context[:400],
             zone_b_body=zone_b or doc_context[400:1000],
             authoritative_taxonomy=auth_taxonomy,
-            candidates=top_candidates if is_ambiguous else None
+            candidates=top_candidates if top_candidates else None,
+            subject_line=subj_line,
+            prayer_section=pray_sect
         )
 
         fast_timeout = float(getattr(settings, "LLM_FAST_TIMEOUT", 75.0))
@@ -803,7 +634,7 @@ class AIAnalyzer:
         if not llm_data:
             try:
                 logger.info(f"🤖 Sending document ({len(doc_context)} chars) to LLM for extraction (timeout={fast_timeout}s)...")
-                llm_max_t = min(getattr(settings, "LLM_MAX_TOKENS", 320), 320)
+                llm_max_t = min(getattr(settings, "LLM_MAX_TOKENS", 480), 480)
                 # HTTP timeout must exceed asyncio.wait_for timeout so the coroutine
                 # cancellation (from wait_for) fires first, ensuring clean shutdown.
                 http_timeout = fast_timeout + 15.0
@@ -1088,8 +919,11 @@ class AIAnalyzer:
         if p_addr:
             parsed_loc = parse_tamil_address_and_location(p_addr)
             p_addr = parsed_loc.get("full_address") or parsed_loc.get("address", p_addr)
-            if parsed_loc.get("village") and parsed_loc["village"] != "Not found":
-                p_village = parsed_loc["village"]
+            if not p_village or p_village in INVALID_VALUES or p_village == "Not found":
+                if parsed_loc.get("village") and parsed_loc["village"] != "Not found":
+                    p_village = parsed_loc["village"]
+            elif p_street and p_village == p_street and header_ents.get("village") and header_ents.get("village") != p_street:
+                p_village = header_ents["village"]
             if not p_taluk or p_taluk == p_village or p_taluk in INVALID_VALUES or p_taluk == "Not found":
                 p_taluk = parsed_loc.get("taluk", p_district)
             if not p_district or p_district in INVALID_VALUES or p_district == "Not found":
@@ -1121,16 +955,34 @@ class AIAnalyzer:
             p_district = loc_hier["district"]
 
         # Resolve authoritative taxonomy:
-        # If DB pre-classification was decisive, auth_taxonomy is already the authoritative source of truth
-        tax_row = auth_taxonomy
-        if not tax_row:
-            sel_tax = llm_data.get("Selected_Taxonomy") or llm_data.get("selected_taxonomy") or {}
-            sel_tax_id = llm_data.get("Selected_Taxonomy_ID") or sel_tax.get("Taxonomy_ID") or sel_tax.get("taxonomy_id")
-            tax_row = taxonomy_matcher.get_taxonomy_by_id(sel_tax_id) if sel_tax_id else None
+        # Step A: Validate LLM Selected_Taxonomy_ID against Top 10 Candidates
+        valid_candidate_ids = {
+            int(c.get("taxonomy_id") or c.get("id"))
+            for c in top_candidates
+            if (c.get("taxonomy_id") or c.get("id")) is not None
+        }
 
-        # If LLM returned text instead of an integer ID, attempt matching against dynamic candidates
-        if not tax_row and (llm_data.get("Selected_Taxonomy") or llm_data.get("selected_taxonomy")):
-            sel_tax = llm_data.get("Selected_Taxonomy") or llm_data.get("selected_taxonomy") or {}
+        sel_tax = llm_data.get("Selected_Taxonomy") or llm_data.get("selected_taxonomy") or {}
+        raw_sel_id = (
+            llm_data.get("Selected_Taxonomy_ID") or
+            llm_data.get("selected_taxonomy_id") or
+            sel_tax.get("Taxonomy_ID") or
+            sel_tax.get("taxonomy_id") or
+            sel_tax.get("id")
+        )
+
+        parsed_sel_id = None
+        if raw_sel_id is not None:
+            try:
+                parsed_sel_id = int(float(str(raw_sel_id).strip()))
+            except (ValueError, TypeError):
+                parsed_sel_id = None
+
+        chosen_tax_id = None
+        if parsed_sel_id and parsed_sel_id in valid_candidate_ids:
+            chosen_tax_id = parsed_sel_id
+            logger.info(f"🎯 LLM verified taxonomy candidate from Top 10: ID={chosen_tax_id}")
+        elif top_candidates and (llm_data.get("Selected_Taxonomy") or llm_data.get("selected_taxonomy")):
             s_dept = (sel_tax.get("Department") or "").strip().lower()
             s_type = (sel_tax.get("Grievance_Type") or "").strip().lower()
             s_sub = (sel_tax.get("Grievance_Sub_Type") or "").strip().lower()
@@ -1139,44 +991,39 @@ class AIAnalyzer:
                 cand_type = (cand.get("grievance_type") or "").strip().lower()
                 cand_dept = (cand.get("department") or "").strip().lower()
                 if (s_sub and s_sub == cand_sub) or (s_type and s_type == cand_type and (s_dept in cand_dept or cand_dept in s_dept)):
-                    tax_row = taxonomy_matcher.get_taxonomy_by_id(cand["taxonomy_id"]) or cand
+                    chosen_tax_id = int(cand.get("taxonomy_id") or cand.get("id"))
+                    logger.info(f"🎯 Text-matched LLM selection to Top 10 candidate: ID={chosen_tax_id}")
                     break
 
-        p_subdept = None
-        sel_tax = llm_data.get("Selected_Taxonomy") or llm_data.get("selected_taxonomy") or {}
-        p_resp_off = (
-            (tax_row.get("responsible_officer") if tax_row else None) or
-            clean_field(sel_tax.get("Responsible_officer")) or
-            clean_field(sel_tax.get("responsible_officer")) or
-            clean_field(llm_data.get("Responsible_officer")) or
-            clean_field(llm_data.get("responsible_officer")) or
-            None
-        )
+        # Fallback to Candidate #1 if LLM provided invalid/missing ID
+        if not chosen_tax_id and top_candidates:
+            chosen_tax_id = int(top_candidates[0].get("taxonomy_id") or top_candidates[0].get("id"))
+            logger.info(f"⚖️ Selected Top 1 candidate from multi-path reranked DB retrieval: ID={chosen_tax_id}")
+        elif not chosen_tax_id and pre_tax_id:
+            chosen_tax_id = int(pre_tax_id)
 
-        # Grievance categorization prioritizing official GDP form metadata table
-        p_gtype = (
-            gdp_meta.get("grievance_type") or
-            (tax_row.get("grievance_type") if tax_row else None) or
-            clean_field(sel_tax.get("Grievance_Type")) or
-            clean_field(llm_data.get("grievance_type")) or
-            fallback_analysis["grievance_type"]
-        )
-        p_gsub = (
-            gdp_meta.get("grievance_subtype") or
-            (tax_row.get("grievance_sub_type") if tax_row else None) or
-            clean_field(sel_tax.get("Grievance_Sub_Type")) or
-            clean_field(llm_data.get("grievance_subtype")) or
-            fallback_analysis["grievance_subtype"]
-        )
-        p_dept = (
-            gdp_meta.get("department") or
-            (tax_row.get("department") if tax_row else None) or
-            taxonomy_matcher.normalize_department(
-                clean_field(sel_tax.get("Department")) or
-                clean_field(llm_data.get("department")) or
-                fallback_analysis["department"]
-            )
-        ) or "General Administration"
+        # Step B: Authoritative PostgreSQL DB Lookup
+        final_taxonomy_id = chosen_tax_id
+        tax_row = taxonomy_matcher.get_taxonomy_by_id(final_taxonomy_id) if final_taxonomy_id else None
+        if not tax_row and top_candidates:
+            for cand in top_candidates:
+                if (cand.get("taxonomy_id") or cand.get("id")) == final_taxonomy_id:
+                    tax_row = cand
+                    break
+
+        # Authoritatively lock all taxonomy fields to the verified DB taxonomy row
+        if tax_row:
+            p_dept = tax_row.get("department") or "General Administration"
+            p_gtype = tax_row.get("grievance_type") or "General Grievance"
+            p_gsub = tax_row.get("grievance_sub_type") or tax_row.get("grievance_subtype") or "Public Grievance Redressal"
+            p_subdept = tax_row.get("sub_department") or f"{p_dept} / நிர்வாகம்"
+            p_resp_off = tax_row.get("responsible_officer") or "துறை அலுவலர்"
+        else:
+            p_dept = gdp_meta.get("department") or "General Administration"
+            p_gtype = gdp_meta.get("grievance_type") or "General Grievance"
+            p_gsub = gdp_meta.get("grievance_subtype") or "Public Grievance Redressal"
+            p_subdept = gdp_meta.get("sub_department") or f"{p_dept} / நிர்வாகம்"
+            p_resp_off = gdp_meta.get("responsible_officer") or "துறை அலுவலர்"
 
         # ────────────────────────────────────────────────────────────────────
         # Authoritative Dynamic DB Taxonomy Classification & Resolution:
@@ -1201,24 +1048,8 @@ class AIAnalyzer:
             if not p_resp_off and cls_res.get("responsible_officer"):
                 p_resp_off = cls_res["responsible_officer"]
             tax_row = cls_res.get("tax_row")
-        else:
-            p_dept = tax_row.get("department", p_dept)
-            p_gtype = tax_row.get("grievance_type", p_gtype)
-            p_gsub = tax_row.get("grievance_sub_type") or tax_row.get("grievance_subtype", p_gsub)
-            p_subdept = tax_row.get("sub_department") or p_subdept
-            p_resp_off = tax_row.get("responsible_officer") or p_resp_off
-
-        p_subdept = (
-            gdp_meta.get("sub_department") or
-            (tax_row.get("sub_department") if tax_row else None) or
-            clean_field(sel_tax.get("Sub_Department")) or
-            clean_field(llm_data.get("sub_department")) or
-            p_subdept or
-            f"{p_dept} / நிர்வாகம்"
-        )
-        if tax_row is None and p_dept == "Municipal Administration and Water Supply (MAWS)" and "Drinking Water" in p_gtype:
-            p_subdept = "Commissionerate of Municipal Administration (CMA)"
-            p_resp_off = "Commissioner Municipality, Commissioner Municipal Corporation, Executive Officer - Town Panchayat"
+            if tax_row:
+                final_taxonomy_id = tax_row.get("id")
 
         p_priority = clean_field(llm_data.get("priority")) or "MEDIUM"
 
@@ -1231,34 +1062,14 @@ class AIAnalyzer:
         else:
             p_ref_no = verified_entity_dict.get("file_number") or verified_entity_dict.get("petition_no") or clean_field(existing_entity_dict.get("file_number"))
 
-        summary_ta = (
+        raw_summary_ta = (
+            clean_field(llm_data.get("Summary_Tamil")) or
+            clean_field(llm_data.get("summary_tamil")) or
             clean_field(llm_data.get("Description")) or
-            clean_field(llm_data.get("description_summary_tamil")) or
-            fallback_analysis["description_summary_tamil"]
+            clean_field(llm_data.get("description_summary_tamil"))
         )
-        summary_en = clean_field(llm_data.get("description_summary_english")) or fallback_analysis["description_summary_english"]
-
-        # Enforce formal third-person administrative Tamil summary and discard OCR noise
-        OCR_JUNK_TOKENS = ["பிளூப்ரீவ்", "ப்ளூப்ரிண்ட்", "வட்டாராசிரியர்", "ராஷ்ட்ர கலா", "தோட்டாரன்", "டி. சி. பட்டணம்", "அடிசூ", "ஷாவ்", "ரயல்"]
-        is_scholarship = (
-            any(k in (p_gtype + " " + p_gsub).lower() for k in ["scholarship", "technical edu", "education", "கல்வி", "மாணவ"]) or
-            any(k in doc_context.lower() for k in ["கல்வி உதவித்தொகை", "கல்வி உதவி", "scholarship", "கல்லூரி கட்டணம்", "பொறியியல் கல்லூரி"])
-        )
-        is_oap_elderly = (
-            any(k in (p_gtype + " " + p_gsub).lower() for k in ["old age pension", "oap", "முதியோர்"]) or
-            (any(k in doc_context.lower() for k in ["முதியோர்", "வயது மூப்பு", "முதியவர்", "மூத்த குடிமக்கள்", "oap", "old age"]) and not is_scholarship)
-        )
-        is_widow = any(k in (p_gtype + " " + p_gsub + " " + doc_context).lower() for k in ["dwps", "dwp", "விதவை", "ஆதரவற்ற விதவை", "destitute widow", "widow pension"])
-        is_dap = any(k in (p_gtype + " " + p_gsub + " " + doc_context).lower() for k in ["dap", "மாற்றுத்திறனாளி", "differently abled", "ஊனம்"])
-        is_road_work = any(k in (p_gtype + " " + p_gsub).lower() for k in ["road", "highway", "சாலை"]) or any(k in doc_context.lower() for k in ["சாலைப்பணி", "சாலை பணி", "சாலை பராமரிப்பு", "சாலை சீரமைப்பு", "விபத்து அபாயம்", "பழுதடைந்த சாலை", "தார் சாலை"])
-        is_drinking_water = ("drinking water" in (p_gtype + " " + p_gsub).lower() or "குடிநீர்" in (p_gtype + " " + p_gsub)) and not is_road_work
-        is_street_light = any(k in (p_gtype + " " + p_gsub + " " + doc_context).lower() for k in ["தெருவிளக்கு", "street light", "விளக்குகள்", "மின்விளக்கு"])
-        is_drainage = any(k in (p_gtype + " " + p_gsub + " " + doc_context).lower() for k in ["கழிவுநீர்", "வடிகால்", "சாக்கடை", "drainage", "storm water", "sewage"]) and not is_road_work
-        is_financial_help = any(k in (p_gtype + " " + p_gsub + " " + doc_context).lower() for k in ["உதவித்தொகை", "நிதி உதவி", "நிதியுதவி", "financial assistance"])
-
-        # General English administrative summary fallback if missing
-        if not summary_en or summary_en == "Not found":
-            summary_en = f"Petitioner {p_name or 'Applicant'} has requested official administrative action regarding {p_gsub or p_gtype}."
+        summary_en = clean_field(llm_data.get("description_summary_english")) or f"Petitioner {p_name or 'Applicant'} has requested official administrative action regarding {p_gsub or p_gtype}."
+        summary_ta: Optional[str] = None
 
         tahsildar_match = None
         # Check for official Tahsildar / Office stamp in doc_context or metadata
@@ -1280,7 +1091,7 @@ class AIAnalyzer:
         if tax_row is None:
             try:
                 tax_match = taxonomy_matcher.match(
-                    petition_text=f"{summary_ta} {summary_en} {doc_context[:300]}",
+                    petition_text=f"{raw_summary_ta or ''} {summary_en} {doc_context[:300]}".strip(),
                     detected_type=p_gtype,
                     detected_subtype=p_gsub,
                     detected_dept=p_dept
@@ -1497,8 +1308,9 @@ class AIAnalyzer:
             "grievance_type": p_gtype,
             "grievance_subtype": p_gsub,
             "local_body_type": p_lbody,
-            "requested_action": verified_entity_dict.get("requested_action") or clean_field(llm_data.get("requested_action")),
-            "grievance_subject": verified_entity_dict.get("petition_subject") or existing_entity_dict.get("petition_subject") or clean_field(llm_data.get("Grievance_Subject"))
+            "requested_action": pray_sect or verified_entity_dict.get("requested_action") or clean_field(llm_data.get("requested_action")) or p_gsub,
+            "grievance_subject": clean_field(llm_data.get("Grievance_Subject")) or verified_entity_dict.get("petition_subject") or existing_entity_dict.get("petition_subject") or subj_line or p_gsub,
+            "taxonomy_id": final_taxonomy_id
         }
 
         # Field 9: Dynamic multi-signal Community vs Individual Scope Classification
@@ -1509,10 +1321,12 @@ class AIAnalyzer:
             "grievance_sub_type": p_gsub,
             "scope_type": sel_tax.get("scope_type") or (tax_row.get("scope_type") if tax_row else None)
         }
+        llm_scope_hint = clean_field(llm_data.get("Scope")) or clean_field(llm_data.get("scope"))
         scope_result = classify_grievance_scope(
             doc_context=doc_context,
             taxonomy_meta=tax_scope_meta,
-            extracted_facts=verified_facts
+            extracted_facts=verified_facts,
+            llm_scope_hint=llm_scope_hint
         )
         p_community_or_indiv = scope_result.get("classification") or "Unknown"
 
@@ -1522,12 +1336,15 @@ class AIAnalyzer:
             validate_summary_grounding,
             build_factual_administrative_summary
         )
-        if not summary_ta or not summary_ta.startswith("மனுதாரர்") or "கோரிக்கை விடுத்துள்ளார்" not in summary_ta:
+        if not raw_summary_ta or raw_summary_ta.lower() in INVALID_VALUES:
             summary_ta = build_factual_administrative_summary(verified_facts)
-        summary_ta = normalize_administrative_tamil_summary(summary_ta, verified_facts)
-        if not validate_summary_grounding(summary_ta, verified_facts, doc_context):
-            logger.info("Summary grounding validation triggered fallback to factual administrative summary.")
-            summary_ta = build_factual_administrative_summary(verified_facts)
+        else:
+            normalized_summary = normalize_administrative_tamil_summary(raw_summary_ta, verified_facts)
+            if validate_summary_grounding(normalized_summary, verified_facts, doc_context):
+                summary_ta = normalized_summary
+            else:
+                logger.info(f"Summary failed grounding validation. Generating factual administrative summary from authoritative taxonomy ID {final_taxonomy_id}.")
+                summary_ta = build_factual_administrative_summary(verified_facts)
 
         # Diagnostic logging for AI analysis mapping
         logger.info(

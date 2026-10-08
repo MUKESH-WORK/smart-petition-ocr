@@ -1070,8 +1070,8 @@ async def get_history(
         is_admin = (
             current_officer.get("is_admin") is True or
             current_officer.get("isAdmin") is True or
-            current_officer.get("role") in ["Admin", "District Administrator", "admin"] or
-            (eff_officer_id and "ADM" in str(eff_officer_id).upper())
+            str(current_officer.get("role", "")).lower() == "admin" or
+            current_officer.get("role") in ["Admin", "District Administrator", "admin"]
         )
 
     if not eff_officer_id:
@@ -1082,7 +1082,7 @@ async def get_history(
                 payload = decode_access_token(auth_header[7:].strip())
                 if payload:
                     eff_officer_id = payload.get("officer_id") or payload.get("id") or payload.get("sub")
-                    if payload.get("is_admin") or (eff_officer_id and "ADM" in str(eff_officer_id).upper()):
+                    if payload.get("is_admin") or str(payload.get("role", "")).lower() == "admin":
                         is_admin = True
             except Exception:
                 pass
@@ -1210,16 +1210,143 @@ async def list_official_departments():
 _mobile_upload_sessions: dict[str, dict] = {}
 
 
-def _get_lan_hosts(request: Request):
+def _is_valid_lan_ipv4(ip: str) -> bool:
+    """Strictly validates that an IPv4 address is an actual physical LAN host IP, not virtual or internal."""
+    if not ip or not isinstance(ip, str):
+        return False
+    ip = ip.strip()
+    if ":" in ip:
+        ip = ip.split(":")[0]
+    parts = ip.split(".")
+    if len(parts) != 4:
+        return False
+    try:
+        nums = [int(p) for p in parts]
+        if any(n < 0 or n > 255 for n in nums):
+            return False
+    except ValueError:
+        return False
+
+    # Filter out loopback (127.0.0.0/8) or 0.0.0.0
+    if nums[0] == 127 or ip == "0.0.0.0":
+        return False
+
+    # Filter out APIPA / Link-local (169.254.0.0/16)
+    if nums[0] == 169 and nums[1] == 254:
+        return False
+
+    # Filter out Docker bridge subnets and WSL virtual interfaces (172.16.0.0/12)
+    # Range 172.16.0.0 - 172.31.255.255
+    if nums[0] == 172 and 16 <= nums[1] <= 31:
+        return False
+
+    # Filter out Docker Desktop internal NAT gateway subnet (192.168.65.0/24)
+    if nums[0] == 192 and nums[1] == 168 and nums[2] == 65:
+        return False
+
+    return True
+
+
+def _get_lan_hosts(request: Request, body_data: Optional[dict] = None):
     import socket
-    local_ips = []
+    from pathlib import Path
+
+    available_hosts = []
+    seen_ips = set()
+
+    # Determine external published port (e.g. 8080)
+    client_host = request.headers.get("x-forwarded-host") or request.headers.get("host") or ""
+    port_str = ":8080"
+    if ":" in client_host:
+        p = client_host.split(":")[1]
+        if p and p not in ("80", "443"):
+            port_str = f":{p}"
+    elif request.url.port and request.url.port not in (80, 443, 8000):
+        port_str = f":{request.url.port}"
+
+    scheme = request.headers.get("x-forwarded-proto") or request.url.scheme or "http"
+
+    # PRIORITY 1: Check host_network.json populated dynamically by host watcher
+    search_paths = [
+        Path("/app/models/paraphrase-multilingual-MiniLM-L12-v2/host_network.json"),
+        Path("/app/temp_cache/host_network.json"),
+        Path(__file__).resolve().parent.parent.parent / "models" / "paraphrase-multilingual-MiniLM-L12-v2" / "host_network.json",
+        Path(__file__).resolve().parent.parent.parent / "temp_cache" / "host_network.json",
+    ]
+
+    for p in search_paths:
+        try:
+            if p.exists():
+                data = json.loads(p.read_text(encoding="utf-8"))
+                for item in data.get("availableHosts", []):
+                    ip = item.get("ip")
+                    if _is_valid_lan_ipv4(ip) and ip not in seen_ips:
+                        seen_ips.add(ip)
+                        available_hosts.append({
+                            "name": item.get("name") or f"Host LAN ({ip})",
+                            "interface": item.get("interface") or "LAN",
+                            "ip": ip,
+                            "url": f"{scheme}://{ip}{port_str}",
+                            "is_default": item.get("is_default", False)
+                        })
+                prim = data.get("primaryIp")
+                if _is_valid_lan_ipv4(prim) and prim not in seen_ips:
+                    seen_ips.add(prim)
+                    available_hosts.insert(0, {
+                        "name": f"Host Primary LAN ({prim})",
+                        "interface": "Primary",
+                        "ip": prim,
+                        "url": f"{scheme}://{prim}{port_str}",
+                        "is_default": True
+                    })
+                if available_hosts:
+                    break
+        except Exception as e:
+            logger.debug(f"Host network file read notice: {e}")
+
+    # PRIORITY 2: Check client request origin or body hints (e.g. clientOrigin, clientHostname)
+    hints = []
+    if body_data:
+        if body_data.get("clientOrigin"):
+            hints.append(body_data["clientOrigin"])
+        if body_data.get("clientHostname"):
+            hints.append(body_data["clientHostname"])
+        if body_data.get("clientLanIp"):
+            hints.append(body_data["clientLanIp"])
+    if client_host:
+        hints.append(client_host.split(":")[0])
+
+    for hint in hints:
+        try:
+            from urllib.parse import urlparse
+            cand_ip = urlparse(hint).hostname if "://" in hint else hint.split(":")[0]
+            if _is_valid_lan_ipv4(cand_ip) and cand_ip not in seen_ips:
+                seen_ips.add(cand_ip)
+                available_hosts.insert(0, {
+                    "name": f"Connected Interface ({cand_ip})",
+                    "interface": "Browser Host",
+                    "ip": cand_ip,
+                    "url": f"{scheme}://{cand_ip}{port_str}",
+                    "is_default": True
+                })
+        except Exception:
+            pass
+
+    # PRIORITY 3: Enumerate local interfaces if running natively on host
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         s.connect(("8.8.8.8", 80))
-        ip = s.getsockname()[0]
+        sock_ip = s.getsockname()[0]
         s.close()
-        if ip and ip != "127.0.0.1":
-            local_ips.append(ip)
+        if _is_valid_lan_ipv4(sock_ip) and sock_ip not in seen_ips:
+            seen_ips.add(sock_ip)
+            available_hosts.append({
+                "name": f"Active LAN IP ({sock_ip})",
+                "interface": "Active LAN",
+                "ip": sock_ip,
+                "url": f"{scheme}://{sock_ip}{port_str}",
+                "is_default": False
+            })
     except Exception:
         pass
 
@@ -1227,27 +1354,17 @@ def _get_lan_hosts(request: Request):
         hostname = socket.gethostname()
         _, _, addresses = socket.gethostbyname_ex(hostname)
         for addr in addresses:
-            if addr not in local_ips and not addr.startswith("127."):
-                local_ips.append(addr)
+            if _is_valid_lan_ipv4(addr) and addr not in seen_ips:
+                seen_ips.add(addr)
+                available_hosts.append({
+                    "name": f"Local Adapter ({addr})",
+                    "interface": "LAN",
+                    "ip": addr,
+                    "url": f"{scheme}://{addr}{port_str}",
+                    "is_default": False
+                })
     except Exception:
         pass
-
-    client_host = request.headers.get("x-forwarded-host") or request.headers.get("host") or ""
-    port_str = ""
-    if ":" in client_host:
-        port_str = f":{client_host.split(':')[1]}"
-    elif request.url.port and request.url.port not in (80, 443):
-        port_str = f":{request.url.port}"
-
-    scheme = request.headers.get("x-forwarded-proto") or request.url.scheme or "http"
-
-    available_hosts = []
-    for ip in local_ips:
-        available_hosts.append({
-            "name": f"Wi-Fi / LAN IP ({ip})",
-            "ip": ip,
-            "url": f"{scheme}://{ip}{port_str}"
-        })
 
     primary_url = available_hosts[0]["url"] if available_hosts else None
     return primary_url, available_hosts
@@ -1265,13 +1382,35 @@ async def get_network_info(request: Request):
 
 @router.post("/mobile-session")
 async def create_mobile_session(request: Request):
-    """Generates a mobile QR petition upload session with automatic LAN IP routing."""
+    """Generates a mobile QR petition upload session with automatic LAN IP routing and officer attribution."""
     import secrets
     session_id = secrets.token_hex(4)  # 8 hex chars
-    primary_url, available_hosts = _get_lan_hosts(request)
+
+    body_data = {}
+    try:
+        body_data = await request.json()
+    except Exception:
+        pass
+
+    eff_officer_id = None
+    auth_header = request.headers.get("authorization") or request.headers.get("Authorization")
+    if auth_header and auth_header.startswith("Bearer "):
+        try:
+            from core.security import decode_access_token
+            payload = decode_access_token(auth_header[7:].strip())
+            if payload:
+                eff_officer_id = payload.get("officer_id") or payload.get("id") or payload.get("sub")
+        except Exception:
+            pass
+
+    if not eff_officer_id:
+        eff_officer_id = request.headers.get("x-officer-id") or request.headers.get("X-Officer-Id") or "ADM-ERODE-001"
+
+    primary_url, available_hosts = _get_lan_hosts(request, body_data)
 
     _mobile_upload_sessions[session_id] = {
         "sessionId": session_id,
+        "officer_id": eff_officer_id,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "uploaded": False,
         "data": None
@@ -1347,13 +1486,17 @@ async def upload_mobile_petition(
     new_source_id = str(uuid.uuid4())
     file_path, file_hash, file_size = await file_store.save_uploaded_file(new_source_id, final_filename, file_bytes)
 
-    # Ensure mobile_qr officer exists to satisfy foreign key
+    # Resolve authenticating officer from session
+    session = _mobile_upload_sessions.get(session_id_val) or {}
+    session_officer_id = session.get("officer_id") or "ADM-ERODE-001"
+
+    # Ensure officer exists in officers table to satisfy foreign key
     try:
         await db.execute(text("""
             INSERT INTO officers (officer_id, name, name_tamil, email, designation, department, status)
-            VALUES ('mobile_qr', 'Mobile QR Upload', 'மொபைல் QR பதிவேற்றம்', 'mobile@tn.gov.in', 'Mobile Upload', 'வருவாய்த்துறை', 'Active')
+            VALUES (:officer_id, 'District Administrator', 'மாவட்ட ஆட்சியர்', :email, 'District Administrator', 'வருவாய்த்துறை', 'Active')
             ON CONFLICT (officer_id) DO NOTHING
-        """))
+        """), {"officer_id": session_officer_id, "email": f"{session_officer_id.lower()}@tn.gov.in"})
         await db.flush()
     except Exception as e:
         logger.debug(f"Officer record validation notice: {e}")
@@ -1361,9 +1504,10 @@ async def upload_mobile_petition(
     file_data_db = file_bytes if getattr(settings, "STORE_FILE_BYTEA", False) else None
     await db.execute(text("""
         INSERT INTO sources (source_id, officer_id, file_name, file_type, file_size_bytes, file_hash, page_count, status, file_data, created_at, updated_at)
-        VALUES (:source_id, 'mobile_qr', :file_name, :file_type, :file_size, :file_hash, 0, 'uploaded', :file_data, NOW(), NOW())
+        VALUES (:source_id, :officer_id, :file_name, :file_type, :file_size, :file_hash, 0, 'uploaded', :file_data, NOW(), NOW())
     """), {
         "source_id": new_source_id,
+        "officer_id": session_officer_id,
         "file_name": final_filename,
         "file_type": ext,
         "file_size": file_size,

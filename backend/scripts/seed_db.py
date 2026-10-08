@@ -555,131 +555,36 @@ def _hash_default_password(raw: str) -> str:
 
 OFFICIAL_ACCOUNTS = [
     {
-        "id": "ADM-ERODE-001",
-        "officer_id": "ADM-ERODE-001",
-        "name": "Thiru. S. Kandasamy, I.A.S",
-        "name_tamil": "திரு. ச. கந்தசாமி இ.ஆ.ப",
-        "mobile": "+91 424 2262000",
-        "email": "collector.erode@tn.gov.in",
+        "id": os.getenv("DEFAULT_ADMIN_ID", "ADM-ERODE-001"),
+        "officer_id": os.getenv("DEFAULT_ADMIN_ID", "ADM-ERODE-001"),
+        "name": os.getenv("DEFAULT_ADMIN_NAME", "Thiru. S. Kandasamy, I.A.S"),
+        "name_tamil": os.getenv("DEFAULT_ADMIN_NAME_TAMIL", "திரு. ச. கந்தசாமி இ.ஆ.ப"),
+        "mobile": os.getenv("DEFAULT_ADMIN_MOBILE", "+91 424 2262000"),
+        "email": os.getenv("DEFAULT_ADMIN_EMAIL", "collector.erode@tn.gov.in"),
         "department": "District Administration / Collectorate",
         "role": "Admin",
         "is_admin": True,
         "status": "Active"
     },
     {
-        "id": "OFF-USER-001",
-        "officer_id": "OFF-USER-001",
-        "name": "S. Ramanathan",
-        "name_tamil": "எஸ். ராமநாதன்",
-        "mobile": "+91 94431 10001",
-        "email": "ramanathan@tn.gov.in",
+        "id": os.getenv("DEFAULT_USER_ID", "OFF-USER-001"),
+        "officer_id": os.getenv("DEFAULT_USER_ID", "OFF-USER-001"),
+        "name": os.getenv("DEFAULT_USER_NAME", "S. Ramanathan"),
+        "name_tamil": os.getenv("DEFAULT_USER_NAME_TAMIL", "எஸ். ராமநாதன்"),
+        "mobile": os.getenv("DEFAULT_USER_MOBILE", "+91 94431 10001"),
+        "email": os.getenv("DEFAULT_USER_EMAIL", "ramanathan@tn.gov.in"),
         "department": "Revenue Administration",
         "role": "Department User",
         "is_admin": False,
-        "status": "Inactive"
-    },
-    {
-        "id": "OFF-USER-002",
-        "officer_id": "OFF-USER-002",
-        "name": "K. Sundaram",
-        "name_tamil": "கே. சுந்தரம்",
-        "mobile": "+91 94431 10002",
-        "email": "sundaram@tn.gov.in",
-        "department": "Civil Supplies & Consumer Protection",
-        "role": "Department User",
-        "is_admin": False,
-        "status": "Inactive"
-    },
-    {
-        "id": "OFF-USER-003",
-        "officer_id": "OFF-USER-003",
-        "name": "M. Meenakshi",
-        "name_tamil": "எம். மீனாட்சி",
-        "mobile": "+91 94431 10003",
-        "email": "meenakshi@tn.gov.in",
-        "department": "Land Administration & Survey",
-        "role": "Department User",
-        "is_admin": False,
-        "status": "Inactive"
-    },
-    {
-        "id": "OFF-USER-004",
-        "officer_id": "OFF-USER-004",
-        "name": "P. Vijayalakshmi",
-        "name_tamil": "பி. விஜயலட்சுமி",
-        "mobile": "+91 94431 10004",
-        "email": "vijayalakshmi@tn.gov.in",
-        "department": "Municipal Administration & Water Supply",
-        "role": "Department User",
-        "is_admin": False,
-        "status": "Inactive"
-    },
-    {
-        "id": "OFF-USER-005",
-        "officer_id": "OFF-USER-005",
-        "name": "A. Selvakumar",
-        "name_tamil": "ஏ. செல்வக்குமார்",
-        "mobile": "+91 94431 10005",
-        "email": "selvakumar@tn.gov.in",
-        "department": "Rural Development & Panchayat Raj",
-        "role": "Department User",
-        "is_admin": False,
-        "status": "Inactive"
-    },
-    {
-        "id": "OFF-USER-006",
-        "officer_id": "OFF-USER-006",
-        "name": "R. Natarajan",
-        "name_tamil": "ஆர். நடராஜன்",
-        "mobile": "+91 94431 10006",
-        "email": "natarajan@tn.gov.in",
-        "department": "TANGEDCO / Electricity Distribution",
-        "role": "Department User",
-        "is_admin": False,
-        "status": "Inactive"
-    },
-    {
-        "id": "OFF-USER-007",
-        "officer_id": "OFF-USER-007",
-        "name": "G. Murugesan",
-        "name_tamil": "ஜி. முருகேசன்",
-        "mobile": "+91 94431 10007",
-        "email": "murugesan@tn.gov.in",
-        "department": "School Education & Literacy",
-        "role": "Department User",
-        "is_admin": False,
-        "status": "Inactive"
-    },
-    {
-        "id": "OFF-USER-008",
-        "officer_id": "OFF-USER-008",
-        "name": "Dr. V. Kalpana",
-        "name_tamil": "டாக்டர் வி. கல்பனா",
-        "mobile": "+91 94431 10008",
-        "email": "kalpana@tn.gov.in",
-        "department": "Public Health & Family Welfare",
-        "role": "Department User",
-        "is_admin": False,
-        "status": "Inactive"
-    },
-    {
-        "id": "OFF-USER-009",
-        "officer_id": "OFF-USER-009",
-        "name": "Dr. S. Somasundaram",
-        "name_tamil": "டாக்டர் எஸ். சோமசுந்தரம்",
-        "mobile": "+91 94431 10009",
-        "email": "somasundaram@tn.gov.in",
-        "department": "Agriculture & Farmers Welfare",
-        "role": "Department User",
-        "is_admin": False,
-        "status": "Inactive"
+        "status": "Active"
     }
 ]
 
 
 async def seed_official_accounts(db=None):
     """
-    Seeds 1 Administrator and 9 Departmental Users across Admin DB and User DB.
+    Seeds initial bootstrap accounts (1 Administrator and 1 Departmental User)
+    only if the database is freshly initialized and contains zero accounts.
     """
     own_session = False
     if db is None:
@@ -690,6 +595,12 @@ async def seed_official_accounts(db=None):
     default_hash = _hash_default_password(default_password)
 
     try:
+        # Check if users already exist. If so, preserve dynamic accounts
+        existing_count = (await db.execute(text("SELECT count(*) FROM admin_users"))).scalar()
+        if existing_count and existing_count > 0:
+            logger.info(f"Database already contains {existing_count} user accounts; preserving dynamic user state.")
+            return
+
         # 1. Seed into Admin DB (admin_users)
         inserted_admin = 0
         for acc in OFFICIAL_ACCOUNTS:
@@ -714,7 +625,7 @@ async def seed_official_accounts(db=None):
 
         await db.commit()
         if inserted_admin > 0:
-            logger.info(f"Seeded {inserted_admin} official accounts in Admin DB.")
+            logger.info(f"Seeded {inserted_admin} initial bootstrap accounts in Admin DB.")
         else:
             logger.info("Official accounts already present in Admin DB; preserving existing records.")
     except Exception as e:

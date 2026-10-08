@@ -35,13 +35,24 @@ export async function createUploadSession() {
   };
 
   const clientOrigin = typeof window !== 'undefined' ? window.location.origin : null;
+  const clientHostname = typeof window !== 'undefined' ? window.location.hostname : null;
+  const token = typeof localStorage !== 'undefined' ? (localStorage.getItem('auth_token') || localStorage.getItem('token') || '') : '';
+  const officerId = typeof localStorage !== 'undefined' ? (localStorage.getItem('officer_id') || '') : '';
+
+  const headers = { ...tunnelHeaders };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  if (officerId) headers['X-Officer-Id'] = officerId;
 
   try {
     // 1. Primary: FastAPI backend route
     const backendRes = await fetch('/api/v1/grievance/mobile-session', {
       method: 'POST',
-      headers: tunnelHeaders,
-      body: JSON.stringify({ clientOrigin })
+      headers: headers,
+      body: JSON.stringify({ 
+        clientOrigin, 
+        clientHostname,
+        clientLanIp: (clientHostname && clientHostname !== 'localhost' && clientHostname !== '127.0.0.1') ? clientHostname : null
+      })
     });
     if (backendRes.ok) {
       const data = await backendRes.json();

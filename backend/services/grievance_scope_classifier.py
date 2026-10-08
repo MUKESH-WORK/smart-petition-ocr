@@ -15,11 +15,14 @@ PUBLIC_TAXONOMY_PATTERNS = [
     r"road", r"bridge", r"drainage", r"storm water", r"street light",
     r"drinking water", r"water supply", r"sanitation", r"sewage",
     r"village infrastructure", r"civic amenities", r"solid waste",
-    r"encroachment", r"burial ground", r"community hall", r"public park",
-    r"public toilet", r"bus service", r"transport", r"lake", r"pond",
-    r"channel", r"river", r"culvert", r"waterbody", r"library",
-    r"salai", r"panchayat raj", r"local body", r"ration shop",
-    r"school", r"infrastructure", r"building maintenance", r"repairs to.*building"
+    r"encroachment", r"burial ground", r"pathway to burial ground", r"pathway",
+    r"community hall", r"public park", r"public toilet", r"bus service",
+    r"transport", r"lake", r"pond", r"channel", r"river", r"culvert",
+    r"waterbody", r"library", r"salai", r"panchayat raj", r"local body",
+    r"ration shop", r"school", r"infrastructure", r"building maintenance",
+    r"repairs to.*building", r"veterinary", r"animal husbandry", r"hospital",
+    r"மருத்துவமனை", r"கால்நடை", r"மயானம்", r"சுடுகாடு", r"புதைகுழி",
+    r"நீர்வழிப்பாதை", r"நீர்வழிப் பாதை", r"ஆக்கிரமிப்பு", r"பாதை"
 ]
 
 # Personal welfare entitlement patterns in taxonomy
@@ -41,7 +44,8 @@ PUBLIC_BENEFICIARY_MARKERS = [
     r"தெரு மக்கள்", r"விவசாயிகள்", r"எங்கள் பகுதி", r"எங்கள் தெரு",
     r"எங்கள் கிராமம்", r"இப்பகுதி", r"பொது சாலை", r"பொது வழி",
     r"பொது பயன்பாட்டு", r"பொது பாதை", r"பொது மயானம்", r"பொது கழிப்பிடம்",
-    r"பொது விநியோக", r"சமூக"
+    r"பொது விநியோக", r"சமூக", r"பொதுமக்கள் பயன்பாடு", r"பொதுப்பயன்பாடு",
+    r"பொதுமக்கள் சிரமம்", r"பொதுமகன்", r"பொது மக்கள்"
 ]
 
 # Individual / Personal welfare markers in Tamil
@@ -91,7 +95,8 @@ def deduce_taxonomy_scope(
 def classify_grievance_scope(
     doc_context: str,
     taxonomy_meta: Optional[Dict[str, Any]] = None,
-    extracted_facts: Optional[Dict[str, Any]] = None
+    extracted_facts: Optional[Dict[str, Any]] = None,
+    llm_scope_hint: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Multi-signal classifier for Field 9 (Community vs Individual).
@@ -189,6 +194,16 @@ def classify_grievance_scope(
         pub_score += 0.10
         ind_score += 0.10
         evidence_reasons.append("Requested action includes both public facility and personal elements")
+
+    # 4. LLM Verification Hint Weight: up to 0.15
+    if llm_scope_hint:
+        hint_clean = llm_scope_hint.strip().upper()
+        if any(h in hint_clean for h in ("PUBLIC", "COMMUNITY", "பொது")):
+            pub_score += 0.15
+            evidence_reasons.append("LLM verification confirmed public/community infrastructure scope")
+        elif any(h in hint_clean for h in ("INDIVIDUAL", "PERSONAL", "தனிநபர்")):
+            ind_score += 0.15
+            evidence_reasons.append("LLM verification confirmed individual entitlement scope")
 
     # Normalize total scores for transparent inspection
     total = pub_score + ind_score

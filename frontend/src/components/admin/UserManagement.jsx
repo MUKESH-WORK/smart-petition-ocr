@@ -150,7 +150,9 @@ function UserDialog({ user, users, sections, onSaveSuccess, onDeleteSuccess, onO
   const [submitting, setSubmitting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
-  const isProtectedAdmin = user?.id === 'ADM-ERODE-001' || user?.email === 'collector.erode@tn.gov.in';
+  const currentOfficerId = typeof localStorage !== 'undefined' ? (localStorage.getItem('officer_id') || '') : '';
+  const currentOfficerEmail = typeof localStorage !== 'undefined' ? (localStorage.getItem('officer_email') || '') : '';
+  const isCurrentUser = Boolean(user && (user.id === currentOfficerId || (currentOfficerEmail && user.email?.toLowerCase() === currentOfficerEmail.toLowerCase())));
 
   const field = (key) => ({
     value: form[key],
@@ -219,7 +221,10 @@ function UserDialog({ user, users, sections, onSaveSuccess, onDeleteSuccess, onO
   }
 
   async function handleDelete() {
-    if (isProtectedAdmin) return;
+    if (isCurrentUser) {
+      setError('You cannot delete your own active administrator account.');
+      return;
+    }
     setSubmitting(true);
     try {
       await deleteAdminUser(user.id);
@@ -355,7 +360,7 @@ function UserDialog({ user, users, sections, onSaveSuccess, onDeleteSuccess, onO
 
         <div className="admin-dialog-actions" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
-            {edit && !confirmDelete && !isProtectedAdmin && (
+            {edit && !confirmDelete && !isCurrentUser && (
               <button
                 type="button"
                 className="admin-button admin-button-danger"
@@ -366,9 +371,9 @@ function UserDialog({ user, users, sections, onSaveSuccess, onDeleteSuccess, onO
                 <Trash2 size={16} /> Delete User
               </button>
             )}
-            {isProtectedAdmin && (
+            {isCurrentUser && (
               <span className="admin-note" style={{ color: '#047857', fontWeight: 600 }}>
-                Primary Collector Account Protected
+                Active Session Account
               </span>
             )}
           </div>
@@ -423,7 +428,7 @@ export default function UserManagement({
     }
   } catch { }
   if (!currentOfficerId) {
-    currentOfficerId = localStorage.getItem('officer_id') || 'ADM-ERODE-001';
+    currentOfficerId = localStorage.getItem('officer_id') || '';
   }
 
   const onlineCount = users.filter((u) => u.isOnline || (currentOfficerId && u.id === currentOfficerId)).length;

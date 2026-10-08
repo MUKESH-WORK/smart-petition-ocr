@@ -1348,6 +1348,15 @@ export async function downloadServerReport({ template = 'officer_performance', f
   return filename;
 }
 
-
-
-
+/**
+ * Fetch real petition upload statistics aggregated by authenticated user
+ */
+export async function fetchUserPetitionStats() {
+  const res = await fetch(`${API_BASE}/admin/user-petition-stats`, {
+    headers: authHeaders()
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to fetch user petition stats (HTTP ${res.status})`);
+  }
+  return res.json();
+}

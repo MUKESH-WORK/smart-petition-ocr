@@ -331,11 +331,19 @@ def parse_door_street_village(addr_str: str) -> Dict[str, Optional[str]]:
     # Split address into distinct segments
     segments = [re.sub(r'[\(\)#*]', '', s).strip(' ,.-:') for s in re.split(r'[,;\n]', addr_str) if s.strip()]
 
-    # Filter out pure door number segments and pincodes
+    # Filter out pure door number segments, pincodes, and metadata (date/place)
     filtered_segments = []
     for s in segments:
         clean_s = re.sub(r'^(?:கதவு\s*எண்\s*[:\.]?\s*|Door\s*No\.?\s*[:\.]?\s*|D\.?\s*No\.?\s*[:\.]?\s*)', '', s, flags=re.IGNORECASE).strip()
         if res["door_no"] and clean_s == res["door_no"]:
+            continue
+        # Filter out metadata lines (date, place) so they never become street/village
+        if re.search(r'^(?:தேதி|நாள்|Date|DATE)\s*[:\.]?', clean_s, re.IGNORECASE):
+            continue
+        if re.search(r'^(?:இடம்|Place|PLACE)\s*[:\.]?', clean_s, re.IGNORECASE):
+            continue
+        # Filter out parent/husband relationship markers so they never become street or village
+        if re.search(r'^(?:த/பெ|க/பெ|த\.பெ|க\.பெ|தந்தை|கணவர்|Father|Husband|S/o|W/o|D/o)\b', clean_s, re.IGNORECASE) or re.search(r'^(?:த/பெ|க/பெ|த\.பெ|க\.பெ)', clean_s, re.IGNORECASE):
             continue
         # Skip pincodes like "638009", "ஈரோடு - 638 009"
         if re.search(r'\b6\d{2}\s*\d{3}\b', clean_s) and len(clean_s) < 25:
@@ -344,10 +352,14 @@ def parse_door_street_village(addr_str: str) -> Dict[str, Optional[str]]:
 
     street_keywords = [
         "தெரு", "street", "road", "ரோடு", "சாலை", "salai", "lane", "சந்து",
+        "வீதி", "veedhi", "veethi",
         "மெயின் ரோடு", "மெயின் சாலை", "மெயின்ரோடு"
     ]
+    colony_keywords = [
+        "நகர்", "nagar", "காலனி", "colony"
+    ]
     locality_keywords = [
-        "நகர்", "nagar", "காலனி", "colony", "தொழுவு", "மேடு", "காடு", "வலசு",
+        "தொழுவு", "மேடு", "காடு", "வலசு",
         "பாளையம்", "பளையம்", "பட்டி", "புரம்", "ஊர்", "குப்பம்", "கிராமம்", "சேரி"
     ]
 
@@ -364,13 +376,26 @@ def parse_door_street_village(addr_str: str) -> Dict[str, Optional[str]]:
 
         # Check if segment is a street
         is_street = any(kw in seg.lower() for kw in street_keywords)
+        is_colony = any(kw in seg.lower() for kw in colony_keywords)
         # Check if segment is a village/locality
         is_village = any(kw in seg.lower() for kw in locality_keywords)
 
-        if is_street and not detected_street:
-            detected_street = seg
-        elif is_village and not detected_village:
-            detected_village = seg
+        if is_street:
+            if not detected_street:
+                detected_street = seg
+            elif detected_street and any(ck in detected_street.lower() for ck in colony_keywords):
+                # Promote explicit street over colony, move colony to village if empty
+                if not detected_village:
+                    detected_village = detected_street
+                detected_street = seg
+        elif is_colony:
+            if not detected_street:
+                detected_street = seg
+            elif not detected_village:
+                detected_village = seg
+        elif is_village:
+            if not detected_village:
+                detected_village = seg
         elif not detected_village and len(seg) >= 3:
             detected_village = seg
 
@@ -482,11 +507,15 @@ def extract_header_entities(header_zone_text: str, full_ocr_text: str = "") -> D
     banner_skip = [
         "விண்ணப்பம்", "மனு", "கோரிக்கை", "Petition", "ஆதார்", "பெயர் மாற்றம்", "தொடர்பாக",
         "வேண்டி", "அரசு", "Government", "நகல்கள்", "சான்றிதழ்", "Department", "Grievance",
-        "Address", "Phone", "Mobile", "Date", "தேதி", "நாள்", "அலுவலகம்", "ஆட்சியர்"
+        "Address", "Phone", "Mobile", "Date", "தேதி", "நாள்", "அலுவலகம்", "ஆட்சியர்",
+        "பக்கம்", "page"
     ] + SCANNER_NOISE
     
     cand_applicant = ""
-    lines = [l.strip() for l in (header_zone_text or combined_text[:600]).split('\n') if l.strip()]
+    lines = [
+        l.strip() for l in (header_zone_text or combined_text[:600]).split('\n')
+        if l.strip() and not re.match(r'^[-=\s]*(?:பக்கம்|page)\s*\d+[-=\s]*$', l.strip(), re.IGNORECASE)
+    ]
     
     sender_idx = -1
     for idx, l in enumerate(lines):
@@ -505,6 +534,15 @@ def extract_header_entities(header_zone_text: str, full_ocr_text: str = "") -> D
             clean_l = re.sub(r'[\(\)0-9#*]', '', clean_l).strip(',.-: ')
             if clean_l and len(clean_l) >= 2 and re.search(r'[A-Za-z\u0B80-\u0BFF]{2,}', clean_l):
                 if not any(skip in clean_l for skip in ["த/பெ", "க/பெ", "தந்தை", "கணவர்", "Father", "Husband", "செல்", "Phone", "தெரு", "ரோடு", "Street", "Road", "வட்டம்", "மாவட்டம்", "ஈரோடு"] + banner_skip):
+                    cand_applicant = clean_l
+                    break
+
+    # If header keyword missing, check first 3 lines before பெறுநர்
+    if not cand_applicant and lines:
+        for l in lines[:3]:
+            clean_l = re.sub(r'[\(\)0-9#*]', '', l).strip(',.-: ')
+            if clean_l and 2 <= len(clean_l) <= 35 and re.search(r'[A-Za-z\u0B80-\u0BFF]{2,}', clean_l):
+                if not any(skip in clean_l for skip in ["த/பெ", "க/பெ", "தந்தை", "கணவர்", "செல்", "Phone", "தெரு", "ரோடு", "வீதி", "Street", "Road", "வட்டம்", "மாவட்டம்", "ஈரோடு"] + banner_skip):
                     cand_applicant = clean_l
                     break
 
@@ -567,8 +605,18 @@ def extract_header_entities(header_zone_text: str, full_ocr_text: str = "") -> D
 
     # 5. Dynamic Sender Address, Village, Taluk, and District extraction
     sender_m = re.search(r'(?:அனுப்புநர்|அனுப்புதல்|From)\s*[:,\.\-]?\s*\n+([\s\S]+?)(?=\n\s*(?:பெறுநர்|To|பொருள்|மதிப்பிற்குரிய|$))', combined_text, re.IGNORECASE)
+    raw_lines = []
     if sender_m:
         raw_lines = [l.strip() for l in sender_m.group(1).split('\n') if l.strip()]
+    else:
+        pre_recip_m = re.search(r'(?:\A|\n)([\s\S]+?)(?=\n\s*(?:பெறுநர்|To|மதிப்பிற்குரிய|பொருள்))', combined_text, re.IGNORECASE)
+        if pre_recip_m:
+            raw_lines = [
+                l.strip() for l in pre_recip_m.group(1).split('\n')
+                if l.strip() and not re.match(r'^[-=\s]*(?:பக்கம்|page)\s*\d+[-=\s]*$', l.strip(), re.IGNORECASE)
+            ]
+
+    if raw_lines:
         addr_lines = []
         for l in raw_lines:
             # Skip petitioner name line
@@ -579,10 +627,23 @@ def extract_header_entities(header_zone_text: str, full_ocr_text: str = "") -> D
                 continue
             if re.match(r'^[6-9]\d{9}$', re.sub(r'\D', '', l)):
                 continue
+            # Skip father/husband line so it NEVER contaminates address or village
+            if re.search(r'^(?:த/பெ|க/பெ|த\.பெ|க\.பெ|தந்தை|கணவர்|Father|Husband|S/o|W/o|D/o)\b', l, re.IGNORECASE) or re.search(r'^(?:த/பெ|க/பெ|த\.பெ|க\.பெ)', l, re.IGNORECASE):
+                continue
+            # Filter out date and place metadata lines so they NEVER contaminate address
+            if re.search(r'^(?:தேதி|நாள்|Date|DATE)\s*[:\.]?', l, re.IGNORECASE):
+                continue
+            if re.search(r'^(?:இடம்|Place|PLACE)\s*[:\.]?', l, re.IGNORECASE):
+                continue
             addr_lines.append(l.strip(',.- '))
 
         if addr_lines:
             entities["address"] = ', '.join(addr_lines).replace("\u0908", "\u0B88")
+
+    # Extract recipient department / addressee from 'பெறுநர்' block
+    recipient_m = re.search(r'(?:பெறுநர்|To)\s*[:,\.\-]?\s*\n+([\s\S]+?)(?=\n\s*(?:அய்யா|ஐயா|வணக்கம்|பொருள்|Subject|$))', combined_text, re.IGNORECASE)
+    if recipient_m:
+        entities["recipient"] = " ".join(recipient_m.group(1).split())
 
     # Extract door_no, street_name, and village using structured parser
     addr_str = entities["address"] or combined_text[:400]
@@ -642,6 +703,7 @@ def extract_all_entities(full_text: str) -> Dict[str, Any]:
 
     res: Dict[str, Any] = {
         "petitioner_name": header_ents.get("petitioner_name") or None,
+        "father_husband_name": header_ents.get("father_husband_name") or None,
         "father_or_husband_name": header_ents.get("father_husband_name") or None,
         "phone_number": header_ents.get("phone_number") or None,
         "address": header_ents.get("address") or None,

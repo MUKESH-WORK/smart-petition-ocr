@@ -129,23 +129,43 @@ export default function MobileQrModal({ isOpen, onClose, onDocumentUploaded }) {
       const sessionResult = await createUploadSession();
       const newSessionId = typeof sessionResult === 'object' ? sessionResult.sessionId : sessionResult;
       const networkHost = typeof sessionResult === 'object' ? sessionResult.networkHost : null;
-      const hosts = (typeof sessionResult === 'object' && Array.isArray(sessionResult.availableHosts)) 
+      const rawHosts = (typeof sessionResult === 'object' && Array.isArray(sessionResult.availableHosts)) 
         ? sessionResult.availableHosts 
         : [];
 
+      // Filter out any virtual Docker or loopback IP from available hosts list
+      const isValidLan = (val) => {
+        if (!val || typeof val !== 'string') return false;
+        const clean = val.replace(/^https?:\/\//, '').split(':')[0].trim();
+        if (clean === 'localhost' || clean === '127.0.0.1' || clean === '0.0.0.0') return false;
+        if (clean.startsWith('169.254.') || clean.startsWith('192.168.65.')) return false;
+        if (clean.startsWith('172.') && !clean.startsWith('172.0.') && !clean.startsWith('172.1.')) {
+          const sec = parseInt(clean.split('.')[1], 10);
+          if (sec >= 16 && sec <= 31) return false;
+        }
+        return true;
+      };
+
+      const validHosts = rawHosts.filter(h => isValidLan(h.ip || h.url));
+
       setSessionId(newSessionId);
       sessionIdRef.current = newSessionId;
-      setAvailableHosts(hosts);
+      setAvailableHosts(validHosts);
 
-      // Automatically route to public host if available or local network host
+      // Determine valid LAN target origin for the mobile phone
       let targetOrigin = window.location.origin;
-      if ((window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') && networkHost) {
-        try {
-          const parsed = new URL(networkHost);
-          const portPart = window.location.port ? `:${window.location.port}` : (parsed.port ? `:${parsed.port}` : '');
-          targetOrigin = `${window.location.protocol}//${parsed.hostname}${portPart}`;
-        } catch {
-          targetOrigin = networkHost;
+
+      if (!isValidLan(window.location.hostname)) {
+        if (networkHost && isValidLan(networkHost)) {
+          try {
+            const parsed = new URL(networkHost.includes('://') ? networkHost : `http://${networkHost}`);
+            const portPart = parsed.port ? `:${parsed.port}` : (window.location.port ? `:${window.location.port}` : ':8080');
+            targetOrigin = `${window.location.protocol}//${parsed.hostname}${portPart}`;
+          } catch {
+            targetOrigin = networkHost;
+          }
+        } else if (validHosts.length > 0) {
+          targetOrigin = validHosts[0].url || `http://${validHosts[0].ip}:8080`;
         }
       }
 
@@ -166,8 +186,8 @@ export default function MobileQrModal({ isOpen, onClose, onDocumentUploaded }) {
   const handleSwitchHost = (hostUrl) => {
     if (!sessionIdRef.current) return;
     try {
-      const parsed = new URL(hostUrl);
-      const portPart = window.location.port ? `:${window.location.port}` : (parsed.port ? `:${parsed.port}` : '');
+      const parsed = new URL(hostUrl.includes('://') ? hostUrl : `http://${hostUrl}`);
+      const portPart = parsed.port ? `:${parsed.port}` : (window.location.port ? `:${window.location.port}` : ':8080');
       const newOrigin = `${window.location.protocol}//${parsed.hostname}${portPart}`;
       setSelectedHostUrl(newOrigin);
       const targetUrl = `${newOrigin}/capture/${sessionIdRef.current}`;

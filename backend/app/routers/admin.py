@@ -376,7 +376,7 @@ async def update_my_profile(
     if not officer_id:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required.")
 
-    is_adm = current_officer.get("is_admin") or "ADM" in str(current_officer.get("officer_id", ""))
+    is_adm = bool(current_officer.get("is_admin") or str(current_officer.get("role", "")).lower() == "admin")
     if not is_adm:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -641,7 +641,7 @@ async def create_admin_user(
     Validates input, hashes password, and logs creation to audit trail.
     """
     # Admin privilege check
-    is_admin = current_officer.get("is_admin") or "ADM" in str(current_officer.get("officer_id", ""))
+    is_admin = bool(current_officer.get("is_admin") or str(current_officer.get("role", "")).lower() == "admin")
     if not is_admin:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only District Administrators can create user accounts.")
 
@@ -735,7 +735,7 @@ async def update_admin_user(
     """
     Updates an existing user record in the Admin Database.
     """
-    is_admin = current_officer.get("is_admin") or "ADM" in str(current_officer.get("officer_id", ""))
+    is_admin = bool(current_officer.get("is_admin") or str(current_officer.get("role", "")).lower() == "admin")
     if not is_admin:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only District Administrators can update user accounts.")
 
@@ -836,7 +836,7 @@ async def update_user_password(
     """
     District Administrator sets/resets the official password for a specific user.
     """
-    is_admin = current_officer.get("is_admin") or "ADM" in str(current_officer.get("officer_id", ""))
+    is_admin = bool(current_officer.get("is_admin") or str(current_officer.get("role", "")).lower() == "admin")
     if not is_admin:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only District Administrators can change user passwords.")
 
@@ -907,20 +907,45 @@ async def delete_admin_user(
     """
     Deletes a user account from the Admin Database. Primary administrator accounts cannot be deleted.
     """
-    is_admin = current_officer.get("is_admin") or "ADM" in str(current_officer.get("officer_id", ""))
+    # Dynamic role check based on database role
+    is_admin = bool(current_officer.get("is_admin") or str(current_officer.get("role", "")).lower() == "admin")
     if not is_admin:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only District Administrators can delete user accounts.")
 
-    if user_id in ["ADM-ERODE-001", "collector.erode@tn.gov.in"]:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="The primary District Collector account cannot be deleted.")
+    # 1. Prevent an administrator from deleting their own active logged-in session
+    curr_id = current_officer.get("officer_id") or current_officer.get("id")
+    if user_id == curr_id or user_id.lower() == str(current_officer.get("email", "")).lower():
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="You cannot delete your own active administrator account.")
 
+    # 2. Check if target user exists in database
     res = await db.execute(
-        text("SELECT name FROM admin_users WHERE id = :id LIMIT 1"),
+        text("SELECT id, name, is_admin, role FROM admin_users WHERE id = :id LIMIT 1"),
         {"id": user_id}
     )
-    user_name = res.scalar()
-    if not user_name:
+    user_row = res.mappings().one_or_none()
+    if not user_row:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User account not found.")
+
+    # 3. If target user is an Administrator, ensure at least one Administrator remains (Requirement 15)
+    if user_row.get("is_admin") or str(user_row.get("role", "")).lower() == "admin":
+        admin_count_res = await db.execute(text("SELECT COUNT(*) FROM admin_users WHERE is_admin = true OR LOWER(role) = 'admin'"))
+        admin_count = admin_count_res.scalar() or 0
+        if admin_count <= 1:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cannot delete the only remaining Administrator account. At least one Administrator must exist."
+            )
+
+    user_name = user_row["name"]
+
+    # 4. Preserve historical petition records before deletion (Requirement 13)
+    try:
+        from models.database import AsyncSessionLocal
+        async with AsyncSessionLocal() as main_db:
+            await main_db.execute(text("UPDATE sources SET officer_id = NULL WHERE officer_id = :id"), {"id": user_id})
+            await main_db.commit()
+    except Exception as e:
+        logger.debug(f"Source officer history preservation notice: {e}")
 
     await db.execute(text("DELETE FROM admin_users WHERE id = :id"), {"id": user_id})
 
@@ -1348,19 +1373,33 @@ async def get_system_stats(
     current_officer: Dict[str, Any] = Depends(get_current_officer),
     db: AsyncSession = Depends(get_db)
 ):
-    # Total sources / petitions across all officers
-    sources_cnt = await db.execute(text("SELECT COUNT(*) FROM sources"))
+    # Total real sources / petitions across authenticated officers (excluding test runs)
+    sources_cnt = await db.execute(text("""
+        SELECT COUNT(*) FROM sources 
+        WHERE created_at IS NOT NULL 
+          AND officer_id IS NOT NULL 
+          AND TRIM(officer_id) != '' 
+          AND file_name NOT LIKE 'test_%'
+    """))
     
     # Global district-wide successful petitions
     success_cnt = await db.execute(text("""
         SELECT COUNT(*) FROM sources 
         WHERE status IN ('draft_ready', 'officer_approved', 'pushed_to_dro', 'completed')
+          AND created_at IS NOT NULL 
+          AND officer_id IS NOT NULL 
+          AND TRIM(officer_id) != '' 
+          AND file_name NOT LIKE 'test_%'
     """))
     
     # Global district-wide failed/error petitions
     failure_cnt = await db.execute(text("""
         SELECT COUNT(*) FROM sources 
         WHERE status IN ('failed', 'error', 'rejected')
+          AND created_at IS NOT NULL 
+          AND officer_id IS NOT NULL 
+          AND TRIM(officer_id) != '' 
+          AND file_name NOT LIKE 'test_%'
     """))
     
     chunks_cnt = await db.execute(text("SELECT COUNT(*) FROM document_chunks"))
@@ -1380,6 +1419,53 @@ async def get_system_stats(
         "approved_drafts": approved_cnt.scalar_one(),
         "total_audit_events": audit_cnt.scalar_one()
     }
+
+
+@router.get("/user-petition-stats")
+async def get_user_petition_stats(
+    current_officer: Dict[str, Any] = Depends(get_current_officer),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Returns actual petition upload volume grouped by real authenticated users/officers.
+    Strictly queries real database records from the sources table.
+    Filters out test runs, mock entries, or empty officer records.
+    """
+    sql = """
+        SELECT 
+            s.officer_id,
+            COALESCE(u.name, o.name, s.officer_id) as officer_name,
+            COALESCE(u.role, o.designation, 'Officer') as role,
+            COALESCE(u.department, o.department, 'Administration') as department,
+            COUNT(s.source_id) as count,
+            COUNT(CASE WHEN s.status IN ('draft_ready', 'officer_approved', 'pushed_to_dro', 'completed') THEN 1 END) as completed_count,
+            COUNT(CASE WHEN s.status IN ('failed', 'error', 'rejected') THEN 1 END) as failed_count
+        FROM sources s
+        LEFT JOIN admin_users u ON s.officer_id = u.id
+        LEFT JOIN officers o ON s.officer_id = o.officer_id
+        WHERE s.created_at IS NOT NULL
+          AND s.officer_id IS NOT NULL 
+          AND TRIM(s.officer_id) != ''
+          AND s.file_name NOT LIKE 'test_%'
+        GROUP BY s.officer_id, u.name, o.name, u.role, o.designation, u.department, o.department
+        ORDER BY count DESC
+    """
+    res = await db.execute(text(sql))
+    rows = []
+    for r in res.mappings().all():
+        raw_name = r["officer_name"] or "Officer"
+        short_name = f"{raw_name[:14]}…" if len(raw_name) > 16 else raw_name
+        rows.append({
+            "id": r["officer_id"],
+            "name": short_name,
+            "fullName": raw_name,
+            "role": r["role"],
+            "department": r["department"],
+            "count": int(r["count"]),
+            "completedCount": int(r["completed_count"]),
+            "failedCount": int(r["failed_count"])
+        })
+    return rows
 
 
 @router.get("/master-locations")
@@ -1952,10 +2038,6 @@ async def _get_unified_live_activities(
         info = officer_map.get(off_id)
         if info:
             return info["name"], info["role"], off_id
-        if "ADM" in off_id.upper():
-            return "District Administrator", "Administrator", off_id
-        if "DRO" in off_id.upper():
-            return "DRO Officer", "Revenue Officer", off_id
         return off_id, "Officer", off_id
 
     # 1. Fetch from admin_activity_log

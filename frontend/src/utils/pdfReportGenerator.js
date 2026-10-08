@@ -375,7 +375,7 @@ export function generateSinglePetitionPdf(petition) {
     head: [['Parameter', 'Classification Value', 'Parameter', 'Workflow Information']],
     body: [
       ['Assigned Department', petition.department || 'Revenue Administration', 'Processing Officer', petition.officerName || 'Assigned Officer'],
-      ['Grievance Category', petition.category || 'Patta & Land Records', 'Officer ID', petition.officerId || 'ADM-ERODE-001'],
+      ['Grievance Category', petition.category || 'Patta & Land Records', 'Officer ID', petition.officerId || '—'],
       ['Grievance Sub-Category', petition.subCategory || 'Patta Transfer', 'Submission Date', petition.createdAt ? new Date(petition.createdAt).toLocaleString('en-IN') : '—']
     ],
     theme: 'grid',

@@ -40,7 +40,14 @@ def build_factual_administrative_summary(facts: Dict[str, Any]) -> str:
     if village and village != taluk and village != district:
         loc_parts.append(f"{village}")
     if street:
-        loc_parts.append(f"{street}")
+        st_clean = street.strip()
+        # Clean redundant village or district repetitions from street
+        if village:
+            st_clean = re.sub(rf'\b{re.escape(village)}\b', '', st_clean).strip(" ,-")
+        if district:
+            st_clean = re.sub(rf'\b{re.escape(district)}\b', '', st_clean).strip(" ,-")
+        if st_clean and st_clean != village and st_clean != district:
+            loc_parts.append(st_clean)
 
     loc_str = " ".join(loc_parts).strip()
     if loc_str:
@@ -90,7 +97,15 @@ def normalize_administrative_tamil_summary(summary_ta: str, facts: Optional[Dict
         p_name = re.sub(r'^(?:மனுதாரர்\s+)+', '', str(facts["petitioner_name"])).strip()
     p_name = p_name or "மனுதாரர்"
 
-    s = re.sub(r'^(?:நான்|நாங்கள்)\s+(?:மேலே\s+குறிப்பிட்ட\s+முகவரியில்\s+வசிக்கும்\s+[^.]+\.\s*)?', f'மனுதாரர் {p_name}, ', s)
+    # Strip conversational self-introductions e.g. "நான், P. லோகேஷ், வீரபாண்டி பகுதியைச் சேர்ந்த பொதுமகன்."
+    s = re.sub(r'^(?:நான்|நாங்கள்)[,\s]+(?:[A-Za-z0-9\u0B80-\u0BFF\.\s]+(?:சேர்ந்த\s+பொதுமகன்|வசிக்கும்\s+பொதுமகன்|வசிப்பவர்|சேர்ந்தவர்|பொதுமகன்)[,\.]*\s*)', '', s)
+    s = re.sub(r'^(?:நான்|நாங்கள்)\s+(?:மேலே\s+குறிப்பிட்ட\s+முகவரியில்\s+வசிக்கும்\s+[^.]+\.\s*)?', '', s)
+    s = re.sub(r'^(?:நான்|நாங்கள்)[,\s]+', '', s)
+    s = s.replace("எங்கள் பகுதியில்", "அப்பகுதியில்").replace("எங்கள் ஊரில்", "அவ்வூரில்").replace("எங்கள் தெருவில்", "அத்தெருவில்")
+    s = s.replace("கோருகிறேன்", "கோரிக்கை விடுத்துள்ளார்").replace("கோருகிறோம்", "கோரிக்கை விடுத்துள்ளனர்")
+
+    if not s.startswith("மனுதாரர்"):
+        s = f"மனுதாரர் {p_name}, {s}"
     s = re.sub(r'^மனுதாரர்\s+மனுதாரர்\b', 'மனுதாரர்', s)
 
     # 2. Repair awkward conversational participle suffixes from LLM / OCR parsing
@@ -162,7 +177,16 @@ def validate_summary_grounding(
     - Unverified numerical claims or beneficiary group figures
     - Prohibited conversational generation artifacts
     """
-    if not summary_ta or len(summary_ta) < 15:
+    if not summary_ta or len(summary_ta) < 35:
+        return False
+
+    # Must contain administrative intent or requested action
+    core_grievance_terms = ["கோரிக்கை", "நடவடிக்கை", "மனு", "சீரமைக்க", "வழங்க", "அமைக்க", "பழுது", "நீக்க", "ஆக்கிரமிப்பு", "உதவித்தொகை"]
+    if not any(term in summary_ta for term in core_grievance_terms):
+        return False
+
+    # Detect truncated single-word verb fragments before நடவடிக்கை e.g. "பவா நடவடிக்கை"
+    if re.search(r'[,\s][\u0B80-\u0BFF]{1,3}\s+நடவடிக்கை', summary_ta):
         return False
 
     norm_corpus = (doc_context or "") + " " + " ".join(str(v) for v in facts.values() if v)
@@ -250,5 +274,34 @@ def validate_summary_grounding(
     for q in quantities:
         if q not in norm_corpus:
             return False
+
+    # 8. Authoritative Taxonomy & Domain Consistency Grounding
+    # The summary MUST NOT claim an unrelated grievance domain that contradicts the verified taxonomy
+    g_type = str(facts.get("grievance_type") or "").lower()
+    g_sub = str(facts.get("grievance_subtype") or "").lower()
+    dept = str(facts.get("department") or "").lower()
+    verified_tax_str = f"{dept} {g_type} {g_sub}"
+
+    s_lower = summary_ta.lower()
+
+    # If verified taxonomy is NOT Pension, reject pension claims in summary
+    is_pension_tax = any(w in verified_tax_str for w in ["pension", "sss", "oap", "dwp", "முதியோர்", "விதவை"])
+    if not is_pension_tax and any(w in s_lower for w in ["old age pension", "முதியோர் உதவித்தொகை", "விதவை உதவித்தொகை", "ஓய்வூதியம் வழங்கிட", "பென்ஷன் வழங்கிட"]):
+        return False
+
+    # If verified taxonomy is NOT Drinking Water, reject drinking water claims in summary
+    is_water_tax = any(w in verified_tax_str for w in ["drinking water", "water connection", "water supply", "குடிநீர்"])
+    if not is_water_tax and any(w in s_lower for w in ["குடிநீர் விநியோகம்", "குடிநீர் இணைப்பு", "முறையான குடிநீர்"]):
+        return False
+
+    # If verified taxonomy is NOT Certificate Verification, reject certificate verification claims in summary
+    is_cert_tax = any(w in verified_tax_str for w in ["genuiness", "genuineness", "community certificate", "சரிபார்ப்பு"])
+    if not is_cert_tax and any(w in s_lower for w in ["genuiness", "genuineness verification", "st community genuiness", "சரிபார்ப்பு தொடர்பாக"]):
+        return False
+
+    # If verified taxonomy is NOT Scholarship, reject scholarship claims in summary
+    is_scholarship_tax = any(w in verified_tax_str for w in ["scholarship", "கல்வி உதவி"])
+    if not is_scholarship_tax and any(w in s_lower for w in ["முதலமைச்சரின் கல்வி உதவித்தொகை", "கல்வி உதவித்தொகை (scholarship) திட்டத்தின் கீழ்"]):
+        return False
 
     return True

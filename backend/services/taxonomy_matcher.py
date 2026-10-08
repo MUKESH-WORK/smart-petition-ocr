@@ -281,6 +281,25 @@ class CMHelplineTaxonomyValidator:
         logger.info("Loaded %s PDF-seeded taxonomy records (with %s vectors) from Admin DB.", len(records), len(embeddings))
         return len(records)
 
+    def load_taxonomy_sync(self) -> int:
+        """Synchronous loader for standalone scripts, testing, or sync execution paths."""
+        if self.taxonomy and self.taxonomy_embeddings is not None and len(self.taxonomy_embeddings) > 0:
+            return len(self.taxonomy)
+        import asyncio
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+
+        if loop.is_running():
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(asyncio.run, self.load_taxonomy())
+                return future.result()
+        else:
+            return loop.run_until_complete(self.load_taxonomy())
+
     def _set_taxonomy(self, records: List[Dict[str, Any]], embeddings: Optional[List[np.ndarray]] = None) -> None:
         """Build lookup indexes and vector matrix from the database taxonomy rows."""
         self.taxonomy = records
