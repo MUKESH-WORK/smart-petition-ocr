@@ -1,14 +1,23 @@
 import asyncio
-from models.database import AsyncSessionLocal, AdminAsyncSessionLocal, UserAsyncSessionLocal
+import pytest
+from models.database import AsyncSessionLocal, AdminAsyncSessionLocal, UserAsyncSessionLocal, init_db_schema
 from sqlalchemy import text
 from scripts.seed_db import seed_official_accounts, OFFICIAL_ACCOUNTS
 
+@pytest.mark.asyncio
 async def test_user_lifecycle():
     print("=" * 80)
     print("RUNNING USER INITIALIZATION & DYNAMIC DATA ARCHITECTURE TEST SUITE")
     print("=" * 80)
 
+    try:
+        await init_db_schema()
+    except Exception as exc:
+        pytest.skip(f"Database unavailable for integration test: {exc}")
+
     async with AdminAsyncSessionLocal() as db:
+        await seed_official_accounts(db)
+        await db.commit()
         # 1. Inspect existing users
         res = await db.execute(text("SELECT id, name, email, role, is_admin, status FROM admin_users ORDER BY created_at ASC"))
         current_users = res.mappings().all()

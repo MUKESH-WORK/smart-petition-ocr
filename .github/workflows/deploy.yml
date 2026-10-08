@@ -19,6 +19,20 @@ jobs:
   test:
     name: Backend & Frontend Validation
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: dro_user
+          POSTGRES_PASSWORD: dro_password_2026
+          POSTGRES_DB: dro_grievance_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -32,12 +46,18 @@ jobs:
       - name: Install Backend Test Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pytest httpx fastapi pydantic pydantic-settings sqlalchemy aiosqlite python-dotenv pyjwt requests uvicorn
+          pip install pytest pytest-asyncio httpx fastapi pydantic pydantic-settings "sqlalchemy[asyncio]" greenlet asyncpg aiosqlite python-dotenv pyjwt requests uvicorn numpy
 
       - name: Run Backend Unit Tests
         env:
           UPLOAD_DIR: ${{ runner.temp }}/gdp-assistant/uploads
           STATIC_MEDIA_DIR: ${{ runner.temp }}/gdp-assistant/static-media
+          DATABASE_URL: postgresql+asyncpg://dro_user:dro_password_2026@localhost:5432/dro_grievance_db
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: 5432
+          POSTGRES_USER: dro_user
+          POSTGRES_PASSWORD: dro_password_2026
+          POSTGRES_DB: dro_grievance_db
         run: |
           cd backend
           pytest -v tests/
